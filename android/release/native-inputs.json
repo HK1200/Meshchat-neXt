@@ -1,14 +1,22 @@
 {
     "format": 1,
-    "abis": ["arm64-v8a", "x86_64"],
+    "abis": [
+        "arm64-v8a",
+        "x86_64"
+    ],
     "python": "3.11",
     "ndk": "27.3.13750724",
     "api": 24,
     "files": {
         "android/app/src/main/jniLibs/arm64-v8a/libcodec2.so": "7f887d997c6514737490a3760d37dfb69d39ee8c88953d563b5eaa6878906d8a",
+        "android/app/src/main/jniLibs/arm64-v8a/libogg.so": "78e0bab6f22aa5dae284c5c6eb9924d46adf10ce34acd6750afb16594d32777c",
         "android/app/src/main/jniLibs/arm64-v8a/libopus.so": "f169c66a5c7b18aaffaabedc2a9231a1b5a1137c7930eed0dea8f7a329fb51e8",
+        "android/app/src/main/jniLibs/arm64-v8a/libopusfile.so": "56f5b9111cf2e3e97cc63ae9f89a401b2f5b3b2b6842965cff6f5e8d7a5f5f7b",
+        "android/app/src/main/jniLibs/armeabi-v7a/libogg.so": "4ff19ab4d3f84f5d0bd3683b1e294621e3a7c317a09a40d54b9d939f73ebffc1",
         "android/app/src/main/jniLibs/x86_64/libcodec2.so": "a411301eb15b8d2ca3d6c8d9e6753b388d8f4698175f068068a7fb991c358466",
+        "android/app/src/main/jniLibs/x86_64/libogg.so": "7b3d4b7209e829e08645ecd38d345b460e0de6428abb992feff60a36adf185e0",
         "android/app/src/main/jniLibs/x86_64/libopus.so": "12267545a7c276a48e6f852dfe9e8f32338c10fcced5aab4057416f727b8b9e4",
+        "android/app/src/main/jniLibs/x86_64/libopusfile.so": "29e9a04336661b31c90297fa9b35545ca71d007448e5b9244dc8882b74754c43",
         "android/vendor/aiohttp-3.14.3-0-cp311-cp311-android_24_arm64_v8a.whl": "6247240353baea766fb93a919580cf457ad90cceee12acf6c62072616bde36aa",
         "android/vendor/aiohttp-3.14.5-0-cp311-cp311-android_24_arm64_v8a.whl": "999e28059e228d8c484773254ee3bc93955f8c3018a91d23117fd87e46458300",
         "android/vendor/aiohttp-3.14.5-0-cp311-cp311-android_24_armeabi_v7a.whl": "0538bc95b0405468fd5445c4d96cd267d51557ed60e427c3f76c059b20db6865",
@@ -25,7 +33,7 @@
         "android/vendor/cborx-0.2.5-1-cp311-cp311-android_24_arm64_v8a.whl": "72b298c6ad334f328deaf768e79b2d7297f26a7b0dee084e804a9334fcea5cc8",
         "android/vendor/cborx-0.2.5-1-cp311-cp311-android_24_armeabi_v7a.whl": "b3a8e5a1fef225526bce70683228b92643d92db2e9e72e7eaf5b8df3b4cca7df",
         "android/vendor/cborx-0.2.5-1-cp311-cp311-android_24_x86_64.whl": "bb9bdf9685c9ed00749678034057a4950dd7b2676237ad5de993c49a1de1c976",
-        "android/vendor/certifi-2026.10.19-py3-none-any.whl": "42d35340cc5b9ba78e818ddbff0c5b1c2b779de448a340fd1b989f5fa8670e1b",
+        "android/vendor/certifi-2026.10.23-py3-none-any.whl": "e9b54de76e530bb6cf0ccd036787103acb58fd42ba930ea8bf948ddbaa2f61d1",
         "android/vendor/cffi-2.0.0-0-cp311-cp311-android_24_arm64_v8a.whl": "e9ee86ede4f5d3d1239b02c314f7624905003a2e3b658364c6febeecacae4fd2",
         "android/vendor/cffi-2.0.0-0-cp311-cp311-android_24_armeabi_v7a.whl": "c40a714856931a0fea225633d13c1d9980e72a4224610d363c7665fdc14f2978",
         "android/vendor/cffi-2.0.0-0-cp311-cp311-android_24_x86_64.whl": "cbb721f064f50d7c9874b994d07b694f31fdbe8d9e44aeb5b3a660f48d5b40e4",
@@ -51,6 +59,8 @@
         "android/vendor/miniaudio-1.71-1-cp311-cp311-android_24_arm64_v8a.whl": "ca3808233ce4a334f418f0d4d819c885ad7123d0bbe9b94104a990fcc0dcf13b",
         "android/vendor/miniaudio-1.71-1-cp311-cp311-android_24_armeabi_v7a.whl": "961ce3ca9f6224c749e8d3096e556d558d5f1d61cc94840eefaf351935d33f68",
         "android/vendor/miniaudio-1.71-1-cp311-cp311-android_24_x86_64.whl": "d3e35d29107007ffe37d21b92e32ad71248739ebf465490ae237d85a373ed1c9",
+        "android/vendor/numpy-1.26.2-2-cp311-cp311-android_24_arm64_v8a.whl": "4e41ac97768257f5427d48be24525b3836165a5d98d1d0095949270ab3346238",
+        "android/vendor/numpy-1.26.2-2-cp311-cp311-android_24_x86_64.whl": "054a16fa42de5a8f0ebcb35f845f45b871417909ba3082ce83a7ff78cc65e265",
         "android/vendor/psutil-7.2.2-1-cp311-cp311-android_24_arm64_v8a.whl": "9eb2c2c5efecb19df49208dcad215a9f3d5ec422f7551bf654e3d055fd5fe78a",
         "android/vendor/psutil-7.2.2-1-cp311-cp311-android_24_armeabi_v7a.whl": "7102af3f25768838246ed1d357d678e4a739c45c8a66ff7e58bff7846a6d531a",
         "android/vendor/psutil-7.2.2-1-cp311-cp311-android_24_x86_64.whl": "aaf3d55c4beb06e7eb169ce6dde5c8e1e3fb0529848eb6480d84c2d89273419c",
@@ -65,14 +75,7 @@
         "android/vendor/service_identity-26.1.0-py3-none-any.whl": "68c32dadbb69135fb951077677e07cd7f6031020f3a8c8f47a28cda8a0742118",
         "android/vendor/typing_extensions-4.16.0-py3-none-any.whl": "481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8",
         "android/vendor/usb4a-0.3.0-py3-none-any.whl": "4e4bf7c78b0bfcf2fd6eee28c82540cdc68ddfeb46818ab1a7aa1482f0d3743e",
-        "android/vendor/usbserial4a-0.4.0-py3-none-any.whl": "2b6a42c2c1f78e892d76ce6a294ad89089d31c60a5d74cb39a33f3aa8b82d74d",
-        "android/vendor/numpy-1.26.2-2-cp311-cp311-android_24_arm64_v8a.whl": "4e41ac97768257f5427d48be24525b3836165a5d98d1d0095949270ab3346238",
-        "android/vendor/numpy-1.26.2-2-cp311-cp311-android_24_x86_64.whl": "054a16fa42de5a8f0ebcb35f845f45b871417909ba3082ce83a7ff78cc65e265",
-        "android/app/src/main/jniLibs/arm64-v8a/libogg.so": "78e0bab6f22aa5dae284c5c6eb9924d46adf10ce34acd6750afb16594d32777c",
-        "android/app/src/main/jniLibs/x86_64/libogg.so": "7b3d4b7209e829e08645ecd38d345b460e0de6428abb992feff60a36adf185e0",
-        "android/app/src/main/jniLibs/armeabi-v7a/libogg.so": "4ff19ab4d3f84f5d0bd3683b1e294621e3a7c317a09a40d54b9d939f73ebffc1",
-        "android/app/src/main/jniLibs/arm64-v8a/libopusfile.so": "56f5b9111cf2e3e97cc63ae9f89a401b2f5b3b2b6842965cff6f5e8d7a5f5f7b",
-        "android/app/src/main/jniLibs/x86_64/libopusfile.so": "29e9a04336661b31c90297fa9b35545ca71d007448e5b9244dc8882b74754c43"
+        "android/vendor/usbserial4a-0.4.0-py3-none-any.whl": "2b6a42c2c1f78e892d76ce6a294ad89089d31c60a5d74cb39a33f3aa8b82d74d"
     },
     "numpy_quad_runtime": {
         "numpy_build": 2,
