@@ -153,6 +153,7 @@ jobs:
             - name: Set up development environment
               uses: ./.github/actions/setup-dev-environment
               with:
+                  tree-signer-hash: ${{ vars.NEXT_TREE_SIGNER_HASH }}
                   python-version: ${{ env.PYTHON_VERSION }}
                   uv-version: ${{ env.UV_VERSION }}
                   node-version: ${{ env.NODE_VERSION }}
@@ -323,6 +324,7 @@ jobs:
             - name: Set up development environment
               uses: ./.github/actions/setup-dev-environment
               with:
+                  tree-signer-hash: ${{ vars.NEXT_TREE_SIGNER_HASH }}
                   python-version: ${{ env.PYTHON_VERSION }}
                   uv-version: ${{ env.UV_VERSION }}
                   install-node: "false"
@@ -359,6 +361,7 @@ jobs:
             - name: Set up development environment
               uses: ./.github/actions/setup-dev-environment
               with:
+                  tree-signer-hash: ${{ vars.NEXT_TREE_SIGNER_HASH }}
                   python-version: ${{ env.PYTHON_VERSION }}
                   uv-version: ${{ env.UV_VERSION }}
                   install-node: "false"
@@ -411,6 +414,7 @@ jobs:
             - name: Set up development environment
               uses: ./.github/actions/setup-dev-environment
               with:
+                  tree-signer-hash: ${{ vars.NEXT_TREE_SIGNER_HASH }}
                   python-version: "3.15"
                   python-allow-prereleases: "true"
                   uv-version: ${{ env.UV_VERSION }}
@@ -447,6 +451,7 @@ jobs:
             - name: Set up development environment
               uses: ./.github/actions/setup-dev-environment
               with:
+                  tree-signer-hash: ${{ vars.NEXT_TREE_SIGNER_HASH }}
                   python-version: ${{ env.PYTHON_VERSION }}
                   uv-version: ${{ env.UV_VERSION }}
                   install-node: "false"
@@ -491,6 +496,7 @@ jobs:
             - name: Set up development environment
               uses: ./.github/actions/setup-dev-environment
               with:
+                  tree-signer-hash: ${{ vars.NEXT_TREE_SIGNER_HASH }}
                   python-version: ${{ env.PYTHON_VERSION }}
                   uv-version: ${{ env.UV_VERSION }}
                   install-node: "false"
@@ -519,6 +525,7 @@ jobs:
             - name: Set up development environment
               uses: ./.github/actions/setup-dev-environment
               with:
+                  tree-signer-hash: ${{ vars.NEXT_TREE_SIGNER_HASH }}
                   python-version: ${{ env.PYTHON_VERSION }}
                   uv-version: ${{ env.UV_VERSION }}
                   install-node: "false"
@@ -557,6 +564,7 @@ jobs:
             - name: Set up development environment
               uses: ./.github/actions/setup-dev-environment
               with:
+                  tree-signer-hash: ${{ vars.NEXT_TREE_SIGNER_HASH }}
                   python-version: ${{ env.PYTHON_VERSION }}
                   uv-version: ${{ env.UV_VERSION }}
                   install-node: "false"
@@ -594,6 +602,7 @@ jobs:
             - name: Set up development environment
               uses: ./.github/actions/setup-dev-environment
               with:
+                  tree-signer-hash: ${{ vars.NEXT_TREE_SIGNER_HASH }}
                   python-version: ${{ env.PYTHON_VERSION }}
                   uv-version: ${{ env.UV_VERSION }}
                   node-version: ${{ env.NODE_VERSION }}
@@ -705,6 +714,7 @@ jobs:
             - name: Set up development environment
               uses: ./.github/actions/setup-dev-environment
               with:
+                  tree-signer-hash: ${{ vars.NEXT_TREE_SIGNER_HASH }}
                   python-version: ${{ env.PYTHON_VERSION }}
                   uv-version: ${{ env.UV_VERSION }}
                   node-version: ${{ env.NODE_VERSION }}
@@ -747,6 +757,7 @@ jobs:
             - name: Set up development environment
               uses: ./.github/actions/setup-dev-environment
               with:
+                  tree-signer-hash: ${{ vars.NEXT_TREE_SIGNER_HASH }}
                   python-version: ${{ env.PYTHON_VERSION }}
                   uv-version: ${{ env.UV_VERSION }}
                   node-version: ${{ env.NODE_VERSION }}
@@ -800,6 +811,7 @@ jobs:
             - name: Set up development environment
               uses: ./.github/actions/setup-dev-environment
               with:
+                  tree-signer-hash: ${{ vars.NEXT_TREE_SIGNER_HASH }}
                   python-version: ${{ env.PYTHON_VERSION }}
                   uv-version: ${{ env.UV_VERSION }}
                   node-version: ${{ env.NODE_VERSION }}
@@ -856,6 +868,7 @@ jobs:
             - name: Set up development environment
               uses: ./.github/actions/setup-dev-environment
               with:
+                  tree-signer-hash: ${{ vars.NEXT_TREE_SIGNER_HASH }}
                   python-version: ${{ env.PYTHON_VERSION }}
                   uv-version: ${{ env.UV_VERSION }}
                   install-node: "false"

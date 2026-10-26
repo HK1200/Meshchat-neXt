@@ -120,6 +120,7 @@ jobs:
             - name: Set up development environment
               uses: ./.github/actions/setup-dev-environment
               with:
+                  tree-signer-hash: ${{ vars.NEXT_TREE_SIGNER_HASH }}
                   python-version: ${{ env.PYTHON_VERSION }}
                   uv-version: ${{ env.UV_VERSION }}
                   install-node: "false"

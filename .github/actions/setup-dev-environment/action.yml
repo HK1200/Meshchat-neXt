@@ -38,6 +38,10 @@ inputs:
         description: Set up Node/pnpm and install frontend dependencies
         required: false
         default: "true"
+    tree-signer-hash:
+        description: Optional pinned signer for the source tree inventory
+        required: false
+        default: ""
     skip_tree_verify:
         description: Set to true to skip meshchatnext.rsm byte-level verify
         required: false
@@ -74,7 +78,7 @@ runs:
               inputs.install-python == 'true'
           shell: bash
           env:
-              RNS_REQUIRED_SIGNER: ${{ vars.NEXT_TREE_SIGNER_HASH }}
+              RNS_REQUIRED_SIGNER: ${{ inputs.tree-signer-hash }}
               RNS_INVENTORY_OUT: ${{ runner.temp }}/meshchatnext-tree-inventory.txt
           run: sh scripts/ci/verify-tree-rsm.sh
 
