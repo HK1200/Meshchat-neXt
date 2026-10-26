@@ -144,7 +144,7 @@ class DocsManager:
             rel_target = os.path.relpath(version_path, os.path.dirname(self.docs_dir))
             os.symlink(rel_target, self.docs_dir)
         except (OSError, AttributeError):
-            shutil.copytree(version_path, self.docs_dir)
+            shutil.copytree(version_path, self.docs_dir, copy_function=shutil.copyfile)
 
     def get_available_versions(self):
         if not os.path.exists(self.versions_dir):
@@ -302,7 +302,7 @@ class DocsManager:
                     src_path = os.path.join(root, file)
                     dest_path = os.path.join(target_root, file)
                     if os.path.abspath(src_path) != os.path.abspath(dest_path):
-                        shutil.copy2(src_path, dest_path)
+                        shutil.copyfile(src_path, dest_path)
 
     def _render_meshchatnext_html_exports(self):
         index_links: list[str] = []

@@ -548,7 +548,11 @@ def test_get_doc_content_returns_none_on_read_error(tmp_path, monkeypatch):
     assert dm.get_doc_content("en/guide.md") is None
 
 
-def test_sync_docs_tree_copies_asset_suffixes(tmp_path):
+def test_sync_docs_tree_copies_asset_suffixes(tmp_path, monkeypatch):
+    def deny_metadata(*args, **kwargs):
+        raise PermissionError("Android storage blocks extended attributes")
+
+    monkeypatch.setattr(shutil, "_copyxattr", deny_metadata)
     public_dir = tmp_path / "public"
     public_dir.mkdir()
     docs_dir = tmp_path / "docs"

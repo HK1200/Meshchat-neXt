@@ -6,7 +6,6 @@ from __future__ import annotations
 import asyncio
 import io
 import os
-import shutil
 import sys
 import threading
 import time
@@ -30,7 +29,7 @@ from meshchatnext.src.backend.http.uploads import (
 from meshchatnext.src.backend.meshchat_utils import (
     normalize_identity_storage_hash,
 )
-from meshchatnext.src.path_utils import is_path_within_dir
+from meshchatnext.src.path_utils import atomic_write_bytes, is_path_within_dir
 
 
 def register_identities_routes(routes, app):
@@ -244,7 +243,9 @@ def register_identities_routes(routes, app):
             # active identity slot, reading an arbitrary local file.
             if os.path.islink(identity_file):
                 return http_bad_request("Invalid identity file")
-            shutil.copy2(identity_file, main_identity_file, follow_symlinks=False)
+            atomic_write_bytes(
+                main_identity_file, Path(identity_file).read_bytes(), mode=0o600
+            )
 
             def restart():
                 time.sleep(1)

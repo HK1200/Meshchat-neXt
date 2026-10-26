@@ -106,7 +106,16 @@ def mock_rns():
 
 
 @pytest.mark.asyncio
-async def test_hotswap_identity_success(mock_rns, temp_dir):
+@pytest.mark.parametrize("blocked_xattrs", [False, True])
+async def test_hotswap_identity_success(
+    mock_rns, temp_dir, monkeypatch, blocked_xattrs
+):
+    if blocked_xattrs:
+
+        def deny_metadata(*args, **kwargs):
+            raise PermissionError("Android storage blocks extended attributes")
+
+        monkeypatch.setattr(shutil, "_copyxattr", deny_metadata)
     app = ReticulumMeshChat(
         identity=mock_rns["id_instance"],
         storage_dir=temp_dir,
@@ -153,6 +162,7 @@ async def test_hotswap_identity_success(mock_rns, temp_dir):
     main_identity_file = os.path.join(temp_dir, "identity")
     with open(main_identity_file, "rb") as f:
         assert f.read() == b"new_private_key"
+    assert os.stat(main_identity_file).st_mode & 0o777 == 0o600
 
 
 @pytest.mark.asyncio

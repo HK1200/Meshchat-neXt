@@ -29,6 +29,7 @@ import time
 import traceback
 import webbrowser
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import bcrypt
 import LXMF
@@ -234,6 +235,7 @@ from meshchatnext.src.env_config import MeshchatEnv
 from meshchatnext.src.env_utils import env_bool, env_int, env_set, env_str
 from meshchatnext.src.path_utils import (
     PathJailError,
+    atomic_write_bytes,
     get_file_path,
     is_loopback_bind_host,
     is_path_within_dir,
@@ -1670,7 +1672,11 @@ class ReticulumMeshChat:
                     )
                 else:
                     os.makedirs(os.path.dirname(main_identity_file), exist_ok=True)
-                    shutil.copy2(identity_storage_file, main_identity_file)
+                    atomic_write_bytes(
+                        main_identity_file,
+                        Path(identity_storage_file).read_bytes(),
+                        mode=0o600,
+                    )
             final_db_path = db_path
             if restored_identity_hash:
                 final_db_path = self._relocate_restored_identity_dir(
@@ -3303,7 +3309,11 @@ class ReticulumMeshChat:
 
             # 1. Backup current identity file
             if os.path.exists(main_identity_file):
-                shutil.copy2(main_identity_file, backup_identity_file)
+                atomic_write_bytes(
+                    backup_identity_file,
+                    Path(main_identity_file).read_bytes(),
+                    mode=0o600,
+                )
                 backup_created = True
 
             # 2. teardown old identity if not keeping alive
@@ -3319,7 +3329,9 @@ class ReticulumMeshChat:
                 self._clear_mesh_link_caches()
 
             # 3. update main identity file
-            shutil.copy2(identity_file, main_identity_file)
+            atomic_write_bytes(
+                main_identity_file, Path(identity_file).read_bytes(), mode=0o600
+            )
 
             # 4. setup new identity
             self.running = True
@@ -3355,7 +3367,11 @@ class ReticulumMeshChat:
             try:
                 print("Attempting to restore previous identity...")
                 if backup_created and os.path.exists(backup_identity_file):
-                    shutil.copy2(backup_identity_file, main_identity_file)
+                    atomic_write_bytes(
+                        main_identity_file,
+                        Path(backup_identity_file).read_bytes(),
+                        mode=0o600,
+                    )
                     os.remove(backup_identity_file)
 
                 self.running = True
@@ -3386,7 +3402,11 @@ class ReticulumMeshChat:
 
                     if emergency_id:
                         # Copy to main identity file
-                        shutil.copy2(emergency_identity_file, main_identity_file)
+                        atomic_write_bytes(
+                            main_identity_file,
+                            Path(emergency_identity_file).read_bytes(),
+                            mode=0o600,
+                        )
                         self.running = True
                         self.setup_identity(emergency_id)
                         print(f"Emergency identity created and loaded: {new_id_hash}")
