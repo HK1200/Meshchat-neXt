@@ -22,6 +22,7 @@
         <!-- Controls: teleports into the tab strip on wide embedded layouts -->
         <Teleport v-if="showMapToolbar" :disabled="!useTabToolbar" to="#map-browser-toolbar-host">
             <div
+                class="map-toolbar"
                 :class="
                     useTabToolbar
                         ? 'flex flex-wrap items-center gap-x-1.5 gap-y-1 min-w-0 justify-end'
@@ -85,7 +86,10 @@
                     :draw-source="drawSource"
                 />
                 <!-- location search: inline on tablet/desktop; mobile uses the overlay below -->
-                <div class="hidden sm:block sm:w-56 md:w-64 lg:w-72 xl:w-80 min-w-0">
+                <div
+                    v-if="!isMobileScreen"
+                    class="hidden sm:block sm:w-56 md:w-64 lg:w-72 xl:w-80 min-w-0 overflow-hidden"
+                >
                     <MapSearchBar
                         v-model="searchQuery"
                         :results="searchResults"
@@ -119,10 +123,18 @@
                 <button
                     type="button"
                     class="sm:hidden p-2 text-sem-fg-muted hover:bg-sem-surface-muted rounded-full transition-colors shrink-0"
+                    data-map-mobile-search
                     :title="$t('map.search_placeholder')"
                     @click="toggleMobileSearch"
                 >
                     <MaterialDesignIcon :icon-name="isMobileSearchOpen ? 'close' : 'magnify'" class="size-[18px]" />
+                </button>
+                <button
+                    type="button"
+                    class="px-2 py-2 text-xs font-semibold text-sem-fg rounded-lg border border-sem-border shrink-0"
+                    @click="openOfflineMaps"
+                >
+                    Offline maps
                 </button>
                 <button
                     ref="mapToolsButton"
@@ -582,7 +594,7 @@
                 :export-id="exportId"
                 @dismiss="exportStatus = null"
                 @cancel="cancelActiveExport"
-                @show-offline-maps="isSettingsOpen = true"
+                @show-offline-maps="openOfflineMaps"
             />
 
             <MapLoadingOverlay v-if="isUploading" />
@@ -936,6 +948,7 @@
 
             <div
                 v-if="isMapToolsOpen"
+                data-map-tools-panel
                 class="absolute z-20 bg-sem-surface dark:bg-sem-surface backdrop-blur-xs rounded-xl shadow-2xl border border-sem-border overflow-hidden flex flex-col min-h-0"
                 :class="
                     isMobileScreen
@@ -956,6 +969,7 @@
                     </button>
                 </div>
                 <MapSidePanel
+                    :initial-tab="mapToolsTab"
                     class="flex-1 min-h-0"
                     :draw-source="drawSource"
                     :has-vector-draw-features="hasVectorDrawFeatures"
@@ -989,6 +1003,7 @@
                     @clear-cache="clearCache"
                     @export-region="toggleExportMode"
                     @restore-starter="restoreStarterTiles"
+                    @regional-ready="onRegionalMapReady"
                 />
             </div>
 
@@ -1345,6 +1360,7 @@ export default {
             isMapDropTarget: false,
             isSettingsOpen: false,
             isMapToolsOpen: false,
+            mapToolsTab: "discover",
             clusterMarkersEnabled: true,
             settingsPanelPos: null,
             settingsPanelDrag: null,
@@ -1899,6 +1915,15 @@ export default {
         }
     },
     methods: {
+        async onRegionalMapReady() {
+            this.offlineEnabled = true;
+            await this.checkOfflineMap();
+            await this.loadMBTilesList();
+        },
+        openOfflineMaps() {
+            this.mapToolsTab = "offline";
+            this.isMapToolsOpen = true;
+        },
         onWebsocketReconnected() {
             if (this.shouldPollTelemetry()) {
                 this.fetchTelemetryMarkers();
@@ -3822,7 +3847,9 @@ export default {
             }
         },
         checkScreenSize() {
-            this.isMobileScreen = window.innerWidth < 640;
+            this.isMobileScreen =
+                window.innerWidth < 640 ||
+                Boolean(window.matchMedia?.("(max-height: 500px) and (pointer: coarse)").matches);
             if (this.showOnboardingTooltip) this.positionOnboardingTooltip();
             if (!this.isMobileScreen) {
                 this.isMobileSearchOpen = false;

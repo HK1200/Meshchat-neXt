@@ -538,9 +538,14 @@ def render_third_party_notices(payload: dict[str, Any]) -> str:
             lines.append(f"  License: {license_name}")
             lines.append(f"  Author: {author}")
         lines.append("")
-    native_notices = _repo_root() / _DATA_SUBPATH / "SIP_THIRD_PARTY_NOTICES.txt"
-    if native_notices.is_file():
-        lines.extend(("", native_notices.read_text(encoding="utf-8")))
+    for filename in (
+        "SIP_THIRD_PARTY_NOTICES.txt",
+        "AV1_THIRD_PARTY_NOTICES.txt",
+        "ANDROID_NUMERICS_NOTICES.txt",
+    ):
+        native_notices = _repo_root() / _DATA_SUBPATH / filename
+        if native_notices.is_file():
+            lines.extend(("", native_notices.read_text(encoding="utf-8")))
     return "\n".join(lines).rstrip() + "\n"
 
 

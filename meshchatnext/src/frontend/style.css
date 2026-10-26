@@ -772,3 +772,27 @@ a[href] {
 .sidebar-nav-link--hover {
     @apply hover:bg-sem-surface-muted;
 }
+
+/* Phone landscape must retain the compact navigation shell and a scrollable body. */
+@media (max-height: 500px) and (pointer: coarse) {
+    [data-map-mobile-search] { display: inline-flex; }
+    [data-app-brand-text] { flex-shrink: 0; white-space: nowrap; }
+    .map-toolbar {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        justify-content: flex-start;
+        min-height: 44px;
+        flex-shrink: 0;
+    }
+    [data-map-tools-panel] { top: 0.5rem; bottom: 0.5rem; }
+    [data-app-menu-toggle] { display: inline-flex; }
+    [data-sidebar-backdrop] { display: block; }
+    [data-testid="app-sidebar"] {
+        position: absolute;
+        inset: 0 auto 0 0;
+        z-index: 70;
+        max-width: min(20rem, 90vw);
+    }
+    [data-testid="app-sidebar"][data-open="false"] { transform: translateX(-100%); }
+    [data-testid="app-sidebar"][data-open="true"] { transform: translateX(0); }
+}

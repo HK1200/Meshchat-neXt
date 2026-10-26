@@ -3,6 +3,13 @@ import static org.junit.Assert.*;
 
 import org.junit.Test;
 public class SipPolicyTest {
+    @Test public void aaudioCallingRequiresAndroidNine() {
+        assertFalse(SipPolicy.platformSupported(24));
+        assertFalse(SipPolicy.platformSupported(26));
+        assertFalse(SipPolicy.platformSupported(27));
+        assertTrue(SipPolicy.platformSupported(28));
+        assertTrue(SipPolicy.platformSupported(35));
+    }
     @Test
     public void preventsAccountParameterInjection() {
         assertTrue(SipPolicy.user("test_user"));

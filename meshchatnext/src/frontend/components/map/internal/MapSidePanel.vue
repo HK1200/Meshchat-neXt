@@ -63,6 +63,7 @@
                 @clear-cache="$emit('clear-cache')"
                 @export-region="$emit('export-region')"
                 @restore-starter="$emit('restore-starter')"
+                @regional-ready="$emit('regional-ready')"
             />
         </div>
     </div>
@@ -98,6 +99,7 @@ export default {
         announceListenBusy: { type: Boolean, default: false },
     },
     emits: [
+        "regional-ready",
         "overlays-changed",
         "import-features",
         "import-error",
@@ -129,6 +131,11 @@ export default {
                 { id: "offline", labelKey: "map.tab_offline" },
             ],
         };
+    },
+    watch: {
+        initialTab(value) {
+            if (this.tabs.some((tab) => tab.id === value)) this.activeTab = value;
+        },
     },
 };
 </script>

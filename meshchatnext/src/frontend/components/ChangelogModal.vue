@@ -124,6 +124,7 @@ export default {
         MaterialDesignIcon,
     },
     props: {
+        page: { type: Boolean, default: false },
         appVersion: {
             type: String,
             default: "",
@@ -147,7 +148,7 @@ export default {
             return this.version || this.appVersion;
         },
         isPage() {
-            return this.$route?.meta?.isPage === true;
+            return this.page;
         },
         dialogFullscreen() {
             return this.windowWidth < 768;

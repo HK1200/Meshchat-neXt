@@ -42,6 +42,10 @@ public final class SipController {
     };
     private SipController(Context c) {
         context = c.getApplicationContext();
+        if (!SipPolicy.platformSupported(Build.VERSION.SDK_INT)) {
+            snapshot = "{\"available\":false,\"state\":\"unavailable\",\"call_state\":\"idle\",\"registered\":false,\"accounts\":[],\"error\":\"SIP calling requires Android 9 or later\"}";
+            return;
+        }
         context.bindService(
             new Intent(context, SipService.class), connection, Context.BIND_AUTO_CREATE);
     }
@@ -61,6 +65,8 @@ public final class SipController {
         return snapshot;
     }
     public synchronized String send(String json) {
+        if (!SipPolicy.platformSupported(Build.VERSION.SDK_INT))
+            return "{\"ok\":false,\"error\":\"SIP calling requires Android 9 or later\"}";
         if (service == null)
             return "{\"ok\":false,\"error\":\"SIP service is starting; try again\"}";
         try {

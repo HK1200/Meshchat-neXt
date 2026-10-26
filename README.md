@@ -55,7 +55,7 @@ Radio2 media requires compatible firmware and client support at both ends. **Sta
 
 ## Get started
 
-1. Download the Android APK from the [Meshchat neXt Releases page](https://github.com/hk1200/Meshchat-neXt/releases) and install it.
+1. Download the matching Android APK from the [Meshchat neXt Releases page](https://github.com/hk1200/Meshchat-neXt/releases): **ARM64** for 64-bit ARM Android, **ARMv7** for 32-bit ARM Android, or **x86_64** for 64-bit Intel/AMD Android. The app supports Android 7 or later; SIP calling requires Android 9 or later.
 2. Choose the services you want during first-start setup. You can revisit these choices under **Settings → App features**.
 3. Keep your existing setup or import a supported identity/backup. Review the proposed changes before applying them.
 4. Connect your RNode and/or MeshCore companion, or configure the network interfaces you need. Reticulum TCP setup offers **rmap.world** and adds its connection when requested.

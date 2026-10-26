@@ -13,7 +13,7 @@ const src = (rel) => readFileSync(resolve(__dirname, "../../meshchatnext/src/fro
 describe("layout UX reference-light", () => {
     it("App shell drawer sits in middle pane without fake pt-16 header gap", () => {
         const app = src("components/App.vue");
-        expect(app).toContain('class="relative flex flex-1 w-full overflow-hidden');
+        expect(app).toContain('class="relative flex flex-1 min-h-0 w-full overflow-hidden');
         expect(app).toContain("absolute inset-y-0 left-0 z-70");
         expect(app).toContain("absolute inset-0 z-65");
         expect(app).not.toContain("pt-16 sm:pt-0");

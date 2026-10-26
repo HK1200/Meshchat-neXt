@@ -45,6 +45,28 @@ from meshchatnext.src.path_utils import is_path_within_dir
 
 
 def register_map_routes(routes, app):
+    from meshchatnext.src.backend.regional_map_download import RegionalMapDownload
+
+    regional_download = RegionalMapDownload(app.map_manager)
+    app.map_manager.regional_download = regional_download
+
+    @routes.get(API_V1_PREFIX + "/map/mbtiles/regional-download")
+    async def regional_download_status(request):
+        return web.json_response(regional_download.state)
+
+    @routes.post(API_V1_PREFIX + "/map/mbtiles/regional-download")
+    async def start_regional_download(request):
+        try:
+            regional_download.start()
+        except OutboundHttpBlockedError as error:
+            return http_forbidden(str(error))
+        return web.json_response(regional_download.state)
+
+    @routes.delete(API_V1_PREFIX + "/map/mbtiles/regional-download")
+    async def cancel_regional_download(request):
+        regional_download.cancel()
+        return web.json_response({"status": "cancelling"})
+
     # get offline map metadata
     @routes.get(API_V1_PREFIX + "/map/offline")
     async def get_map_offline_metadata(request):

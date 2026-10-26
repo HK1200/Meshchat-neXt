@@ -19,3 +19,5 @@ The source lineage includes [MeshChatX HK](https://github.com/HK1200/MeshChatX-H
 The retained `scripts/license_scope_mapper.go` assists with per-file SPDX labels using similarity scoring. Its output is a labeling aid, not a legal determination of derivative-work status.
 
 Regional offline maps include OpenStreetMap-derived Protomaps raster Produced Works (© OpenStreetMap contributors, ODbL terms) and public-domain Natural Earth overview data. See `meshchatnext/src/backend/data/map/REGIONAL_MAPS.json` and `REGIONAL_MAPS_NOTICE.txt` for attribution, provenance and checksums.
+
+ARMv7 numerical builds include official Chaquopy OpenBLAS, GNU Fortran and LLVM C++ runtime packages. Their original license texts, including applicable runtime exceptions, are retained in `meshchatnext/src/backend/data/ANDROID_NUMERICS_NOTICES.txt`; exact source URLs and wheel checksums are pinned in `android/release/native-inputs.json`.

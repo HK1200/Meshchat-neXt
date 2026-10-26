@@ -65,7 +65,7 @@ describe("ChangelogModal.vue", () => {
             },
         });
 
-        const wrapper = mountChangelogModal({ isPage: true });
+        const wrapper = mountChangelogModal({ page: true });
         await wrapper.vm.$nextTick();
         await wrapper.vm.$nextTick();
         await wrapper.vm.$nextTick();
@@ -90,4 +90,15 @@ describe("ChangelogModal.vue", () => {
         const closeBtn = wrapper.find("button.primary-chip");
         expect(closeBtn.exists()).toBe(true);
     });
+});
+
+it("does not become a full page when setup uses page route metadata", () => {
+    const wrapper = mount(ChangelogModal, {
+        global: {
+            mocks: { $t: (key) => key, $route: { name: "tutorial", meta: { isPage: true } } },
+            stubs: { AppModal: true, MaterialDesignIcon: true, LoadingState: true },
+        },
+    });
+    expect(wrapper.vm.isPage).toBe(false);
+    wrapper.unmount();
 });

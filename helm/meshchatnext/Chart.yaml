@@ -3,7 +3,7 @@ name: meshchatnext
 description: Meshchat neXt - all-in-one Reticulum client (LXMF messaging, calls, NomadNet, map, propagation)
 type: application
 version: 0.1.0
-appVersion: "0.1.0"
+appVersion: "0.1.1"
 keywords:
     - reticulum
     - lxmf

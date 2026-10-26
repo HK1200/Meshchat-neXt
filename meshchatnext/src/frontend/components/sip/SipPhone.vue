@@ -83,7 +83,9 @@
                 <span class="text-sm" role="status">{{ statusLabel }}</span>
             </div>
             <p v-if="!state.available" class="text-sm text-sem-fg-muted">
-                SIP calling is available in the Android app. Account passwords stay on that device.
+                {{
+                    state.error || "SIP calling is available in the Android app. Account passwords stay on that device."
+                }}
             </p>
             <div v-else class="space-y-3">
                 <button type="button" class="secondary-chip" @click="edit(null)">Add account</button>
@@ -275,7 +277,7 @@ const selectedAccount = computed(() => state.accounts.find((a) => a.id === selec
 const statusLabel = computed(
     () =>
         ({
-            unavailable: "Android app required",
+            unavailable: state.error ? "SIP unavailable" : "Android app required",
             starting: "Starting SIP service",
             disconnected: "Disconnected",
             registering: "Registering",

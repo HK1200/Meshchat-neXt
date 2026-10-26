@@ -385,6 +385,7 @@ const router = createRouter({
             name: "changelog",
             path: "/changelog",
             component: ChangelogModal,
+            props: { page: true },
             meta: { isPage: true },
         },
         {

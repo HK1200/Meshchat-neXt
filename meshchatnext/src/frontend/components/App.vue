@@ -54,7 +54,7 @@
             <main
                 v-if="isPopoutMode"
                 id="main-content"
-                class="flex flex-1 h-full w-full overflow-hidden transition-colors"
+                class="flex flex-1 min-h-0 w-full overflow-hidden transition-colors"
                 :style="shellCanvasStyle"
             >
                 <RouterView class="flex-1" />
@@ -69,6 +69,7 @@
                     >
                         <button
                             type="button"
+                            data-app-menu-toggle
                             class="sm:hidden shrink-0 mr-2 inline-flex min-h-[44px] min-w-[44px] items-center justify-center text-sem-fg-muted hover:text-sem-fg"
                             @click="isSidebarOpen = !isSidebarOpen"
                         >
@@ -87,7 +88,7 @@
                                     />
                                 </div>
                             </div>
-                            <div class="hidden min-w-0 leading-tight sm:block">
+                            <div class="hidden min-w-0 leading-tight sm:block" data-app-brand-text>
                                 <div
                                     class="font-semibold cursor-pointer text-sem-fg hover:text-sem-accent transition-colors tracking-tight text-base"
                                     @click="onAppNameClick"
@@ -220,13 +221,14 @@
                 <!-- middle -->
                 <div
                     ref="middle"
-                    class="relative flex flex-1 w-full overflow-hidden transition-colors"
+                    class="relative flex flex-1 min-h-0 w-full overflow-hidden transition-colors"
                     :style="shellCanvasStyle"
                 >
                     <!-- sidebar backdrop for mobile -->
                     <div
                         v-if="isSidebarOpen"
                         data-app-back-overlay
+                        data-sidebar-backdrop
                         class="absolute inset-0 z-65 bg-black/20 backdrop-blur-xs sm:hidden"
                         @click="isSidebarOpen = false"
                     ></div>
@@ -234,6 +236,7 @@
                     <!-- sidebar -->
                     <div
                         data-testid="app-sidebar"
+                        :data-open="isSidebarOpen"
                         class="absolute inset-y-0 left-0 z-70 transform transition-all duration-300 ease-in-out sm:relative sm:inset-auto sm:z-0 sm:flex sm:translate-x-0"
                         :class="[
                             isSidebarOpen ? 'translate-x-0' : '-translate-x-full',
@@ -387,7 +390,7 @@
                         </div>
                     </div>
 
-                    <main id="main-content" class="flex flex-1 min-w-0 overflow-hidden">
+                    <main id="main-content" class="flex flex-1 min-h-0 min-w-0 overflow-hidden">
                         <RouterView v-slot="{ Component, route }" class="flex-1 min-w-0 h-full bg-sem-canvas">
                             <template v-if="Component">
                                 <KeepAlive>
@@ -991,9 +994,13 @@ export default {
     },
     watch: {
         $route(to, from) {
-            if (this.isSidebarOpen && window.matchMedia?.("(max-width: 639px)").matches) {
+            if (
+                this.isSidebarOpen &&
+                window.matchMedia?.("(max-width: 639px), (max-height: 500px) and (pointer: coarse)").matches
+            ) {
                 rememberSidebarReturn(this.$router, to.fullPath, () => {
-                    if (!window.matchMedia?.("(max-width: 639px)").matches) return false;
+                    if (!window.matchMedia?.("(max-width: 639px), (max-height: 500px) and (pointer: coarse)").matches)
+                        return false;
                     this.isSidebarOpen = true;
                     return true;
                 });

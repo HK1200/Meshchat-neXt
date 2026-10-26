@@ -1,6 +1,6 @@
 [project]
 name = "meshchat-next"
-version = "0.1.0"
+version = "0.1.1"
 description = "A simple mesh network communications app powered by the Reticulum Network Stack"
 authors = [
   {name = "Quad4"}
@@ -83,7 +83,7 @@ exclude = ["tests*"]
 namespaces = false
 
 [tool.setuptools.package-data]
-meshchatnext = ["public/**/*", "public/*", "src/backend/data/community_interfaces.json", "src/backend/data/licenses_frontend.json", "src/backend/data/licenses_backend.json", "src/backend/data/THIRD_PARTY_NOTICES.txt", "src/backend/data/plugins/**/*", "src/backend/data/interfaces/**/*", "src/backend/data/map/**/*",
+meshchatnext = ["public/**/*", "public/*", "src/backend/data/community_interfaces.json", "src/backend/data/licenses_frontend.json", "src/backend/data/licenses_backend.json", "src/backend/data/THIRD_PARTY_NOTICES.txt", "src/backend/data/*NOTICES.txt", "src/backend/data/plugins/**/*", "src/backend/data/interfaces/**/*", "src/backend/data/map/**/*",
 "src/backend/data/map/.gitkeep", "src/frontend/public/repository-server-index.html"]
 
 [tool.setuptools.exclude-package-data]

@@ -1,9 +1,6 @@
 {
     "format": 1,
-    "abis": [
-        "arm64-v8a",
-        "x86_64"
-    ],
+    "abis": ["arm64-v8a", "x86_64", "armeabi-v7a"],
     "python": "3.11",
     "ndk": "27.3.13750724",
     "api": 24,
@@ -75,7 +72,20 @@
         "android/vendor/service_identity-26.1.0-py3-none-any.whl": "68c32dadbb69135fb951077677e07cd7f6031020f3a8c8f47a28cda8a0742118",
         "android/vendor/typing_extensions-4.16.0-py3-none-any.whl": "481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8",
         "android/vendor/usb4a-0.3.0-py3-none-any.whl": "4e4bf7c78b0bfcf2fd6eee28c82540cdc68ddfeb46818ab1a7aa1482f0d3743e",
-        "android/vendor/usbserial4a-0.4.0-py3-none-any.whl": "2b6a42c2c1f78e892d76ce6a294ad89089d31c60a5d74cb39a33f3aa8b82d74d"
+        "android/vendor/usbserial4a-0.4.0-py3-none-any.whl": "2b6a42c2c1f78e892d76ce6a294ad89089d31c60a5d74cb39a33f3aa8b82d74d",
+        "android/app/src/main/jniLibs/armeabi-v7a/libopusfile.so": "e6d0cc2ca18fb62253337f486f892c1bb29de48c24c2355636b47db2f8c0617d",
+        "android/app/src/main/jniLibs/armeabi-v7a/libcodec2.so": "ff27ae998b5e3e49b44afbd146ce69617a141182abdcd717929b8ae315d9eef2",
+        "android/app/src/main/jniLibs/armeabi-v7a/libopus.so": "289690c3fe100dcf0201730dfbdd6aaf76f6aa28123b280d6071d4eb16419abb",
+        "android/app/src/main/jniLibs/armeabi-v7a/libnext_sip.so": "af571ee61a8ce24e6c94b5877f01ef44d97ebc844a16b8d6f701d9d02e9ceef0",
+        "android/app/src/main/jniLibs/armeabi-v7a/libvox_av1.so": "e23ea394363f33abbd732d8757c9b6130cae8b294f9b224c2dd90741d6e7d699",
+        "android/app/src/main/jniLibs/arm64-v8a/libnext_sip.so": "9e59bbb753c83bdf8ec6e9ce83f67bdbd306d6e26a3b366763d5a21f3cf8da1c",
+        "android/app/src/main/jniLibs/arm64-v8a/libvox_av1.so": "3789a7579da571fb82415bef66de95779e28208d060e519d580f9ab5b39c1870",
+        "android/app/src/main/jniLibs/x86_64/libnext_sip.so": "578d1c4ae8c159adeb9d57c1aedfcb8f2fcee5024d6ab7b31e08b0d39c59abc4",
+        "android/app/src/main/jniLibs/x86_64/libvox_av1.so": "0a7f81e9c46193a5687fb570f285d3376f36e28c6945b38333737871d01dea45",
+        "android/vendor/chaquopy_openblas-0.2.20-5-py3-none-android_16_armeabi_v7a.whl": "1bc04851423a6e15d87d37432a83a197dbe49ec9b748c629fce9f59407b9c1b3",
+        "android/vendor/chaquopy_libgfortran-4.9-0-py3-none-android_16_armeabi_v7a.whl": "f290faf492675ee0a4c35f83261d0652de5c1c7bf9ad55122db0e70cf913e758",
+        "android/vendor/chaquopy_libcxx-180000-0-py3-none-android_24_armeabi_v7a.whl": "7082afa716eb1960852d432a73c90f40b017fbd83de7c427760a29f60b6169cc",
+        "android/vendor/numpy-1.26.2-0-cp311-cp311-android_21_armeabi_v7a.whl": "cc3b3791c2a54b67d3f8293742f79cc6d15a41d4cae04851a1b6746146b1c4cf"
     },
     "numpy_quad_runtime": {
         "numpy_build": 2,
@@ -83,5 +93,32 @@
         "recipe": "build-inputs/chaquopy/server/pypi/packages/numpy",
         "gcc_source_commit": "a9d5e6fb22fe3283eeecfb97211a12c072a7b469",
         "scope": "Static bounded quad arithmetic/conversion/comparison/exception objects only; hidden symbols; no unwinder or shared Fortran runtime."
-    }
+    },
+    "page_sizes": {
+        "arm64-v8a": 16384,
+        "x86_64": 16384,
+        "armeabi-v7a": 4096
+    },
+    "stock_armv7_sources": [
+        {
+            "name": "chaquopy_openblas-0.2.20-5-py3-none-android_16_armeabi_v7a.whl",
+            "source": "https://chaquo.com/pypi-13.1/chaquopy-openblas/chaquopy_openblas-0.2.20-5-py3-none-android_16_armeabi_v7a.whl",
+            "sha256": "1bc04851423a6e15d87d37432a83a197dbe49ec9b748c629fce9f59407b9c1b3"
+        },
+        {
+            "name": "chaquopy_libgfortran-4.9-0-py3-none-android_16_armeabi_v7a.whl",
+            "source": "https://chaquo.com/pypi-13.1/chaquopy-libgfortran/chaquopy_libgfortran-4.9-0-py3-none-android_16_armeabi_v7a.whl",
+            "sha256": "f290faf492675ee0a4c35f83261d0652de5c1c7bf9ad55122db0e70cf913e758"
+        },
+        {
+            "name": "chaquopy_libcxx-180000-0-py3-none-android_24_armeabi_v7a.whl",
+            "source": "https://chaquo.com/pypi-13.1/chaquopy-libcxx/chaquopy_libcxx-180000-0-py3-none-android_24_armeabi_v7a.whl",
+            "sha256": "7082afa716eb1960852d432a73c90f40b017fbd83de7c427760a29f60b6169cc"
+        },
+        {
+            "name": "numpy-1.26.2-0-cp311-cp311-android_21_armeabi_v7a.whl",
+            "source": "https://chaquo.com/pypi-13.1/numpy/numpy-1.26.2-0-cp311-cp311-android_21_armeabi_v7a.whl",
+            "sha256": "cc3b3791c2a54b67d3f8293742f79cc6d15a41d4cae04851a1b6746146b1c4cf"
+        }
+    ]
 }

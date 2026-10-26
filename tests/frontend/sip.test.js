@@ -71,7 +71,7 @@ it("shows native save failures without clearing the account form or password", a
             return JSON.stringify({ ok: true, request_id: "request" });
         },
     };
-    const wrapper = mount(SipPhone, {props:{mode:"settings"}});
+    const wrapper = mount(SipPhone, { props: { mode: "settings" } });
     await flushPromises();
     await wrapper
         .findAll("button")
@@ -108,7 +108,7 @@ it("offers independent Wi-Fi/mobile choices and hides unavailable I2P", async ()
                 i2p_available: false,
             }),
     };
-    const wrapper = mount(SipPhone, {props:{mode:"settings"}});
+    const wrapper = mount(SipPhone, { props: { mode: "settings" } });
     await flushPromises();
     await wrapper
         .findAll("button")
@@ -124,12 +124,44 @@ it("offers independent Wi-Fi/mobile choices and hides unavailable I2P", async ()
 });
 
 it("keeps account forms out of Telephone and reconnects the active account explicitly", async () => {
-    Object.assign(sipState,{available:true,registered:false,state:"disconnected",selected:"fixture",accounts:[{id:"fixture",extension:"123"}]});
-    window.MeshchatNextAndroid={sipStatus:()=>JSON.stringify({...sipState}),sipCommand:vi.fn(()=>JSON.stringify({ok:true}))};
-    const wrapper=mount(SipPhone,{global:{stubs:{RouterLink:true}}});
+    Object.assign(sipState, {
+        available: true,
+        registered: false,
+        state: "disconnected",
+        selected: "fixture",
+        accounts: [{ id: "fixture", extension: "123" }],
+    });
+    window.MeshchatNextAndroid = {
+        sipStatus: () => JSON.stringify({ ...sipState }),
+        sipCommand: vi.fn(() => JSON.stringify({ ok: true })),
+    };
+    const wrapper = mount(SipPhone, { global: { stubs: { RouterLink: true } } });
     expect(wrapper.text()).toContain("Disconnected");
     expect(wrapper.find('[autocomplete="username"]').exists()).toBe(false);
-    await wrapper.findAll("button").find(button=>button.text()==="Reconnect").trigger("click");
-    expect(JSON.parse(window.MeshchatNextAndroid.sipCommand.mock.calls[0][0])).toEqual({op:"connect",id:"fixture"});
+    await wrapper
+        .findAll("button")
+        .find((button) => button.text() === "Reconnect")
+        .trigger("click");
+    expect(JSON.parse(window.MeshchatNextAndroid.sipCommand.mock.calls[0][0])).toEqual({
+        op: "connect",
+        id: "fixture",
+    });
+    wrapper.unmount();
+});
+
+it("explains unsupported Android versions without exposing account controls", async () => {
+    window.MeshchatNextAndroid = {
+        sipStatus: () =>
+            JSON.stringify({
+                available: false,
+                state: "unavailable",
+                accounts: [],
+                error: "SIP calling requires Android 9 or later",
+            }),
+    };
+    const wrapper = mount(SipPhone, { props: { mode: "settings" } });
+    await flushPromises();
+    expect(wrapper.text()).toContain("SIP calling requires Android 9 or later");
+    expect(wrapper.text()).not.toContain("Add account");
     wrapper.unmount();
 });

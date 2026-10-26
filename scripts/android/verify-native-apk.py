@@ -12,27 +12,50 @@ from pathlib import Path
 
 
 def inspect(name, data):
-    if data[:6] != b"\x7fELF\x02\x01":
-        raise ValueError(f"Expected little-endian ELF64: {name}")
+    if len(data) < 52 or data[:4] != b"\x7fELF" or data[5] != 1:
+        raise ValueError(f"Expected little-endian ELF: {name}")
+    elf_class = data[4]
     machine = struct.unpack_from("<H", data, 18)[0]
-    abi = {183: "arm64-v8a", 62: "x86_64"}.get(machine)
+    abi = {(2, 183): "arm64-v8a", (2, 62): "x86_64", (1, 40): "armeabi-v7a"}.get(
+        (elf_class, machine)
+    )
     if abi is None:
         raise ValueError(f"Unsupported ELF architecture: {name}")
-    start = struct.unpack_from("<Q", data, 32)[0]
-    size, count = struct.unpack_from("<HH", data, 54)
-    headers = [
-        struct.unpack_from("<IIQQQQQQ", data, start + i * size) for i in range(count)
-    ]
+    if elf_class == 2:
+        if len(data) < 64:
+            raise ValueError(f"Truncated ELF header: {name}")
+        start = struct.unpack_from("<Q", data, 32)[0]
+        size, count = struct.unpack_from("<HH", data, 54)
+        minimum = 56
+    else:
+        start = struct.unpack_from("<I", data, 28)[0]
+        size, count = struct.unpack_from("<HH", data, 42)
+        minimum = 32
+    if size < minimum or start + size * count > len(data):
+        raise ValueError(f"Truncated ELF program headers: {name}")
+    headers = []
+    for i in range(count):
+        if elf_class == 2:
+            headers.append(struct.unpack_from("<IIQQQQQQ", data, start + i * size))
+        else:
+            kind, offset, address, physical, files, memory, flags, alignment = (
+                struct.unpack_from("<IIIIIIII", data, start + i * size)
+            )
+            headers.append(
+                (kind, flags, offset, address, physical, files, memory, alignment)
+            )
+    # 64-bit releases retain the 16 KB requirement. ARMv7 uses 4 KB pages.
+    page_size = 16384 if elf_class == 2 else 4096
     loads = [p for p in headers if p[0] == 1]
-    if not loads or any(p[7] < 16384 or (p[2] - p[3]) % 16384 for p in loads):
-        raise ValueError(f"16 KB LOAD alignment failed: {name}")
+    if not loads or any(p[7] < page_size or (p[2] - p[3]) % page_size for p in loads):
+        raise ValueError(f"{page_size // 1024} KB LOAD alignment failed: {name}")
     for p in (p for p in headers if p[0] == 0x6474E552):
         end = p[3] + p[6]
-        boundary = (end + 16383) // 16384 * 16384
+        boundary = (end + page_size - 1) // page_size * page_size
         if end < boundary and any(
             q[1] & 2 and max(end, q[3]) < min(boundary, q[3] + q[6]) for q in loads
         ):
-            raise ValueError(f"16 KB RELRO layout failed: {name}")
+            raise ValueError(f"{page_size // 1024} KB RELRO layout failed: {name}")
     return {"path": name, "abi": abi, "sha256": hashlib.sha256(data).hexdigest()}
 
 
@@ -42,11 +65,15 @@ def collect(archive, prefix=""):
         if name.endswith("/"):
             continue
         if ".so" in Path(name).name:
-            if "libgfortran" in name or "filterlib.cpython-" in name:
+            row = inspect(prefix + name, archive.read(name))
+            # Only ARMv7 uses the official Chaquopy GNU Fortran runtime.
+            if (
+                "libgfortran" in name and row["abi"] != "armeabi-v7a"
+            ) or "filterlib.cpython-" in name:
                 raise ValueError(
                     f"Unexpected legacy/desktop native payload: {prefix + name}"
                 )
-            rows.append(inspect(prefix + name, archive.read(name)))
+            rows.append(row)
         elif name.endswith(".imy"):
             data = io.BytesIO(archive.read(name))
             if zipfile.is_zipfile(data):
@@ -88,7 +115,7 @@ def main():
         + "\n"
     )
     print(
-        f"PASS: {len(rows)} native ELF payloads match the validated reference and pass 16 KB layout checks"
+        f"PASS: {len(rows)} native ELF payloads match the validated reference and pass the ABI-specific page layout checks"
     )
 
 

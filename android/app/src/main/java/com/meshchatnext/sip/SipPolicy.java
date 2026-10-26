@@ -1,6 +1,7 @@
 package com.meshchatnext.sip;
 /** Strict validation before data reaches SIP's parameter-based account parser. */
 public final class SipPolicy {
+    public static boolean platformSupported(int sdk) { return sdk >= 28; }
     public static boolean user(String value) {
         return value != null && value.matches("[A-Za-z0-9_.+*-]{1,64}");
     }

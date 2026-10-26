@@ -136,6 +136,9 @@ def test_normalize_arch():
     assert normalize_arch("AMD64") == "x86_64"
     assert normalize_arch("aarch64") == "aarch64"
     assert normalize_arch("arm64") == "aarch64"
+    assert normalize_arch("arm64-v8a") == "aarch64"
+    for machine in ("armv7l", "armv8l", "armeabi-v7a", "armeabi_v7a", "armhf"):
+        assert normalize_arch(machine) == "armv7"
 
 
 # --- UpdateManager -----------------------------------------------------------

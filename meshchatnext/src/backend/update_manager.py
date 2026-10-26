@@ -96,9 +96,13 @@ def normalize_arch(machine: str | None = None) -> str:
     m = (machine or platform.machine() or "").lower()
     if m in ("x86_64", "amd64", "x64"):
         return "x86_64"
-    if m in ("aarch64", "arm64"):
+    if m in ("aarch64", "arm64", "arm64-v8a"):
         return "aarch64"
-    if m.startswith("armv7") or m == "armhf":
+    if m.startswith(("armv7", "armv8l")) or m in (
+        "armhf",
+        "armeabi-v7a",
+        "armeabi_v7a",
+    ):
         return "armv7"
     if m in ("i386", "i686", "x86"):
         return "x86"

@@ -7,6 +7,7 @@ window.NEXT_GUIDE = {
             group: "Essentials",
             lead: "Meshchat neXt puts several communications tools in one place. You can use just one or combine them. Combining the screens does not combine their networks, accounts or radio protocols.",
             steps: [
+                "Install the APK matching your Android architecture: ARM64 (64-bit ARM), ARMv7 (32-bit ARM), or x86_64 (64-bit Intel/AMD). Android 7 or later is supported; SIP calling requires Android 9 or later.",
                 "Choose what you actually need: Reticulum, MeshCore, SIP, or any combination. You can change the visible features later in Settings → App features.",
                 "For Reticulum, choose a network interface: internet TCP, local network, an RNode radio, or several. For MeshCore, connect a separate companion radio. For SIP, supply your provider account.",
                 "Check the network label before messaging, sharing an identity or calling. The same person can have several unrelated addresses.",
@@ -362,7 +363,7 @@ window.NEXT_GUIDE = {
             lead: "A map can show overlays while its background is blank. Map tiles are the background images; they must be available locally for offline use. Wi-Fi being enabled does not prove the map has a network route or downloaded coverage.",
             steps: [
                 "Before going offline, open Map with internet access and inspect the area and zoom levels you need.",
-                "The bundled map includes a world overview and a compact PNW/southern British Columbia overview through zoom 9. In Map → Offline maps, restore the starter map if needed, or download the optional 104 MB regional detail map and import it as MBTiles for road/town context through zoom 12. Coverage is limited; it is not every place at every zoom.",
+                "The bundled map includes a world overview and a compact PNW/southern British Columbia overview through zoom 9. Open Map, tap Offline maps, then choose Download and use regional detail (104 MB) for road/town context through zoom 12. The app verifies and selects the download automatically. You can also restore the included overview or import your own MBTiles file from the same panel. Coverage is limited; it is not every place at every zoom.",
                 "Confirm that the map source and selected MBTiles file match the view. A tile set’s area and zoom range determine what can display.",
                 "Test with network access unavailable before leaving. Pan and zoom through the intended operational area rather than checking a single screen.",
                 "If one phone works and another does not, compare their downloaded files, selected source, coverage and zoom. Each installation has its own tile storage.",

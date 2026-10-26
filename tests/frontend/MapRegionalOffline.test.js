@@ -48,3 +48,11 @@ it("sanitizes offline attribution and keeps the optional download explicit", () 
     expect(wrapper.text()).toContain("Optional zoom-12");
     wrapper.unmount();
 });
+
+it("opens offline map management rather than general map settings", () => {
+    const ctx = { isMapToolsOpen: false, mapToolsTab: "discover", isSettingsOpen: false };
+    MapPage.methods.openOfflineMaps.call(ctx);
+    expect(ctx.isMapToolsOpen).toBe(true);
+    expect(ctx.mapToolsTab).toBe("offline");
+    expect(ctx.isSettingsOpen).toBe(false);
+});

@@ -8,6 +8,27 @@
         <p class="text-xs text-sem-fg-muted">
             Extensions and SIP addresses · contacts are linked only when you choose.
         </p>
+        <details class="rounded-lg border border-sem-border p-3">
+            <summary class="cursor-pointer font-semibold text-sm">HOIP live phonebook · online directory</summary>
+            <div class="pt-3 space-y-2 text-sm">
+                <p>Find HOIP extensions by callsign, name or location, and check their advertised availability.</p>
+                <a
+                    href="https://helpdesk.hamsoverip.com/phonebook/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="primary-chip inline-flex"
+                    >Open HOIP phonebook</a
+                >
+                <p class="text-xs text-sem-fg-muted">
+                    Opens in your browser using its connection. Wi-Fi or mobile internet is required. I2P-only access
+                    requires a browser configured with an HTTPS outproxy; this is a public internet website.
+                </p>
+                <p class="text-xs text-sem-fg-muted">
+                    To keep an entry here, copy its extension, then choose Add SIP contact. Calls use your selected SIP
+                    account; Reticulum and MeshCore contacts remain separate.
+                </p>
+            </div>
+        </details>
         <input
             v-model="search"
             class="rounded-lg border border-sem-border bg-sem-surface px-3 py-2 text-sem-fg focus:outline-none focus:ring-1 focus:ring-sem-accent"
