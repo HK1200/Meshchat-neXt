@@ -1,7 +1,11 @@
 <!-- SPDX-License-Identifier: 0BSD AND MIT -->
 
 <template>
-    <div :class="sidebarRootClass">
+    <div
+        :class="sidebarRootClass"
+        :data-app-back-scope="tab !== 'conversations' ? '' : null"
+        @app-back.stop="tab = 'conversations'"
+    >
         <div
             v-if="effectiveCollapsed"
             :class="['flex flex-col h-full min-h-0 bg-sem-surface border-sem-border', edgeBorderClass]"

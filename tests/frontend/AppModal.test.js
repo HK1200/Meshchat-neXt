@@ -77,3 +77,20 @@ describe("AppModal.vue", () => {
         wrapper.unmount();
     });
 });
+
+it("Android Back closes a dismissible modal without requiring a visible header", async () => {
+    const wrapper = mount(AppModal, { props: { modelValue: true }, attachTo: document.body });
+    const dialog = document.querySelector('[role="dialog"][data-app-back-scope]');
+    dialog.dispatchEvent(new CustomEvent("app-back"));
+    await wrapper.vm.$nextTick();
+    expect(wrapper.emitted("update:modelValue")).toContainEqual([false]);
+    wrapper.unmount();
+});
+it("Android Back respects a persistent modal with no close action", async () => {
+    const wrapper = mount(AppModal, { props: { modelValue: true, persistent: true }, attachTo: document.body });
+    const dialog = document.querySelector('[role="dialog"][data-app-back-scope]');
+    dialog.dispatchEvent(new CustomEvent("app-back"));
+    await wrapper.vm.$nextTick();
+    expect(wrapper.emitted("update:modelValue")).toBeUndefined();
+    wrapper.unmount();
+});

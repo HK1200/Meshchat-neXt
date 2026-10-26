@@ -242,10 +242,12 @@
         <Teleport to="body">
             <div
                 v-if="sessionFullscreen"
+                data-app-back-scope
                 class="fixed inset-0 z-[220] flex flex-col bg-sem-surface"
                 role="dialog"
                 aria-modal="true"
                 :aria-label="$t('rnsh.session_output')"
+                @app-back.stop="sessionFullscreen = false"
             >
                 <RNSHSessionTerminal
                     ref="fullscreenTerminal"

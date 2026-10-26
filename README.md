@@ -112,4 +112,4 @@ See [LICENSE](LICENSE), [licensing and acknowledgments](LEGAL.md), and the appli
 
 ### Verified updates
 
-The official Android release checks for signed updates after launch and periodically while the app is open. An available update links to Settings → Reticulum → Updates. Downloads are checked against a signed manifest and checksum; Android requires your approval to install. Update checks respect Privacy Mode and never install silently. Keep the same app installed to preserve its data; do not uninstall before upgrading.
+The official Android release checks for signed updates after launch and periodically while the app is open. An available update links to Settings → App features → Updates. Downloads are checked against a signed manifest and checksum; Android requires your approval to install. Update checks respect Privacy Mode and never install silently. Keep the same app installed to preserve its data; do not uninstall before upgrading.

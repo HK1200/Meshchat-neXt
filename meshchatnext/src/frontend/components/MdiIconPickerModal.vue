@@ -14,6 +14,7 @@
             <div class="flex items-center justify-between gap-2 border-b border-sem-border px-5 py-4">
                 <h2 class="text-lg font-semibold">{{ $t("relay_chat.hub_icon_picker_title") }}</h2>
                 <button
+                    data-app-back
                     type="button"
                     class="rounded-lg p-1 text-sem-fg-muted hover:bg-sem-surface/60"
                     :title="$t('common.close')"
@@ -58,7 +59,7 @@
                 <button type="button" :class="btnSecondary" @click="pick(null)">
                     {{ $t("relay_chat.hub_icon_reset_default") }}
                 </button>
-                <button type="button" :class="btnSecondary" @click="$emit('close')">
+                <button data-app-back type="button" :class="btnSecondary" @click="$emit('close')">
                     {{ $t("common.cancel") }}
                 </button>
             </div>

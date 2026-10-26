@@ -1,7 +1,13 @@
 <!-- SPDX-License-Identifier: 0BSD -->
 
 <template>
-    <div class="flex flex-col h-full w-full min-h-0 min-w-0 bg-sem-surface overflow-hidden">
+    <div
+        class="flex flex-col h-full w-full min-h-0 min-w-0 bg-sem-surface overflow-hidden"
+        :data-app-back-scope="
+            isSettingsOpen || selectedMarker || selectedCluster || editingFeature || isMobileSearchOpen ? '' : null
+        "
+        @app-back.stop="onMapBack"
+    >
         <!-- Title only for standalone / pop-out (embedded tabs already name the map) -->
         <div
             v-if="!embedded"
@@ -246,7 +252,7 @@
                             <MaterialDesignIcon icon-name="note-edit" class="size-4 text-sem-warning" />
                             Edit Note
                         </span>
-                        <button class="text-sem-fg-muted hover:text-sem-fg" @click="closeNoteEditor">
+                        <button data-app-back class="text-sem-fg-muted hover:text-sem-fg" @click="closeNoteEditor">
                             <MaterialDesignIcon icon-name="close" class="size-4" />
                         </button>
                     </div>
@@ -594,6 +600,7 @@
                     <div class="flex items-center justify-between mb-3">
                         <h3 class="font-bold text-lg">{{ $t("map.ping_modal_title") }}</h3>
                         <button
+                            data-app-back
                             type="button"
                             class="p-1 rounded-lg hover:bg-sem-surface-muted"
                             @click="showMapPingModal = false"
@@ -625,6 +632,7 @@
                         {{ $t("map.ping_send") }}
                     </button>
                     <button
+                        data-app-back
                         type="button"
                         class="w-full py-2 text-sm font-semibold bg-sem-surface-muted rounded-lg"
                         @click="showMapPingModal = false"
@@ -4282,6 +4290,13 @@ export default {
             this.closeNoteEditor();
         },
 
+        onMapBack() {
+            if (this.isSettingsOpen) this.isSettingsOpen = false;
+            else if (this.isMobileSearchOpen) this.isMobileSearchOpen = false;
+            else if (this.editingFeature) this.closeNoteEditor();
+            else if (this.selectedMarker) this.selectedMarker = null;
+            else if (this.selectedCluster) this.closeClusterPanel();
+        },
         cancelNote() {
             // If it's a new note (no text and just added), we might want to remove it
             // but for now just close

@@ -164,7 +164,11 @@
 
         <div
             v-if="isMobileComposeModalOpen"
+            role="dialog"
+            aria-modal="true"
+            data-app-back-scope
             class="fixed inset-0 z-95 flex items-end justify-center sm:items-center p-0 sm:p-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0px,env(safe-area-inset-bottom))] bg-black/50 backdrop-blur-xs sm:bg-black/50"
+            @app-back.stop="isMobileComposeModalOpen = false"
             @click.self="isMobileComposeModalOpen = false"
         >
             <div

@@ -307,7 +307,12 @@
                     <h2 class="text-lg font-bold text-sem-fg">
                         {{ $t("identities.new_identity") }}
                     </h2>
-                    <button type="button" class="text-sem-fg-muted hover:text-sem-fg" @click="showCreateModal = false">
+                    <button
+                        data-app-back
+                        type="button"
+                        class="text-sem-fg-muted hover:text-sem-fg"
+                        @click="showCreateModal = false"
+                    >
                         <MaterialDesignIcon icon-name="close" class="size-5" />
                     </button>
                 </div>
@@ -328,7 +333,7 @@
                     </div>
                 </div>
                 <div class="px-5 py-4 border-t border-sem-border flex justify-end gap-2">
-                    <button type="button" class="secondary-chip" @click="showCreateModal = false">
+                    <button data-app-back type="button" class="secondary-chip" @click="showCreateModal = false">
                         {{ $t("common.cancel") }}
                     </button>
                     <button type="button" class="primary-chip" :disabled="isCreating" @click="createIdentity">
@@ -358,7 +363,12 @@
                     <h2 class="text-lg font-bold text-sem-fg">
                         {{ $t("identities.import") }}
                     </h2>
-                    <button type="button" class="text-sem-fg-muted hover:text-sem-fg" @click="showImportModal = false">
+                    <button
+                        data-app-back
+                        type="button"
+                        class="text-sem-fg-muted hover:text-sem-fg"
+                        @click="showImportModal = false"
+                    >
                         <MaterialDesignIcon icon-name="close" class="size-5" />
                     </button>
                 </div>
@@ -418,7 +428,12 @@
                     </div>
                 </div>
                 <div class="px-5 py-4 border-t border-sem-border">
-                    <button type="button" class="w-full secondary-chip justify-center" @click="showImportModal = false">
+                    <button
+                        data-app-back
+                        type="button"
+                        class="w-full secondary-chip justify-center"
+                        @click="showImportModal = false"
+                    >
                         {{ $t("common.cancel") }}
                     </button>
                 </div>

@@ -4,7 +4,11 @@
     <transition name="fade">
         <div
             v-if="show"
+            role="dialog"
+            aria-modal="true"
+            data-app-back-scope
             class="fixed inset-0 z-100 flex items-end sm:items-center justify-center p-4 bg-black/50 backdrop-blur-xs"
+            @app-back.stop="$emit('close')"
             @click.self="$emit('close')"
         >
             <div

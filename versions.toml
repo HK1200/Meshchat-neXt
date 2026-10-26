@@ -21,6 +21,7 @@
 
 # Versions that match on every surface where the name appears.
 [shared]
+certifi = "2026.10.23"
 lxmf = "1.2.0"
 rns = "1.5.7"
 aiohttp = "3.14.3"

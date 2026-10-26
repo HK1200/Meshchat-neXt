@@ -28,13 +28,23 @@
                 These choices control the app layout. Radio connections and background services have their own
                 connection controls.
             </p>
+            <div id="app-updates"><UpdatesSettingsSection /></div>
             <p v-if="error" role="alert" class="text-sem-danger">{{ error }}</p>
             <p v-else role="status" class="text-sm text-sem-fg-muted">{{ saved }}</p>
         </div>
     </div>
 </template>
 <script setup>
-import { ref } from "vue";
+import { ref, nextTick, onMounted } from "vue";
+import { useRoute } from "vue-router";
+import UpdatesSettingsSection from "./sections/UpdatesSettingsSection.vue";
+const route = useRoute();
+onMounted(async () => {
+    if (route?.query?.section === "updates") {
+        await nextTick();
+        document.getElementById("app-updates")?.scrollIntoView?.({ block: "start" });
+    }
+});
 import { appFeatures, setAppFeature } from "../../js/appFeatures";
 const error = ref(""),
     saved = ref("");

@@ -1,5 +1,5 @@
 Meshchat neXt - Third-party notices
-Generated at: 2026-10-26T01:36:09.615649Z
+Generated at: 2026-10-26T17:13:34.790900Z
 Frontend source: pnpm
 
 Python dependencies
@@ -37,7 +37,7 @@ bleak 3.0.2
 cborx 0.2.5
   License: 0BSD
   Author: Quad4
-certifi 2026.10.19
+certifi 2026.10.23
   License: MPL-2.0
   Author: Kenneth Reitz
 cffi 2.1.1

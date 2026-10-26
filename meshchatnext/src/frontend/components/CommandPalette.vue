@@ -10,8 +10,10 @@
                 v-click-outside="close"
                 class="w-full max-w-2xl bg-sem-surface dark:bg-sem-surface backdrop-blur-md rounded-2xl shadow-2xl border border-sem-border overflow-hidden flex flex-col max-h-[min(70dvh,70vh)] pointer-events-auto mt-2 sm:mt-8"
                 role="dialog"
+                data-app-back-scope
                 aria-modal="true"
                 :aria-label="$t('command_palette.dialog_label')"
+                @app-back.stop="close"
             >
                 <!-- search input -->
                 <div class="relative flex items-center p-4 border-b border-sem-border">

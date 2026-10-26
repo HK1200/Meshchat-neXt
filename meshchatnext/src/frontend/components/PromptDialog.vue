@@ -43,7 +43,7 @@
                     />
 
                     <div class="flex flex-col sm:flex-row gap-3 sm:justify-end mt-8">
-                        <button type="button" class="secondary-action" @click="cancel">
+                        <button data-app-back type="button" class="secondary-action" @click="cancel">
                             {{ $t("common.cancel") }}
                         </button>
                         <button type="button" class="primary-action" @click="confirm">

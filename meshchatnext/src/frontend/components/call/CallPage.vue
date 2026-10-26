@@ -2039,6 +2039,24 @@ export default {
         },
     },
     watch: {
+        "$route.query"(query) {
+            const tabs = ["phone", "phonebook", "contacts", "voicemail", "ringtone", "history", "recordings"];
+            this._restoringTelephoneRoute = true;
+            this.activeTab = tabs.includes(query.tab) ? query.tab : "phone";
+            this.telephoneNetwork = ["reticulum", "meshcore", "sip"].includes(query.network)
+                ? query.network
+                : appFeatures.reticulum
+                  ? "reticulum"
+                  : appFeatures.sip
+                    ? "sip"
+                    : "meshcore";
+            this.$nextTick(() => {
+                this._restoringTelephoneRoute = false;
+            });
+        },
+        telephoneNetwork() {
+            this.syncTelephoneRoute();
+        },
         destinationHash() {
             this.selectedSuggestionIndex = -1;
         },
@@ -2050,6 +2068,7 @@ export default {
             if (newTab === "phone" && this.telephoneNetwork === "meshcore")
                 this.telephoneNetwork = appFeatures.reticulum ? "reticulum" : appFeatures.sip ? "sip" : "meshcore";
             useConfigStore().activeCallTab = newTab;
+            this.syncTelephoneRoute();
             if (newTab === "recordings") {
                 this.getRecordings();
             }
@@ -2150,6 +2169,15 @@ export default {
         this.stopWebAudio();
     },
     methods: {
+        syncTelephoneRoute() {
+            if (this._restoringTelephoneRoute) return;
+            if (!this.$route?.name || !["call", "call-popout"].includes(this.$route.name)) return;
+            const tab = this.activeTab;
+            const network = this.telephoneNetwork;
+            if ((this.$route.query.tab || "phone") === tab && (this.$route.query.network || "reticulum") === network)
+                return;
+            this.$router.push({ name: this.$route.name, query: { ...this.$route.query, tab, network } });
+        },
         startStatusPollInterval() {
             if (this.statusInterval) {
                 clearInterval(this.statusInterval);

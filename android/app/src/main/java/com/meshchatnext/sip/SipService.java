@@ -62,6 +62,11 @@ public final class SipService extends Service {
     private int recoveryDelay = 1000;
     private AudioManager audio;
     private AudioFocusRequest focus;
+    private volatile boolean audioFocusHeld;
+    private final AudioManager.OnAudioFocusChangeListener audioFocusListener = change -> {
+        if (change == AudioManager.AUDIOFOCUS_LOSS || change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT)
+            main.post(() -> SipEngine.command(3, ""));
+    };
     private android.media.audiofx.AcousticEchoCanceler echo;
     private android.media.audiofx.NoiseSuppressor noise;
     public void onAudioSession(int id) {
@@ -158,15 +163,17 @@ public final class SipService extends Service {
         connectivity = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
         audio = (AudioManager) getSystemService(AUDIO_SERVICE);
         NotificationManager nm = getSystemService(NotificationManager.class);
-        nm.createNotificationChannel(new NotificationChannel(
-            "sip_service", "SIP connection", NotificationManager.IMPORTANCE_LOW));
-        NotificationChannel calls = new NotificationChannel(
-            "sip_calls", "SIP incoming calls", NotificationManager.IMPORTANCE_HIGH);
-        calls.setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE),
-            new AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
-                .build());
-        nm.createNotificationChannel(calls);
+        if (Build.VERSION.SDK_INT >= 26) {
+            nm.createNotificationChannel(new NotificationChannel(
+                "sip_service", "SIP connection", NotificationManager.IMPORTANCE_LOW));
+            NotificationChannel calls = new NotificationChannel(
+                "sip_calls", "SIP incoming calls", NotificationManager.IMPORTANCE_HIGH);
+            calls.setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE),
+                new AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                    .build());
+            nm.createNotificationChannel(calls);
+        }
         connectivity.registerNetworkCallback(
             new NetworkRequest.Builder()
                 .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
@@ -216,8 +223,13 @@ public final class SipService extends Service {
         return PendingIntent.getActivity(
             this, 6400, i, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
+    @SuppressWarnings("deprecation")
+    private Notification.Builder notificationBuilder(String channel) {
+        if (Build.VERSION.SDK_INT >= 26) return new Notification.Builder(this, channel);
+        return new Notification.Builder(this);
+    }
     private void foreground(boolean microphone) {
-        Notification n = new Notification.Builder(this, "sip_service")
+        Notification n = notificationBuilder("sip_service")
                              .setSmallIcon(R.drawable.ic_stat_meshchatnext)
                              .setContentTitle(active == null ? "SIP"
                                                              : "SIP · "
@@ -592,23 +604,21 @@ public final class SipService extends Service {
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO)
             != PackageManager.PERMISSION_GRANTED)
             return false;
-        AudioAttributes attributes = new AudioAttributes.Builder()
-                                         .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
-                                         .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                                         .build();
-        focus = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
-                    .setAudioAttributes(attributes)
-                    .setOnAudioFocusChangeListener(
-                        change
-                        -> {
-                            if (change == AudioManager.AUDIOFOCUS_LOSS
-                                || change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT)
-                                SipEngine.command(3, "");
-                        },
-                        main)
-                    .build();
-        if (audio.requestAudioFocus(focus) != AudioManager.AUDIOFOCUS_REQUEST_GRANTED)
-            return false;
+        int result;
+        if (Build.VERSION.SDK_INT >= 26) {
+            AudioAttributes attributes = new AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build();
+            focus = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
+                .setAudioAttributes(attributes)
+                .setOnAudioFocusChangeListener(audioFocusListener, main).build();
+            result = audio.requestAudioFocus(focus);
+        } else {
+            result = audio.requestAudioFocus(audioFocusListener, AudioManager.STREAM_VOICE_CALL,
+                AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE);
+        }
+        if (result != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) { focus = null; return false; }
+        audioFocusHeld = true;
         audio.setMode(AudioManager.MODE_IN_COMMUNICATION);
         main.post(() -> route());
         foreground(true);
@@ -639,9 +649,11 @@ public final class SipService extends Service {
         onAudioSession(0);
         getSystemService(NotificationManager.class).cancel(INCOMING);
         main.post(() -> {
-            if (focus != null) {
-                audio.abandonAudioFocusRequest(focus);
+            if (audioFocusHeld) {
+                if (Build.VERSION.SDK_INT >= 26 && focus != null) audio.abandonAudioFocusRequest(focus);
+                else audio.abandonAudioFocus(audioFocusListener);
                 focus = null;
+                audioFocusHeld = false;
                 if (Build.VERSION.SDK_INT >= 31)
                     audio.clearCommunicationDevice();
                 else
@@ -672,14 +684,14 @@ public final class SipService extends Service {
                     error = "";
                     recoveryDelay = 1000;
                     state = value;
-                    foreground(focus != null);
+                    foreground(audioFocusHeld);
                     break;
                 case "registration_failed":
                     registered = false;
                     state = value;
                     error = "SIP registration rejected (" + code
                         + " ); check account settings or server connection limits";
-                    foreground(focus != null);
+                    foreground(audioFocusHeld);
                     break;
                 case "incoming":
                 case "calling":
@@ -689,7 +701,7 @@ public final class SipService extends Service {
                     callState = value;
                     peer = remote;
                     if ("incoming".equals(value)) {
-                        Notification n = new Notification.Builder(this, "sip_calls")
+                        Notification n = notificationBuilder("sip_calls")
                                              .setSmallIcon(R.drawable.ic_stat_meshchatnext)
                                              .setContentTitle("Incoming SIP call")
                                              .setContentText(remote)
@@ -697,6 +709,10 @@ public final class SipService extends Service {
                                              .setCategory(Notification.CATEGORY_CALL)
                                              .setOngoing(true)
                                              .build();
+                        if (Build.VERSION.SDK_INT < 26) {
+                            n.sound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
+                            n.priority = Notification.PRIORITY_HIGH;
+                        }
                         n.flags |= Notification.FLAG_INSISTENT;
                         getSystemService(NotificationManager.class).notify(INCOMING, n);
                     } else if ("connected".equals(value))

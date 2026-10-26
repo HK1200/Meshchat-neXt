@@ -15,7 +15,9 @@
         </div>
         <form
             v-if="showAdd && !discovery"
+            data-app-back-scope
             class="space-y-2 border border-sem-border rounded-lg p-3"
+            @app-back.stop="showAdd = false"
             @submit.prevent="addManual"
         >
             <label class="block text-sm"

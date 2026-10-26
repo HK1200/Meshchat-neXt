@@ -12,7 +12,7 @@
                 ×
             </button>
         </div>
-        <div v-if="active" class="pt-3 max-h-[45dvh] overflow-y-auto">
+        <div v-if="active" data-app-back-scope class="pt-3 max-h-[45dvh] overflow-y-auto" @app-back.stop="active = ''">
             <p class="text-xs text-sem-fg-muted mb-2">Closing or switching attachment type discards this draft.</p>
             <MeshCoreImageComposer v-if="active === 'photo'" embedded v-bind="$props" @sent="$emit('sent')" />
             <MeshCoreVoiceComposer

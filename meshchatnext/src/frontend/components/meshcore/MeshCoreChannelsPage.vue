@@ -7,7 +7,7 @@
                 class="p-2 rounded-lg text-sem-fg-muted hover:bg-sem-surface-muted"
                 data-app-back
                 aria-label="Back to MeshCore channels"
-                @click="$router.push({ name: 'meshcore-channels' })"
+                @click="navigateAppUp(router, { name: 'meshcore-channels' })"
             >
                 <MaterialDesignIcon icon-name="arrow-left" class="size-5" />
             </button>
@@ -284,6 +284,9 @@
     </section>
 </template>
 <script setup>
+import { useRouter } from "vue-router";
+const router = useRouter();
+import { navigateAppUp } from "../../js/androidBackNavigation";
 import MeshCoreMessageDetails from "./MeshCoreMessageDetails.vue";
 import MeshCoreAttachments from "./MeshCoreAttachments.vue";
 import MeshCoreVoiceMessage from "./MeshCoreVoiceMessage.vue";

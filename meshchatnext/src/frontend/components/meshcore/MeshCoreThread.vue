@@ -11,7 +11,7 @@
                 class="p-2 rounded-lg text-sem-fg-muted hover:bg-sem-surface-muted"
                 data-app-back
                 aria-label="Back to conversations"
-                @click="$router.push({ name: 'messages' })"
+                @click="navigateAppUp(router, { name: 'messages' })"
             >
                 <MaterialDesignIcon icon-name="arrow-left" class="size-5" />
             </button>
@@ -113,6 +113,9 @@
     </section>
 </template>
 <script setup>
+import { navigateAppUp } from "../../js/androidBackNavigation";
+import { useRouter } from "vue-router";
+const router = useRouter();
 import MeshCoreMessageDetails from "./MeshCoreMessageDetails.vue";
 import MeshCoreAttachments from "./MeshCoreAttachments.vue";
 import MeshCoreVoiceMessage from "./MeshCoreVoiceMessage.vue";

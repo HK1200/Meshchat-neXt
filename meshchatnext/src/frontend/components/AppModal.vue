@@ -13,7 +13,9 @@
                 :class="panelClass"
                 :style="panelStyle"
                 role="dialog"
+                data-app-back-scope
                 aria-modal="true"
+                @app-back.stop="onBack"
             >
                 <div v-if="$slots.header || title" class="modal-panel__header">
                     <slot name="header">
@@ -132,6 +134,9 @@ export default {
         close() {
             this.$emit("update:modelValue", false);
             this.$emit("close");
+        },
+        onBack() {
+            if (!this.persistent || this.showClose) this.close();
         },
         onBackdropClick() {
             if (!this.persistent) {

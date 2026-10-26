@@ -1375,8 +1375,7 @@ export default {
                 this._stopAutomaticUpdates = startAutomaticUpdates((version) => {
                     ToastUtils.show(this.$t("updates.available", { version }), "info", 15000, "signed-update", {
                         label: this.$t("common.open"),
-                        handler: () =>
-                            this.$router.push({ path: "/settings/reticulum", query: { section: "updates" } }),
+                        handler: () => this.$router.push({ name: "feature-settings", query: { section: "updates" } }),
                     });
                 });
             }

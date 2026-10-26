@@ -2,8 +2,10 @@ import { afterEach, it, expect, vi } from "vitest";
 import { mount, flushPromises } from "@vue/test-utils";
 import { ref } from "vue";
 import Route from "../../meshchatnext/src/frontend/components/map/internal/MeshCoreMessageRoute.vue";
-const state = vi.hoisted(() => ({ route: null, snapshot: null, push: vi.fn() }));
-vi.mock("vue-router", () => ({ useRouter: () => ({ currentRoute: state.route, replace: vi.fn(), push: state.push }) }));
+const state = vi.hoisted(() => ({ route: null, snapshot: null, push: vi.fn(), replace: vi.fn() }));
+vi.mock("vue-router", () => ({
+    useRouter: () => ({ currentRoute: state.route, replace: state.replace, push: state.push }),
+}));
 vi.mock("../../meshchatnext/src/frontend/js/meshcoreUi", () => ({
     useMeshCoreUi: () => ({ snapshot: state.snapshot }),
 }));
@@ -11,7 +13,10 @@ let w;
 afterEach(() => w?.unmount());
 it("maps only adjacent known points, never bridges missing hops, and clears a changed identity", async () => {
     const owner = "a1".repeat(32);
-    state.route = ref({ name: "map", query: { mcMessage: "one", mcOwner: owner, mcTarget: "b2".repeat(32), mcKind: "direct" } });
+    state.route = ref({
+        name: "map",
+        query: { mcMessage: "one", mcOwner: owner, mcTarget: "b2".repeat(32), mcKind: "direct" },
+    });
     state.snapshot = ref({ owner });
     window.api = {
         get: vi.fn().mockResolvedValue({
@@ -41,7 +46,7 @@ it("maps only adjacent known points, never bridges missing hops, and clears a ch
     expect(features.filter((f) => f.getGeometry().getType() === "LineString")).toHaveLength(1);
     expect(fit).toHaveBeenCalled();
     await w.get('[aria-label="Back to message"]').trigger("click");
-    expect(state.push).toHaveBeenCalledWith({name:"messages",query:{meshcore:"b2".repeat(32)}});
+    expect(state.replace).toHaveBeenCalledWith({ name: "messages", query: { meshcore: "b2".repeat(32) } });
     state.snapshot.value = { owner: "c3".repeat(32) };
     await flushPromises();
     expect(layer.getSource().getFeatures()).toHaveLength(0);

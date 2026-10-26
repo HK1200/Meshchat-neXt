@@ -1,6 +1,8 @@
 import { mount, flushPromises } from "@vue/test-utils";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { createRouter, createMemoryHistory } from "vue-router";
+import MeshCoreNodesPage from "../../meshchatnext/src/frontend/components/meshcore/MeshCoreNodesPage.vue";
+import { handleAppBack, installAndroidBackNavigation } from "../../meshchatnext/src/frontend/js/androidBackNavigation";
 import MeshCoreSidebar from "../../meshchatnext/src/frontend/components/meshcore/MeshCoreSidebar.vue";
 import MeshCoreChannelsPage from "../../meshchatnext/src/frontend/components/meshcore/MeshCoreChannelsPage.vue";
 import MeshCoreBanishments from "../../meshchatnext/src/frontend/components/meshcore/MeshCoreBanishments.vue";
@@ -283,4 +285,28 @@ describe("MeshCore navigation and channel boundaries", () => {
         expect(inserted.previousElementSibling.dataset.navItemId).toBe("relay-chat");
         expect(inserted.nextElementSibling.dataset.navItemId).toBe("map");
     });
+});
+
+it("Android Back hides node discovery and keeps the saved-nodes page", async () => {
+    const data = snapshot();
+    window.api = {
+        get: vi.fn(async () => ({ data: { result: structuredClone(data) } })),
+        post: vi.fn(async () => ({ data: { result: { nodes: [] } } })),
+    };
+    const navigation = await router();
+    const dispose = installAndroidBackNavigation(navigation, {});
+    await navigation.push({ name: "meshcore-nodes" });
+    wrapper = mount(MeshCoreNodesPage, { attachTo: document.body, global: { plugins: [navigation] } });
+    await flushPromises();
+    const discover = wrapper.findAll("button").find((b) => b.text() === "Discover new nodes");
+    await discover.trigger("click");
+    await flushPromises();
+    expect(wrapper.find("[data-app-back-scope]").exists()).toBe(true);
+    vi.spyOn(HTMLElement.prototype, "getClientRects").mockImplementation(() => [{}]);
+    handleAppBack(navigation);
+    await flushPromises();
+    expect(wrapper.find("[data-app-back-scope]").exists()).toBe(false);
+    expect(navigation.currentRoute.value.name).toBe("meshcore-nodes");
+    expect(wrapper.text()).toContain("Saved repeaters, room servers and sensors");
+    dispose();
 });

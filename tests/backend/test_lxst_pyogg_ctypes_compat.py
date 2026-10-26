@@ -142,6 +142,9 @@ def test_android_asset_loader_injects_aliases(monkeypatch):
                 return importlib.machinery.ModuleSpec(fullname, FakeAssetLoader())
             return None
 
+    # A different backend test may already have imported pyogg on this worker.
+    # Exercise the asset-import path with a fresh module, as on Android startup.
+    monkeypatch.delitem(sys.modules, compat._OGG_MODULE, raising=False)
     finder = compat._OggCompatFinder()
     monkeypatch.setattr(compat, "find_ogg_py", lambda: None)
     monkeypatch.setattr(sys, "meta_path", [finder, FakeAssetFinder()])
@@ -184,6 +187,9 @@ def test_android_asset_loader_injects_aliases_alternate_loader(monkeypatch):
                 return importlib.machinery.ModuleSpec(fullname, FakeAssetLoader())
             return None
 
+    # A different backend test may already have imported pyogg on this worker.
+    # Exercise the asset-import path with a fresh module, as on Android startup.
+    monkeypatch.delitem(sys.modules, compat._OGG_MODULE, raising=False)
     finder = compat._OggCompatFinder()
     monkeypatch.setattr(compat, "find_ogg_py", lambda: None)
     monkeypatch.setattr(sys, "meta_path", [finder, FakeAssetFinder()])

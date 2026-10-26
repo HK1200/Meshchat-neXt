@@ -14,7 +14,7 @@
                     data-app-back
                     type="button"
                     class="secondary-chip"
-                    @click="$router.push({ name: 'meshcore-nodes' })"
+                    @click="navigateAppUp(router, { name: 'meshcore-nodes' })"
                 >
                     All saved nodes
                 </button>
@@ -84,7 +84,12 @@
                     >
                         {{ discovering ? "Discovering nearby nodes…" : "Discover new nodes" }}
                     </button>
-                    <button type="button" class="secondary-chip ml-2" @click="showDiscoveries = !showDiscoveries">
+                    <button
+                        type="button"
+                        :data-app-back="showDiscoveries ? '' : null"
+                        class="secondary-chip ml-2"
+                        @click="showDiscoveries = !showDiscoveries"
+                    >
                         {{ showDiscoveries ? "Hide discoveries" : "View heard nodes" }}
                     </button>
                     <p class="text-xs text-sem-fg-muted">
@@ -92,7 +97,12 @@
                         beyond direct radio range may only appear through announces.
                     </p>
                     <p v-if="discoveryStatus" role="status" class="text-sm text-sem-fg-muted">{{ discoveryStatus }}</p>
-                    <div v-if="showDiscoveries" class="space-y-3 border border-sem-border rounded-lg p-3">
+                    <div
+                        v-if="showDiscoveries"
+                        data-app-back-scope
+                        class="space-y-3 border border-sem-border rounded-lg p-3"
+                        @app-back.stop="showDiscoveries = false"
+                    >
                         <SearchInput v-model="discoverySearch" placeholder="Search MeshCore nodes…" />
                         <div role="group" aria-label="Discovered node types" class="flex flex-wrap gap-2">
                             <button
@@ -162,6 +172,7 @@
     </section>
 </template>
 <script setup>
+import { navigateAppUp } from "../../js/androidBackNavigation";
 import { computed, ref, watch } from "vue";
 import { useMeshCoreNotificationContext } from "../../js/meshcoreNotifications";
 import MeshCoreNodePasswords from "./MeshCoreNodePasswords.vue";

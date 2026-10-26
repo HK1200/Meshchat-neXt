@@ -404,7 +404,12 @@
             >
                 <div class="px-5 py-4 border-b border-sem-border flex items-center justify-between">
                     <h3 class="text-lg font-bold text-sem-fg">{{ $t("contacts.add_contact") }}</h3>
-                    <button type="button" class="text-sem-fg-muted hover:text-sem-fg" @click="closeAddDialog">
+                    <button
+                        data-app-back
+                        type="button"
+                        class="text-sem-fg-muted hover:text-sem-fg"
+                        @click="closeAddDialog"
+                    >
                         <MaterialDesignIcon icon-name="close" class="size-5" />
                     </button>
                 </div>
@@ -472,7 +477,7 @@
                     </div>
                 </div>
                 <div class="px-5 py-4 border-t border-sem-border flex justify-end gap-2">
-                    <button type="button" class="secondary-chip" @click="closeAddDialog">
+                    <button data-app-back type="button" class="secondary-chip" @click="closeAddDialog">
                         {{ $t("common.cancel") }}
                     </button>
                     <button
@@ -506,7 +511,12 @@
             >
                 <div class="px-5 py-4 border-b border-sem-border flex items-center justify-between">
                     <h3 class="text-lg font-bold text-sem-fg">{{ $t("contacts.scan_qr") }}</h3>
-                    <button type="button" class="text-sem-fg-muted hover:text-sem-fg" @click="closeScannerDialog">
+                    <button
+                        data-app-back
+                        type="button"
+                        class="text-sem-fg-muted hover:text-sem-fg"
+                        @click="closeScannerDialog"
+                    >
                         <MaterialDesignIcon icon-name="close" class="size-5" />
                     </button>
                 </div>
@@ -541,7 +551,12 @@
                     <h3 class="text-lg font-bold text-sem-fg">
                         {{ $t("contacts.import_modal_title") }}
                     </h3>
-                    <button type="button" class="text-sem-fg-muted hover:text-sem-fg" @click="closeImportDialog">
+                    <button
+                        data-app-back
+                        type="button"
+                        class="text-sem-fg-muted hover:text-sem-fg"
+                        @click="closeImportDialog"
+                    >
                         <MaterialDesignIcon icon-name="close" class="size-5" />
                     </button>
                 </div>
@@ -588,6 +603,7 @@
                     <button
                         type="button"
                         class="text-sem-fg-muted hover:text-sem-fg"
+                        data-app-back
                         @click="isMyIdentityDialogOpen = false"
                     >
                         <MaterialDesignIcon icon-name="close" class="size-5" />

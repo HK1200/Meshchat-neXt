@@ -14,6 +14,7 @@
             <div class="flex items-center justify-between gap-2 border-b border-sem-border px-5 py-4">
                 <h2 class="text-lg font-semibold text-sem-fg">{{ $t("rns_filesync.browser_title") }}</h2>
                 <button
+                    data-app-back
                     type="button"
                     class="rounded-lg p-1 text-sem-fg-muted hover:bg-sem-surface-muted"
                     :title="$t('common.close')"
@@ -84,7 +85,12 @@
                     </button>
                 </div>
                 <div class="flex justify-end gap-2">
-                    <button type="button" class="secondary-chip px-4 py-2 text-sm" @click="$emit('close')">
+                    <button
+                        data-app-back
+                        type="button"
+                        class="secondary-chip px-4 py-2 text-sm"
+                        @click="$emit('close')"
+                    >
                         {{ $t("common.cancel") }}
                     </button>
                     <button
