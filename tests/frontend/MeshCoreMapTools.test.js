@@ -226,3 +226,50 @@ it("reports denied location without sending or starting a watch", async () => {
         vi.unstubAllGlobals();
     }
 });
+
+it("labels future remote clocks as unreliable instead of permanently just updated", async () => {
+    const stamp = Date.now() / 1000;
+    window.api = {
+        get: vi.fn().mockResolvedValue({
+            data: {
+                result: {
+                    owner: "a1".repeat(32),
+                    connected: true,
+                    nodes: [
+                        {
+                            peer: "b2".repeat(32),
+                            name: "Clock skewed repeater",
+                            kind: 2,
+                            latitude: 48,
+                            longitude: -122,
+                            updated: stamp + 8 * 86400,
+                        },
+                        {
+                            peer: "c3".repeat(32),
+                            name: "Recently heard repeater",
+                            kind: 2,
+                            latitude: 48,
+                            longitude: -122,
+                            updated: stamp + 8 * 86400,
+                            heard: stamp,
+                        },
+                    ],
+                },
+            },
+        }),
+    };
+    const w = mount(Tools, {
+        props: { map: { addLayer: vi.fn(), removeLayer: vi.fn(), on: vi.fn() } },
+        global: { stubs: { Teleport: true } },
+    });
+    try {
+        await w.find("button").trigger("click");
+        await flushPromises();
+        const list = w.get('[aria-label="Located MeshCore nodes"]');
+        expect(list.text()).toContain("Position advertised · clock ahead · time unreliable");
+        expect(list.text()).toContain("Last heard · just now");
+        expect(list.text()).not.toContain("Just updated");
+    } finally {
+        w.unmount();
+    }
+});

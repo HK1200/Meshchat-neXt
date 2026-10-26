@@ -47,8 +47,27 @@
             </button>
         </div>
         <p v-if="offlineEnabled && hasOfflineMap" class="text-[10px] text-sem-fg-muted leading-snug">
-            {{ $t("map.starter_attribution") }}
+            {{ offlineDescription || $t("map.starter_attribution") }}
+            <span v-if="offlineAttribution" class="block mt-1">{{ offlineAttribution }}</span>
         </p>
+        <div class="rounded-lg border border-sem-border p-2 space-y-2 text-[11px]">
+            <p class="font-semibold">PNW &amp; southern BC offline maps</p>
+            <p class="text-sem-fg-muted">
+                A compact regional overview is included, with towns, main roads and coastlines (zoom 9). World context
+                remains available outside the region.
+            </p>
+            <a
+                href="https://github.com/hk1200/Meshchat-neXt/releases/download/v0.1.0/MeshchatNext-PNW-SouthernBC-detail.mbtiles"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="block text-sem-accent underline"
+                >Download regional road detail · 104 MB</a
+            >
+            <p class="text-sem-fg-muted">
+                Optional zoom-12 road and town detail for Washington, Oregon, Idaho and southern BC. After downloading,
+                import the file with the button above. Data: 25 October 2026; not turn-by-turn navigation.
+            </p>
+        </div>
         <button
             type="button"
             class="w-full py-2 text-[10px] font-semibold uppercase rounded-lg border border-sem-border"
@@ -107,6 +126,8 @@ export default {
         mbtilesList: { type: Array, default: () => [] },
         mbtilesDir: { type: String, default: "" },
         hasOfflineMap: { type: Boolean, default: false },
+        offlineDescription: { type: String, default: "" },
+        offlineAttribution: { type: String, default: "" },
     },
     emits: [
         "toggle-offline",

@@ -1,0 +1,3 @@
+Regional raster maps are Produced Works from the Protomaps OpenStreetMap basemap, distributed under the applicable ODbL Produced Work terms. © OpenStreetMap contributors: https://www.openstreetmap.org/copyright
+Global overview uses public-domain Natural Earth data. See REGIONAL_MAPS.json for provenance and asset hashes.
+Source snapshot: 2026-10-25. Regional context only; not turn-by-turn or emergency navigation.

@@ -1,5 +1,5 @@
 Meshchat neXt - Third-party notices
-Generated at: 2026-10-26T17:13:34.790900Z
+Generated at: 2026-10-26T19:38:34.844063Z
 Frontend source: pnpm
 
 Python dependencies
@@ -1867,8 +1867,8 @@ meow 14.0.0
 micromatch 4.0.8
   License: MIT
   Author: Jon Schlinkert
-micron-parser 0.0.0
-  License: Unknown
+micron-parser file:vendor/micron-parser-js
+  License: Unlicense
   Author: -
 mime 2.6.0
   License: MIT

@@ -5,6 +5,7 @@
  * Covers package.json github:/git+ specs, pnpm-lock pins, flatpak git sources, and Micron WASM URLs.
  */
 import fs from "node:fs";
+import crypto from "node:crypto";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -217,6 +218,27 @@ function main() {
         }
     }
 
+    for (const entry of allowlist.vendored_dependencies || []) {
+        const spec = depSections
+            .map((section) => packageJson[section]?.[entry.name])
+            .find((value) => typeof value === "string");
+        if (spec !== `file:${entry.path}`) errors.push(`vendored dependency ${entry.name} path drifts from allowlist`);
+        const directory = path.resolve(ROOT, entry.path);
+        if (!directory.startsWith(ROOT + path.sep)) {
+            errors.push(`vendored dependency ${entry.name} escapes the source tree`);
+            continue;
+        }
+        for (const [file, expected] of Object.entries(entry.files || {})) {
+            const target = path.resolve(directory, file);
+            if (!target.startsWith(directory + path.sep) || !fs.existsSync(target)) {
+                errors.push(`vendored dependency ${entry.name} is missing ${file}`);
+                continue;
+            }
+            const actual = crypto.createHash("sha256").update(fs.readFileSync(target)).digest("hex");
+            if (actual !== expected) errors.push(`vendored dependency ${entry.name} checksum mismatch: ${file}`);
+        }
+    }
+
     const flatpakModules = packageJson.build?.flatpak?.modules || [];
     const allowGitSources = allowlist.git_sources || [];
     /** @type {object[]} */
@@ -290,7 +312,9 @@ function main() {
     }
 
     console.log("check-git-deps: ok");
-    console.log(`  micron-parser commit: ${(allowByName.get("micron-parser") || {}).commit}`);
+    console.log(
+        `  micron-parser vendored commit: ${(allowlist.vendored_dependencies || []).find((entry) => entry.name === "micron-parser")?.commit}`
+    );
     console.log(`  micron wasm tag: ${MICRON_PARSER_GO_RELEASE_TAG}`);
 }
 

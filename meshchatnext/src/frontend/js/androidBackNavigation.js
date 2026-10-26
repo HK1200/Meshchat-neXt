@@ -2,6 +2,47 @@
 const trails = new WeakMap();
 const backTargets = new WeakMap();
 const navigating = new WeakSet();
+const sidebarReturns = new WeakMap();
+const dispatchingBackControls = new WeakSet();
+const backLayerSelector =
+    '[data-app-back-scope], [role="dialog"], [role="alertdialog"], [aria-modal="true"], .context-menu-panel, [data-app-back-overlay]';
+
+// A drawer selection is a view transition of its own, even though the drawer
+// closes without changing the URL. Associate it with this exact page visit.
+export function rememberSidebarReturn(router, path, reopen) {
+    const trail = trails.get(router);
+    if (!trail?.length || trail.at(-1) !== path || typeof reopen !== "function") return;
+    let returns = sidebarReturns.get(router);
+    if (!returns) sidebarReturns.set(router, (returns = new Map()));
+    returns.set(trail.length - 1, { path, reopen });
+}
+
+export function clearSidebarReturn(router) {
+    const trail = trails.get(router);
+    if (trail?.length) sidebarReturns.get(router)?.delete(trail.length - 1);
+}
+
+function restoreSidebarReturn(router) {
+    const trail = trails.get(router),
+        returns = sidebarReturns.get(router);
+    if (!trail?.length || !returns) return false;
+    const index = trail.length - 1,
+        entry = returns.get(index);
+    if (!entry || entry.path !== router.currentRoute.value.fullPath) return false;
+    returns.delete(index); // Consume before opening: closing the drawer cannot loop.
+    return entry.reopen() !== false;
+}
+
+function pruneSidebarReturns(router, trail, shifted) {
+    const returns = sidebarReturns.get(router);
+    if (!returns) return;
+    const retained = new Map();
+    for (const [oldIndex, entry] of returns) {
+        const index = oldIndex - (shifted ? 1 : 0);
+        if (index >= 0 && trail[index] === entry.path) retained.set(index, entry);
+    }
+    sidebarReturns.set(router, retained);
+}
 
 function navigate(router, target, replace = false) {
     if (navigating.has(router)) return true;
@@ -14,6 +55,7 @@ function navigate(router, target, replace = false) {
 
 export function navigateAppUp(router, target) {
     if (navigating.has(router)) return true;
+    if (restoreSidebarReturn(router)) return true;
     const trail = trails.get(router);
     const path = router.resolve?.(target)?.fullPath;
     const index = path ? trail?.lastIndexOf(path, trail.length - 2) : -1;
@@ -23,6 +65,7 @@ export function navigateAppUp(router, target) {
 
 export function navigateAppBack(router) {
     if (navigating.has(router)) return true;
+    if (restoreSidebarReturn(router)) return true;
     const route = router.currentRoute.value;
     const q = route.query || {};
     if ((route.name === "map" || route.name === "map-popout") && q.mcMessage && q.mcTarget) {
@@ -95,14 +138,9 @@ export function navigateAppBack(router) {
     return false;
 }
 
-// Close transient UI first, then use the same action as the visible app Back control.
-export function handleAppBack(router, doc = document) {
+function dismissAppBackLayer(doc) {
     const visible = (element) => !element.disabled && element.getClientRects().length > 0;
-    const layers = [
-        ...doc.querySelectorAll(
-            '[data-app-back-scope], [role="dialog"], [role="alertdialog"], [aria-modal="true"], .context-menu-panel, [data-app-back-overlay]'
-        ),
-    ].filter(visible);
+    const layers = [...doc.querySelectorAll(backLayerSelector)].filter(visible);
     const zIndex = (element) => {
         let z = 0;
         for (let node = element; node; node = node.parentElement) {
@@ -123,10 +161,25 @@ export function handleAppBack(router, doc = document) {
             layer.click();
         } else {
             const close = [...layer.querySelectorAll("[data-app-back], [data-confirm-cancel]")].find(visible);
-            if (close) close.click();
+            if (close) {
+                dispatchingBackControls.add(close);
+                try {
+                    close.click();
+                } finally {
+                    dispatchingBackControls.delete(close);
+                }
+            }
         }
         return true;
     }
+    return false;
+}
+
+// Close transient UI first, then use the same action as the visible app Back control.
+export function handleAppBack(router, doc = document) {
+    const visible = (element) => !element.disabled && element.getClientRects().length > 0;
+    if (dismissAppBackLayer(doc)) return true;
+    if (restoreSidebarReturn(router)) return true;
     const back = [...doc.querySelectorAll("[data-app-back]")].filter(visible).at(-1);
     if (back) {
         back.click();
@@ -144,6 +197,7 @@ export function installAndroidBackNavigation(router, target = window) {
         if (failure || !to.fullPath) return;
         if (to.name === "auth") {
             trail.length = 0;
+            sidebarReturns.delete(router);
             return;
         }
         const nextPosition = router.options?.history?.state?.position;
@@ -163,12 +217,17 @@ export function installAndroidBackNavigation(router, target = window) {
             if (existing >= 0) trail.splice(existing + 1);
             else trail.push(to.fullPath);
         } else if (replaced) {
+            const index = trail.length - 1;
+            const sidebarReturn = sidebarReturns.get(router)?.get(index);
             if (trail.length) trail.pop();
             trail.push(to.fullPath);
+            if (sidebarReturn) sidebarReturn.path = to.fullPath;
         } else if (trail.at(-1) !== to.fullPath) {
             trail.push(to.fullPath);
         }
-        if (trail.length > 50) trail.shift();
+        const shifted = trail.length > 50;
+        if (shifted) trail.shift();
+        pruneSidebarReturns(router, trail, shifted);
     });
     // RouterLink Up controls also consume visits, rather than pushing a new return
     // page which would make the next Android Back reopen the screen just closed.
@@ -182,6 +241,16 @@ export function installAndroidBackNavigation(router, target = window) {
             event.altKey
         )
             return;
+        const control = event.target?.closest?.("[data-app-back]");
+        if (
+            control &&
+            !dispatchingBackControls.has(control) &&
+            (dismissAppBackLayer(target.document || document) || restoreSidebarReturn(router))
+        ) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            return;
+        }
         const link = event.target?.closest?.("a[data-app-back]");
         if (!link || !link.hash?.startsWith("#/")) return;
         if (target.location && link.origin !== target.location.origin) return;
@@ -197,6 +266,7 @@ export function installAndroidBackNavigation(router, target = window) {
         target.removeEventListener?.("click", onBackLink, true);
         if (trails.get(router) === trail) trails.delete(router);
         backTargets.delete(router);
+        sidebarReturns.delete(router);
         navigating.delete(router);
         if (target.meshchatHandleBack === handler) delete target.meshchatHandleBack;
     };

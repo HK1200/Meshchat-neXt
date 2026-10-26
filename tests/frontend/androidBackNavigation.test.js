@@ -3,6 +3,8 @@ import {
     handleAppBack,
     installAndroidBackNavigation,
     navigateAppBack,
+    rememberSidebarReturn,
+    clearSidebarReturn,
 } from "../../meshchatnext/src/frontend/js/androidBackNavigation";
 
 const router = (name = "messages", query = {}, params = {}) => ({
@@ -301,4 +303,206 @@ it("page Back links consume a visit so the next Back cannot reopen it", async ()
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(r.currentRoute.value.name).toBe("messages");
     dispose();
+});
+
+describe("mobile sidebar return views", () => {
+    let dispose;
+    afterEach(() => {
+        dispose?.();
+        dispose = null;
+        vi.restoreAllMocks();
+    });
+    async function setup(useHashHistory = false) {
+        const { createRouter, createMemoryHistory, createWebHashHistory } = await import("vue-router");
+        const r = createRouter({
+            history: useHashHistory ? createWebHashHistory() : createMemoryHistory(),
+            routes: [
+                ...[
+                    "messages",
+                    "archives",
+                    "contacts",
+                    "tools",
+                    "map",
+                    "feature-settings",
+                    "meshcore-nodes",
+                    "meshcore-channels",
+                    "call",
+                ].map((name) => ({ path: "/" + name, name, component: {} })),
+                { path: "/archives/:id", name: "archive-detail", component: {} },
+            ],
+        });
+        await r.push("/messages");
+        const remove = installAndroidBackNavigation(r, window);
+        dispose = () => {
+            remove();
+            r.options.history.destroy();
+        };
+        return r;
+    }
+    it.each([
+        "archives",
+        "contacts",
+        "tools",
+        "map",
+        "feature-settings",
+        "meshcore-nodes",
+        "meshcore-channels",
+        "call",
+    ])("reopens the sidebar once before leaving its %s selection", async (name) => {
+        const r = await setup(),
+            reopen = vi.fn(() => true);
+        await r.push("/" + name);
+        rememberSidebarReturn(r, r.currentRoute.value.fullPath, reopen);
+        expect(navigateAppBack(r)).toBe(true);
+        expect(reopen).toHaveBeenCalledOnce();
+        expect(r.currentRoute.value.name).toBe(name);
+        navigateAppBack(r);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(r.currentRoute.value.name).toBe("messages");
+        expect(reopen).toHaveBeenCalledOnce();
+    });
+    it("returns from a child page before reopening its parent page's sidebar", async () => {
+        const r = await setup(),
+            reopen = vi.fn(() => true);
+        await r.push("/archives");
+        rememberSidebarReturn(r, "/archives", reopen);
+        await r.push("/archives/one");
+        navigateAppBack(r);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(r.currentRoute.value.name).toBe("archives");
+        expect(reopen).not.toHaveBeenCalled();
+        navigateAppBack(r);
+        expect(reopen).toHaveBeenCalledOnce();
+        expect(r.currentRoute.value.name).toBe("archives");
+    });
+    it("closes a modal, reopens the drawer, then closes the drawer before leaving the page", async () => {
+        const r = await setup();
+        await r.push("/archives");
+        const reopen = vi.fn(() => {
+            document.body.innerHTML = "<div data-app-back-overlay></div>";
+            const overlay = visible(document.querySelector("div"));
+            overlay.addEventListener("click", () => overlay.remove());
+            return true;
+        });
+        rememberSidebarReturn(r, "/archives", reopen);
+        document.body.innerHTML = '<div role="dialog"><button data-app-back>Close</button></div>';
+        [...document.querySelectorAll("*")].forEach(visible);
+        document.querySelector("button").addEventListener("click", () => document.querySelector("div").remove());
+        handleAppBack(r);
+        expect(reopen).not.toHaveBeenCalled();
+        handleAppBack(r);
+        expect(reopen).toHaveBeenCalledOnce();
+        handleAppBack(r);
+        expect(document.querySelector("[data-app-back-overlay]")).toBeNull();
+        expect(r.currentRoute.value.name).toBe("archives");
+        handleAppBack(r);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(r.currentRoute.value.name).toBe("messages");
+    });
+    it("uses the same sidebar checkpoint for a clicked app Back button", async () => {
+        const r = await setup(),
+            reopen = vi.fn(() => true),
+            pageBack = vi.fn();
+        await r.push("/archives");
+        rememberSidebarReturn(r, "/archives", reopen);
+        document.body.innerHTML = "<button data-app-back>Back</button>";
+        document.querySelector("button").addEventListener("click", pageBack);
+        document.querySelector("button").click();
+        expect(reopen).toHaveBeenCalledOnce();
+        expect(pageBack).not.toHaveBeenCalled();
+        expect(r.currentRoute.value.name).toBe("archives");
+    });
+    it("a clicked page Back closes a local panel before reopening the sidebar", async () => {
+        const r = await setup(),
+            reopen = vi.fn(() => true);
+        await r.push("/archives");
+        rememberSidebarReturn(r, "/archives", reopen);
+        document.body.innerHTML =
+            '<button id="header-back" data-app-back>Back</button><section data-app-back-scope></section>';
+        [...document.querySelectorAll("*")].forEach(visible);
+        document
+            .querySelector("section")
+            .addEventListener("app-back", () => document.querySelector("section").remove());
+        document.querySelector("#header-back").click();
+        expect(document.querySelector("section")).toBeNull();
+        expect(reopen).not.toHaveBeenCalled();
+        document.querySelector("#header-back").click();
+        expect(reopen).toHaveBeenCalledOnce();
+        expect(r.currentRoute.value.name).toBe("archives");
+    });
+    it("a page Back inside the map's root scope dismisses its local view before opening the menu", async () => {
+        const r = await setup(),
+            reopen = vi.fn(() => true);
+        await r.push("/map");
+        rememberSidebarReturn(r, "/map", reopen);
+        document.body.innerHTML =
+            "<section data-app-back-scope><button data-app-back>Back to message</button></section>";
+        [...document.querySelectorAll("*")].forEach(visible);
+        const section = document.querySelector("section");
+        section.addEventListener("app-back", () => section.removeAttribute("data-app-back-scope"));
+        document.querySelector("button").click();
+        expect(reopen).not.toHaveBeenCalled();
+        expect(section.hasAttribute("data-app-back-scope")).toBe(false);
+        document.querySelector("button").click();
+        expect(reopen).toHaveBeenCalledOnce();
+        expect(r.currentRoute.value.name).toBe("map");
+    });
+    it("retains each sidebar visit independently and survives an in-place URL replacement", async () => {
+        const r = await setup(true),
+            archives = vi.fn(() => true),
+            contacts = vi.fn(() => true);
+        await r.push("/archives");
+        rememberSidebarReturn(r, "/archives", archives);
+        await r.replace("/archives?filter=recent");
+        await r.push("/contacts");
+        rememberSidebarReturn(r, "/contacts", contacts);
+        navigateAppBack(r);
+        expect(contacts).toHaveBeenCalledOnce();
+        navigateAppBack(r);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(r.currentRoute.value.fullPath).toBe("/archives?filter=recent");
+        navigateAppBack(r);
+        expect(archives).toHaveBeenCalledOnce();
+    });
+    it("does not reopen a sidebar that the user already opened and closed manually", async () => {
+        const r = await setup(),
+            reopen = vi.fn(() => true);
+        await r.push("/archives");
+        rememberSidebarReturn(r, "/archives", reopen);
+        clearSidebarReturn(r);
+        navigateAppBack(r);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(r.currentRoute.value.name).toBe("messages");
+        expect(reopen).not.toHaveBeenCalled();
+    });
+    it("falls back to normal history if the drawer is no longer a mobile view", async () => {
+        const r = await setup(),
+            reopen = vi.fn(() => false);
+        await r.push("/archives");
+        rememberSidebarReturn(r, "/archives", reopen);
+        navigateAppBack(r);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(r.currentRoute.value.name).toBe("messages");
+    });
+    it("records the actual App route watcher before it closes a mobile drawer", async () => {
+        const r = await setup();
+        const { watch, nextTick } = await import("vue");
+        const { default: App } = await import("../../meshchatnext/src/frontend/components/App.vue");
+        vi.spyOn(window, "matchMedia").mockReturnValue({ matches: true });
+        const ctx = { $router: r, isSidebarOpen: true, $refs: {} };
+        const stop = watch(
+            () => r.currentRoute.value,
+            (to, from) => App.watch.$route.call(ctx, to, from)
+        );
+        try {
+            await r.push("/archives");
+            await nextTick();
+            expect(ctx.isSidebarOpen).toBe(false);
+            navigateAppBack(r);
+            expect(ctx.isSidebarOpen).toBe(true);
+            expect(r.currentRoute.value.name).toBe("archives");
+        } finally {
+            stop();
+        }
+    });
 });

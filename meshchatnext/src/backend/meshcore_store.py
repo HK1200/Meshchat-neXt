@@ -914,11 +914,12 @@ class MeshCoreStore:
             return [
                 dict(row)
                 for row in db.execute(
-                    """SELECT p.peer,p.latitude,p.longitude,p.updated,a.name,a.kind,
+                    """SELECT p.peer,p.latitude,p.longitude,p.updated,a.heard,a.advertised,a.name,a.kind,
                 EXISTS(SELECT 1 FROM contacts c WHERE c.owner=p.owner AND c.peer=p.peer AND c.active=1) AS saved
                 FROM map_positions p JOIN announces a ON a.owner=p.owner AND a.peer=p.peer
-                WHERE p.owner=? ORDER BY p.updated DESC,p.peer LIMIT 1000""",
-                    (owner,),
+                WHERE p.owner=? ORDER BY COALESCE(a.heard,
+                CASE WHEN p.updated<=? THEN p.updated ELSE 0 END) DESC,p.peer LIMIT 1000""",
+                    (owner, time.time() + 60),
                 )
             ]
 
@@ -939,8 +940,8 @@ class MeshCoreStore:
                     """SELECT peer,name,kind,advertised,heard,path_len,path_bytes,
                    EXISTS(SELECT 1 FROM contacts c WHERE c.owner=a.owner AND c.peer=a.peer AND c.active=1) AS saved
                    FROM announces a WHERE owner=?
-                   ORDER BY COALESCE(heard,advertised) DESC,peer""",
-                    (owner,),
+                   ORDER BY COALESCE(heard,CASE WHEN advertised<=? THEN advertised ELSE 0 END) DESC,peer""",
+                    (owner, time.time() + 60),
                 )
             ]
 

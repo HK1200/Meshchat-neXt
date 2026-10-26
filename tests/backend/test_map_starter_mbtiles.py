@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: 0BSD
 
 import os
+from pathlib import Path
 from unittest.mock import MagicMock
 
 from meshchatnext.src.backend.map_manager import MapManager
@@ -191,7 +192,7 @@ def test_concurrent_ensure_starter_mbtiles_race(tmp_path):
         ]
     finally:
         conn.close()
-    assert count == 341
+    assert count > 341  # World tiles plus the bundled regional overview.
     assert "starter" in name.lower()
 
 
@@ -217,6 +218,70 @@ def test_starter_install_does_not_copy_protected_asset_metadata(tmp_path, monkey
     manager = MapManager(_config(tmp_path), str(tmp_path))
     path = manager.ensure_starter_mbtiles()
     with sqlite3.connect(path) as db:
-        assert db.execute("SELECT COUNT(*) FROM tiles").fetchone()[0] == 341
+        assert db.execute("SELECT COUNT(*) FROM tiles").fetchone()[0] > 341
     assert manager.ensure_starter_mbtiles(force_restore=True) == path
     assert not list(tmp_path.glob(".starter_world.mbtiles.*.tmp"))
+
+
+def test_bundled_regional_overview_covers_cities_and_preserves_world(tmp_path):
+    import contextlib
+    import math
+    import sqlite3
+
+    with contextlib.closing(sqlite3.connect(ensure_bundled_starter_file())) as db:
+        meta = dict(db.execute("SELECT name,value FROM metadata"))
+        assert meta["maxzoom"] == "9"
+        assert meta["meshchatnext:world_maxzoom"] == "4"
+        assert "OpenStreetMap" in meta["attribution"]
+        assert (
+            db.execute("SELECT COUNT(*) FROM tiles WHERE zoom_level=4").fetchone()[0]
+            == 256
+        )
+        for lon, lat in [
+            (-122.33, 47.61),
+            (-123.12, 49.28),
+            (-122.68, 45.52),
+            (-116.20, 43.62),
+            (-123.37, 48.43),
+        ]:
+            x = int((lon + 180) / 360 * 512)
+            y = int((1 - math.asinh(math.tan(math.radians(lat))) / math.pi) / 2 * 512)
+            row = db.execute(
+                "SELECT tile_data FROM tiles WHERE zoom_level=9 AND tile_column=? AND tile_row=?",
+                (x, 511 - y),
+            ).fetchone()
+            assert row and row[0].startswith(b"\x89PNG\r\n\x1a\n")
+            assert len(row[0]) > 1024
+
+
+def test_generated_starter_upgrades_without_enabling_offline_mode(tmp_path):
+    import contextlib
+    import sqlite3
+
+    cfg = _config(tmp_path)
+    manager = MapManager(cfg, str(tmp_path))
+    path = manager.ensure_starter_mbtiles()
+    write_starter_mbtiles(path, max_zoom=0)  # Earlier app-provided starter.
+    cfg.map_offline_enabled.set(False)
+    assert manager.ensure_starter_mbtiles() == path
+    with contextlib.closing(sqlite3.connect(path)) as db:
+        assert dict(db.execute("SELECT name,value FROM metadata"))["maxzoom"] == "9"
+    assert cfg.map_offline_enabled.get() is False
+
+
+def test_user_map_named_like_starter_is_not_overwritten(tmp_path):
+    import contextlib
+    import sqlite3
+
+    cfg = _config(tmp_path)
+    manager = MapManager(cfg, str(tmp_path))
+    path = manager.ensure_starter_mbtiles()
+    with contextlib.closing(sqlite3.connect(path)) as db:
+        db.execute(
+            "UPDATE metadata SET value='My custom offline map' WHERE name='name'"
+        )
+        db.execute("DELETE FROM metadata WHERE name='meshchatnext:starter_revision'")
+        db.commit()
+    before = Path(path).read_bytes()
+    manager.ensure_starter_mbtiles()
+    assert Path(path).read_bytes() == before

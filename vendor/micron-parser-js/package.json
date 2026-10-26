@@ -1,0 +1,12 @@
+{
+  "name": "micron-parser",
+  "version": "0.0.0-next.1",
+  "main": "js/micron-parser.js",
+  "module": "js/micron-parser.js",
+  "license": "Unlicense",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/RFnexus/micron-parser-js"
+  },
+  "description": "Unchanged RFNexus Micron parser, vendored at ce24ce44adf804230a16520a9f79cd5f183c0bb5"
+}

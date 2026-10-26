@@ -25,6 +25,7 @@ Meshchat neXt puts several communications tools in one place. You can use just o
 
 ### Keep in mind
 
+- On phones, choosing a page from the sidebar makes Back reopen that sidebar first. Back closes dialogs and local panels before leaving a page; closing a reopened sidebar does not trap you in a loop. Android Back and the app Back controls follow the same order.
 - Reticulum and MeshCore do not automatically bridge messages. Linking contacts only groups their addresses in your address book.
 - TAC is a map/team workflow carried over MeshCore; it is not another general-purpose radio network. SIP is separate internet telephony.
 - Feature visibility switches do not stop an already running service. Disconnect or disable it through its own controls.

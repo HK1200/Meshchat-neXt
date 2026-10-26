@@ -87,11 +87,18 @@
                         >
                     </li>
                 </ol>
-                <button type="button" class="primary-chip" :disabled="!route.points.length" @click="showMap(selection)">
+                <button v-if="route.points.length" type="button" class="primary-chip" @click="showMap(selection)">
                     View captured route on map
                 </button>
                 <p v-if="!route.points.length" class="text-xs text-sem-fg-muted">
-                    No unambiguous reported locations are available for this packet path.
+                    {{
+                        route.route === "direct"
+                            ? "Map unavailable: this is a supplied direct path, not a captured traversal."
+                            : "Map unavailable: no nodes in this captured packet have unambiguous reported locations."
+                    }}
+                    <span v-if="details.direction === 'out'">
+                        Sent messages need a matching received copy with usable locations to show a captured route.
+                    </span>
                 </p>
             </template>
             <button v-if="details.endpoints?.length" type="button" class="secondary-chip" @click="showMap(-1)">

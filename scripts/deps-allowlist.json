@@ -1,16 +1,6 @@
 {
     "version": 1,
-    "git_dependencies": [
-        {
-            "name": "micron-parser",
-            "specifiers": [
-                "github:RFnexus/micron-parser-js",
-                "github:RFnexus/micron-parser-js#ce24ce44adf804230a16520a9f79cd5f183c0bb5"
-            ],
-            "commit": "ce24ce44adf804230a16520a9f79cd5f183c0bb5",
-            "repository": "https://github.com/RFnexus/micron-parser-js"
-        }
-    ],
+    "git_dependencies": [],
     "git_sources": [
         {
             "name": "zypak",
@@ -30,6 +20,17 @@
         {
             "name": "golang-wasm-exec",
             "url": "https://raw.githubusercontent.com/golang/go/go1.26.2/lib/wasm/wasm_exec.js"
+        }
+    ],
+    "vendored_dependencies": [
+        {
+            "name": "micron-parser",
+            "path": "vendor/micron-parser-js",
+            "commit": "ce24ce44adf804230a16520a9f79cd5f183c0bb5",
+            "files": {
+                "js/micron-parser.js": "5652d7e82f44c4bcbf25f8de36260a6c98e51836a9e6238c221950e8cc75cb03",
+                "LICENSE": "6b0382b16279f26ff69014300541967a356a666eb0b91b422f6862f6b7dad17e"
+            }
         }
     ]
 }

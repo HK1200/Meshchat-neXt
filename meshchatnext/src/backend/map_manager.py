@@ -2,6 +2,7 @@
 
 import asyncio
 import base64
+import contextlib
 import math
 import os
 import sqlite3
@@ -95,8 +96,29 @@ class MapManager:
 
         with self._starter_lock:
             existing = self.get_offline_path()
+            refresh_starter = False
             if existing and os.path.exists(existing) and not force_restore:
-                return existing
+                if os.path.basename(existing) != STARTER_FILENAME:
+                    return existing
+                # Upgrade only our generated starter, never a user's custom map.
+                try:
+                    with contextlib.closing(sqlite3.connect(existing)) as db:
+                        old_meta = dict(db.execute("SELECT name,value FROM metadata"))
+                    if not str(old_meta.get("name", "")).startswith(
+                        "Meshchat neXt starter world"
+                    ):
+                        return existing
+                    src = ensure_bundled_starter_file()
+                    with contextlib.closing(sqlite3.connect(src)) as db:
+                        new_meta = dict(db.execute("SELECT name,value FROM metadata"))
+                    revision = new_meta.get("meshchatnext:starter_revision")
+                    if not revision or revision == old_meta.get(
+                        "meshchatnext:starter_revision"
+                    ):
+                        return existing
+                    refresh_starter = True
+                except (OSError, sqlite3.Error):
+                    return existing
 
             try:
                 src = ensure_bundled_starter_file()
@@ -113,7 +135,7 @@ class MapManager:
             mbtiles_dir = self.get_mbtiles_dir()
             os.makedirs(mbtiles_dir, exist_ok=True)
             dest = os.path.join(mbtiles_dir, STARTER_FILENAME)
-            if force_restore or not os.path.exists(dest):
+            if force_restore or refresh_starter or not os.path.exists(dest):
                 import shutil
                 import tempfile
 

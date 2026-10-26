@@ -31,7 +31,7 @@
 
 - First-start setup for selected services, existing identities/backups and optional client devices.
 - Expandable help, a searchable interactive field guide and a GitHub-readable FAQ.
-- Consistent network labels, compact phone chat controls and app-aware Android Back navigation.
+- Consistent network labels, compact phone chat controls and app-aware Android Back navigation, including returning to the mobile sidebar after selecting a destination.
 - Meshchat neXt branding, N artwork, application namespace and separate app storage.
 
 Radio2 media, node management and TAK compatibility depend on supported firmware and formats. See the [field guide](docs/guide/README.md) for requirements and privacy limitations. Production signing, repository/reporting URLs and release assets are configured before publication.

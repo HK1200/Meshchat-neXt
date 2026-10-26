@@ -398,3 +398,33 @@ class OfflineUiTests(unittest.IsolatedAsyncioTestCase):
             )
             self.assertEqual(snapshot["links"], [{"contact": 12, "peer": PEER}])
             await service.close()
+
+
+def test_future_advert_clocks_do_not_outrank_real_receipts(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "meshchatnext.src.backend.meshcore_store.time.time", lambda: 10_000
+    )
+    store = MeshCoreStore(tmp_path / "clock.sqlite")
+    future, recent, older = "d4" * 32, "e5" * 32, "f6" * 32
+
+    def record(peer, stamp):
+        return {
+            "public_key": peer,
+            "type": 2,
+            "adv_name": "Clock test",
+            "last_advert": stamp,
+            "adv_lat": 48,
+            "adv_lon": -122,
+        }
+
+    store.save_announce(OWNER, record(future, 700_000))
+    store.save_announce(OWNER, record(recent, 9_900), heard=9_950)
+    store.save_announce(OWNER, record(older, 9_800))
+    assert [row["peer"] for row in store.map_nodes(OWNER)] == [recent, older, future]
+    assert [row["peer"] for row in store.announces(OWNER)] == [recent, older, future]
+    # Reading/refetching saved contacts must never pretend a packet was received.
+    store.save_announce(OWNER, record(future, 700_000))
+    assert store.map_nodes(OWNER)[-1]["heard"] is None
+    store.save_announce(OWNER, record(future, 700_000), heard=9_999)
+    first = store.map_nodes(OWNER)[0]
+    assert (first["peer"], first["heard"], first["updated"]) == (future, 9_999, 700_000)

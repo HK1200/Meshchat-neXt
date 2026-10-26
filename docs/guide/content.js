@@ -13,6 +13,7 @@ window.NEXT_GUIDE = {
                 "Use Settings → App features → Run setup guide if you leave first launch. The setup Back button returns through setup; Set up later is the explicit way to finish early. Expand the Help tiles for each choice.",
             ],
             notes: [
+                "On phones, choosing a page from the sidebar makes Back reopen that sidebar first. Back closes dialogs and local panels before leaving a page; closing a reopened sidebar does not trap you in a loop. Android Back and the app Back controls follow the same order.",
                 "Reticulum and MeshCore do not automatically bridge messages. Linking contacts only groups their addresses in your address book.",
                 "TAC is a map/team workflow carried over MeshCore; it is not another general-purpose radio network. SIP is separate internet telephony.",
                 "Feature visibility switches do not stop an already running service. Disconnect or disable it through its own controls.",
@@ -361,7 +362,7 @@ window.NEXT_GUIDE = {
             lead: "A map can show overlays while its background is blank. Map tiles are the background images; they must be available locally for offline use. Wi-Fi being enabled does not prove the map has a network route or downloaded coverage.",
             steps: [
                 "Before going offline, open Map with internet access and inspect the area and zoom levels you need.",
-                "Use the map’s offline/MBTiles controls to install an appropriate map or restore the bundled starter tiles if offered. Starter coverage is limited; it is not every place at every zoom.",
+                "The bundled map includes a world overview and a compact PNW/southern British Columbia overview through zoom 9. In Map → Offline maps, restore the starter map if needed, or download the optional 104 MB regional detail map and import it as MBTiles for road/town context through zoom 12. Coverage is limited; it is not every place at every zoom.",
                 "Confirm that the map source and selected MBTiles file match the view. A tile set’s area and zoom range determine what can display.",
                 "Test with network access unavailable before leaving. Pan and zoom through the intended operational area rather than checking a single screen.",
                 "If one phone works and another does not, compare their downloaded files, selected source, coverage and zoom. Each installation has its own tile storage.",

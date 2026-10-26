@@ -17,3 +17,5 @@ The source lineage includes [MeshChatX HK](https://github.com/HK1200/MeshChatX-H
 ## License tooling
 
 The retained `scripts/license_scope_mapper.go` assists with per-file SPDX labels using similarity scoring. Its output is a labeling aid, not a legal determination of derivative-work status.
+
+Regional offline maps include OpenStreetMap-derived Protomaps raster Produced Works (© OpenStreetMap contributors, ODbL terms) and public-domain Natural Earth overview data. See `meshchatnext/src/backend/data/map/REGIONAL_MAPS.json` and `REGIONAL_MAPS_NOTICE.txt` for attribution, provenance and checksums.

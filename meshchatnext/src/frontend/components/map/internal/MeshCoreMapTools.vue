@@ -62,7 +62,7 @@
                     </p>
                     <p>{{ kinds[selected.kind] || "Node" }} · reported position</p>
                     <p class="font-mono">{{ selected.latitude.toFixed(5) }}, {{ selected.longitude.toFixed(5) }}</p>
-                    <p class="text-sem-fg-muted">{{ age(selected.updated) }}</p>
+                    <p class="text-sem-fg-muted">{{ nodeAge(selected) }}</p>
                     <button
                         v-if="selected.kind === 1 && !selected.saved"
                         type="button"
@@ -149,7 +149,7 @@
                         >
                             <span class="font-semibold">{{ node.name || "Unnamed node" }}</span
                             ><span class="block text-sem-fg-muted"
-                                >MeshCore · {{ kinds[node.kind] || "Node" }} · {{ age(node.updated) }}</span
+                                >MeshCore · {{ kinds[node.kind] || "Node" }} · {{ nodeAge(node) }}</span
                             >
                         </button>
                     </li>
@@ -176,12 +176,14 @@ import { unByKey } from "ol/Observable";
 import { shapeGeometry } from "../../../js/meshcoreShapes";
 import { getAndroidPosition, isAndroidLocationSupported } from "../../../js/androidLocation";
 import { apiPath } from "../../../js/constants";
+import { formatMeshcoreAge } from "../../../js/meshcoreTime";
 const props = defineProps({
     map: { type: Object, default: null },
     active: { type: Boolean, default: true },
     drawSource: { type: Object, default: null },
 });
 const router = useRouter();
+const clock = ref(Date.now());
 const open = ref(false),
     visible = ref(false),
     nodes = ref([]),
@@ -291,13 +293,14 @@ let layer,
     generation = 0,
     stopped = false;
 function age(updated) {
-    if (!updated) return "Time unknown";
-    const minutes = Math.max(0, Math.floor((Date.now() / 1000 - updated) / 60));
-    return minutes < 1
-        ? "Just updated"
-        : minutes < 60
-          ? `${minutes} minutes ago`
-          : `${Math.floor(minutes / 60)} hours ago`;
+    void clock.value;
+    return formatMeshcoreAge(updated);
+}
+function nodeTime(node) {
+    return node.heard || node.updated;
+}
+function nodeAge(node) {
+    return `${node.heard ? "Last heard" : "Position advertised"} · ${age(nodeTime(node))}`;
 }
 function draw() {
     if (!source) return;
@@ -307,7 +310,9 @@ function draw() {
             geometry: new Point(fromLonLat([node.longitude, node.latitude])),
             meshcore: node,
         });
-        const stale = Date.now() / 1000 - node.updated > 1800;
+        const stamp = nodeTime(node),
+            now = Date.now() / 1000;
+        const stale = !Number.isFinite(stamp) || stamp <= 0 || stamp > now + 60 || now - stamp > 1800;
         feature.setStyle(
             new Style({
                 image: new CircleStyle({
@@ -487,6 +492,7 @@ async function refresh() {
                 Math.abs(n.latitude) <= 90 &&
                 Math.abs(n.longitude) <= 180
         );
+        if (selected.value) selected.value = nodes.value.find((node) => node.peer === selected.value.peer) || null;
         draw();
         focusNotification();
     } catch {
@@ -588,6 +594,7 @@ function manage() {
 }
 watch(owner, clearRange);
 const timer = setInterval(() => {
+    clock.value = Date.now();
     if (rangePosition.value && Date.now() / 1000 - rangePosition.value.captured > 120) clearRange();
     if ((visible.value || open.value) && props.active && !document.hidden) void refresh();
 }, 30000);

@@ -965,6 +965,8 @@
                     :mbtiles-list="mbtilesList"
                     :mbtiles-dir="mbtilesDir"
                     :has-offline-map="hasOfflineMap"
+                    :offline-description="metadata?.description || ''"
+                    :offline-attribution="metadata?.attribution || ''"
                     :announce-listen-enabled="announceListenEnabled"
                     :announce-listen-busy="announceListenBusy"
                     @overlays-changed="onRemoteOverlaysChanged"
@@ -2203,7 +2205,7 @@ export default {
                 }),
                 controls: defaultControls({
                     attributionOptions: {
-                        collapsible: true,
+                        collapsible: false,
                         ...(this.$refs.attributionMount ? { target: this.$refs.attributionMount } : {}),
                     },
                     rotate: false,
@@ -2744,6 +2746,22 @@ export default {
                 await applyMapboxStyle(group, url);
                 return group;
             }
+            const worldMax = Number(this.metadata?.["meshchatnext:world_maxzoom"] ?? Number.NaN);
+            if (this.usesOfflineMbtilesRaster() && Number.isInteger(worldMax) && worldMax >= 0 && worldMax <= 4) {
+                const layers = [
+                    new TileLayer({ source: this.getOfflineMbtilesTopSource(worldMax), preload: 1, transition: 0 }),
+                    new TileLayer({ source: this.getOfflineMbtilesTopSource(), preload: 1, transition: 0 }),
+                ];
+                if (this.cachingEnabled)
+                    layers.push(
+                        new TileLayer({
+                            source: this.getOfflineRasterCacheOnlySource(true),
+                            preload: 1,
+                            transition: 0,
+                        })
+                    );
+                return new LayerGroup({ layers });
+            }
             if (this.cachingEnabled && this.usesOfflineMbtilesRaster()) {
                 return new LayerGroup({
                     layers: [
@@ -2936,28 +2954,35 @@ export default {
             }
             return false;
         },
-        getOfflineRasterCacheOnlySource() {
+        offlineAttribution() {
+            return DOMPurify.sanitize(String(this.metadata?.attribution || ""), {
+                ALLOWED_TAGS: ["a"],
+                ALLOWED_ATTR: ["href", "target", "rel"],
+            });
+        },
+        getOfflineRasterCacheOnlySource(aboveOverview = false) {
             const zoom = this.offlineMbtilesZoomRange();
             const source = new XYZ({
                 url: OFFLINE_MB_TILES_URL,
                 minZoom: zoom.minZoom,
-                maxZoom: zoom.maxZoom,
+                maxZoom: aboveOverview ? 22 : zoom.maxZoom,
                 crossOrigin: "anonymous",
                 transition: 0,
                 cacheSize: 2048,
             });
             source.setTileLoadFunction(async (tile, src) => {
                 if (await this.tryApplyCachedRasterTilesOnly(tile, src)) return;
-                await this.applyRasterPlaceholderTile(tile, "dark");
+                await this.applyRasterPlaceholderTile(tile, aboveOverview ? "transparent" : "dark");
             });
             return source;
         },
-        getOfflineMbtilesTopSource() {
+        getOfflineMbtilesTopSource(maxZoomOverride = null) {
             const zoom = this.offlineMbtilesZoomRange();
             const source = new XYZ({
                 url: OFFLINE_MB_TILES_URL,
                 minZoom: zoom.minZoom,
-                maxZoom: zoom.maxZoom,
+                maxZoom: Number.isInteger(maxZoomOverride) ? maxZoomOverride : zoom.maxZoom,
+                attributions: this.offlineAttribution(),
                 crossOrigin: "anonymous",
                 transition: 0,
                 cacheSize: 2048,
@@ -3036,6 +3061,7 @@ export default {
                 const zoom = this.offlineMbtilesZoomRange();
                 xyzOptions.minZoom = zoom.minZoom;
                 xyzOptions.maxZoom = zoom.maxZoom;
+                xyzOptions.attributions = this.offlineAttribution();
             }
             const source = new XYZ(xyzOptions);
 

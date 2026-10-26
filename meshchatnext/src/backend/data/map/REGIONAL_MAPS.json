@@ -1,0 +1,33 @@
+{
+    "source": "https://build.protomaps.com/20261025.pmtiles",
+    "snapshot": "2026-10-25T04:00:00Z",
+    "regional_bounds": [-128, 42, -110, 53],
+    "world_zooms": [0, 4],
+    "overview_regional_zooms": [5, 9],
+    "detail_regional_zooms": [5, 12],
+    "attribution": "\u00a9 OpenStreetMap contributors; Natural Earth. Protomaps basemap.",
+    "licenses": {
+        "OpenStreetMap": "https://www.openstreetmap.org/copyright",
+        "Protomaps redistribution": "https://docs.protomaps.com/basemaps/downloads",
+        "Natural Earth": "https://www.naturalearthdata.com/about/terms-of-use/"
+    },
+    "build_dependencies": {
+        "pillow": "13.0.0",
+        "mapbox-vector-tile": "2.2.0",
+        "pmtiles": "3.8.1"
+    },
+    "extractor": {
+        "version": "1.31.2",
+        "archive_sha256": "3ed7dbf4ec2e6dfe5e25b6f70d1ffc932729f93c86db353bf514dd71010a312f"
+    },
+    "assets": {
+        "starter_world.mbtiles": {
+            "bytes": 5021696,
+            "sha256": "0698cdc7f96b6995b860dabaebafe1a16ed06b121812adeaed542bb9ccec8e1e"
+        },
+        "MeshchatNext-PNW-SouthernBC-detail.mbtiles": {
+            "bytes": 108847104,
+            "sha256": "a9b66376fbb9656c4e0ee20ff8c28b29cbd1b98eefaa23ba2a8ad71e4fd692d5"
+        }
+    }
+}

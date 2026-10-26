@@ -10,24 +10,22 @@ const owner = "a1".repeat(32),
 const modal = { props: ["modelValue"], template: '<div v-if="modelValue"><slot/></div>' };
 beforeEach(() => {
     window.api = {
-        get: vi
-            .fn()
-            .mockResolvedValue({
-                data: {
-                    result: {
-                        owner,
-                        id: "one",
-                        kind: "direct",
-                        target,
-                        direction: "out",
-                        state: "accepted",
-                        reported_hops: null,
-                        routes: [],
-                        heard_repeats: 2,
-                        note: "Observed only",
-                    },
+        get: vi.fn().mockResolvedValue({
+            data: {
+                result: {
+                    owner,
+                    id: "one",
+                    kind: "direct",
+                    target,
+                    direction: "out",
+                    state: "accepted",
+                    reported_hops: null,
+                    routes: [],
+                    heard_repeats: 2,
+                    note: "Observed only",
                 },
-            }),
+            },
+        }),
     };
 });
 afterEach(() => {
@@ -65,4 +63,53 @@ it("combines attachment controls into one row and unmounts the old draft on swit
     expect(w.find("mesh-core-voice-composer-stub").exists()).toBe(true);
     await w.get('[aria-label="Close attachments"]').trigger("click");
     expect(w.find("mesh-core-voice-composer-stub").exists()).toBe(false);
+});
+
+it("explains an unmappable outgoing observation without presenting an inactive map button", async () => {
+    const response = await window.api.get();
+    response.data.result.kind = "channel";
+    response.data.result.routes = [{ route: "flood", hash_bytes: 1, received: 1, hops: [], points: [] }];
+    w = mount(Details, {
+        props: { owner, target, kind: "channel", row: { id: "one" } },
+        global: { stubs: { AppModal: modal } },
+    });
+    await flushPromises();
+    expect(w.text()).toContain(
+        "Map unavailable: no nodes in this captured packet have unambiguous reported locations."
+    );
+    expect(w.text()).toContain("Sent messages need a matching received copy");
+    expect(w.findAll("button").some((button) => button.text() === "View captured route on map")).toBe(false);
+});
+it("opens an outgoing captured observation when it has a reported location", async () => {
+    const response = await window.api.get();
+    response.data.result.kind = "channel";
+    response.data.result.routes = [
+        {
+            route: "flood",
+            hash_bytes: 1,
+            received: 1,
+            hops: [],
+            points: [{ peer: owner, latitude: 48, longitude: -122, order: 0 }],
+        },
+    ];
+    w = mount(Details, {
+        props: { owner, target, kind: "channel", row: { id: "one" } },
+        global: { stubs: { AppModal: modal } },
+    });
+    await flushPromises();
+    await w
+        .findAll("button")
+        .find((button) => button.text() === "View captured route on map")
+        .trigger("click");
+    expect(w.emitted("close")).toHaveLength(1);
+    expect(push).toHaveBeenCalledWith({
+        name: "map",
+        query: {
+            mcMessage: "one",
+            mcOwner: owner,
+            mcTarget: target,
+            mcKind: "channel",
+            mcObservation: "0",
+        },
+    });
 });

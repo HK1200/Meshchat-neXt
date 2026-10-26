@@ -52,6 +52,8 @@
                 :mbtiles-list="mbtilesList"
                 :mbtiles-dir="mbtilesDir"
                 :has-offline-map="hasOfflineMap"
+                :offline-description="offlineDescription"
+                :offline-attribution="offlineAttribution"
                 @toggle-offline="$emit('toggle-offline', $event)"
                 @toggle-caching="$emit('toggle-caching', $event)"
                 @upload="$emit('upload-mbtiles')"
@@ -89,6 +91,8 @@ export default {
         mbtilesList: { type: Array, default: () => [] },
         mbtilesDir: { type: String, default: "" },
         hasOfflineMap: { type: Boolean, default: false },
+        offlineDescription: { type: String, default: "" },
+        offlineAttribution: { type: String, default: "" },
         initialTab: { type: String, default: "discover" },
         announceListenEnabled: { type: Boolean, default: false },
         announceListenBusy: { type: Boolean, default: false },

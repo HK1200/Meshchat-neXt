@@ -9,6 +9,7 @@ import android.media.*;
 import android.net.*;
 import android.os.*;
 import com.meshchatnext.MainActivity;
+import com.meshchatnext.AppBackgroundNotification;
 import com.meshchatnext.R;
 import java.util.*;
 import java.util.concurrent.*;
@@ -16,7 +17,9 @@ import org.json.*;
 
 /** Dedicated process: DNS, SIP and RTP are bound together to an allowed network. */
 public final class SipService extends Service {
-    private static final int NOTIFICATION = 6400, INCOMING = 6401;
+    private static final int NOTIFICATION = AppBackgroundNotification.ID, INCOMING = 6401;
+    private volatile boolean foregroundActive;
+    private String lastBackgroundStatus = "";
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService work = Executors.newSingleThreadExecutor();
     private final List<Messenger> listeners = new ArrayList<>();
@@ -198,7 +201,7 @@ public final class SipService extends Service {
                     if (secret == null) {
                         state = "password_required";
                         publish();
-                        stopForeground(STOP_FOREGROUND_REMOVE);
+                        leaveForeground();
                         stopSelf();
                         return;
                     }
@@ -209,7 +212,7 @@ public final class SipService extends Service {
                 } catch (Exception e) {
                     state = "disconnected";
                     publish();
-                    stopForeground(STOP_FOREGROUND_REMOVE);
+                    leaveForeground();
                     stopSelf();
                 }
             });
@@ -228,23 +231,33 @@ public final class SipService extends Service {
         if (Build.VERSION.SDK_INT >= 26) return new Notification.Builder(this, channel);
         return new Notification.Builder(this);
     }
-    private void foreground(boolean microphone) {
-        Notification n = notificationBuilder("sip_service")
-                             .setSmallIcon(R.drawable.ic_stat_meshchatnext)
-                             .setContentTitle(active == null ? "SIP"
-                                                             : "SIP · "
-                                         + active.optString("label", active.optString("extension")))
-                             .setContentText(networkName.isEmpty() ? "SIP account connection"
-                                                                   : networkName + " · " + state)
-                             .setContentIntent(open())
-                             .setOngoing(true)
-                             .build();
+    private synchronized void foreground(boolean microphone) {
+        String status = AppBackgroundNotification.sipLine(networkName, state, callState);
+        AppBackgroundNotification.saveSipStatus(this, status);
+        lastBackgroundStatus = status;
+        Notification n = AppBackgroundNotification.build(this, status);
+        getSystemService(NotificationManager.class).cancel(AppBackgroundNotification.LEGACY_SIP_ID);
         if (Build.VERSION.SDK_INT >= 29)
             startForeground(NOTIFICATION, n,
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL
                     | (microphone ? ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE : 0));
         else
             startForeground(NOTIFICATION, n);
+        foregroundActive = true;
+    }
+    private synchronized void leaveForeground() {
+        foregroundActive = false;
+        AppBackgroundNotification.clearSipStatus(this);
+        stopForeground(STOP_FOREGROUND_REMOVE);
+    }
+    private synchronized void refreshBackgroundStatus() {
+        if (!foregroundActive) return;
+        String status = AppBackgroundNotification.sipLine(networkName, state, callState);
+        if (!status.equals(lastBackgroundStatus)) {
+            lastBackgroundStatus = status;
+            AppBackgroundNotification.saveSipStatus(this, status);
+            getSystemService(NotificationManager.class).notify(NOTIFICATION, AppBackgroundNotification.build(this, status));
+        }
     }
     private JSONObject find(String id) throws JSONException {
         for (int i = 0; i < accounts.length(); i++)
@@ -359,7 +372,7 @@ public final class SipService extends Service {
                     selected = "";
                     active = null;
                     state = "disconnected";
-                    stopForeground(STOP_FOREGROUND_REMOVE);
+                    leaveForeground();
                 }
                 vault.remove(id);
                 sessionPasswords.remove(id);
@@ -412,7 +425,7 @@ public final class SipService extends Service {
                 stopEngine();
                 releaseCellular();
                 state = "disconnected";
-                stopForeground(STOP_FOREGROUND_REMOVE);
+                leaveForeground();
                 stopSelf();
                 break;
             case "call": {
@@ -743,6 +756,7 @@ public final class SipService extends Service {
         });
     }
     private void publish() {
+        refreshBackgroundStatus();
         try {
             JSONArray safe = new JSONArray();
             for (int i = 0; i < accounts.length(); i++) {
@@ -798,6 +812,7 @@ public final class SipService extends Service {
             stopEngine();
             work.shutdown();
         });
+        leaveForeground();
         super.onDestroy();
     }
 }

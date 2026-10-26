@@ -499,7 +499,7 @@
 
 <script>
 import { appFeatures, featureNavAllowed } from "../js/appFeatures";
-import { installAndroidBackNavigation } from "../js/androidBackNavigation";
+import { installAndroidBackNavigation, rememberSidebarReturn, clearSidebarReturn } from "../js/androidBackNavigation";
 import { mapStores } from "pinia";
 import { useAuthStore } from "../js/stores/authStore";
 import { useNetworkStore } from "../js/stores/networkStore";
@@ -991,6 +991,13 @@ export default {
     },
     watch: {
         $route(to, from) {
+            if (this.isSidebarOpen && window.matchMedia?.("(max-width: 639px)").matches) {
+                rememberSidebarReturn(this.$router, to.fullPath, () => {
+                    if (!window.matchMedia?.("(max-width: 639px)").matches) return false;
+                    this.isSidebarOpen = true;
+                    return true;
+                });
+            }
             this.isSidebarOpen = false;
             // Close tutorial modal if it's open and we navigate away
             if (from && from.name && this.$refs.tutorialModal && this.$refs.tutorialModal.visible) {
@@ -1015,6 +1022,9 @@ export default {
                 );
             },
             deep: true,
+        },
+        isSidebarOpen(open) {
+            if (open) clearSidebarReturn(this.$router);
         },
         isSidebarCollapsed(collapsed) {
             saveFeatureSidebarCollapsed("app", collapsed);

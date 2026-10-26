@@ -130,7 +130,7 @@ import SearchInput from "../SearchInput.vue";
 import LxmfUserIcon from "../LxmfUserIcon.vue";
 import SidebarVirtualList from "../SidebarVirtualList.vue";
 import { MIN_VIRTUAL_SIDEBAR_ITEMS } from "../../js/sidebarListVirtual";
-import Utils from "../../js/Utils";
+import { formatMeshcoreAge } from "../../js/meshcoreTime";
 import { meshcoreRoute, meshcoreNodeRoute } from "../../js/meshcoreUi";
 const props = defineProps({ snapshot: { type: Object, required: true }, action: { type: Function, required: true } });
 const search = ref(""),
@@ -158,7 +158,7 @@ function date(value) {
 }
 function timeAgo(value) {
     void tick.value;
-    return value ? Utils.formatTimeAgo(new Date(value * 1000)) : "at an unknown time";
+    return formatMeshcoreAge(value);
 }
 let timer;
 onMounted(() => {

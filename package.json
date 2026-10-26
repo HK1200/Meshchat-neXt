@@ -138,7 +138,7 @@
         "knip": "^6.33.0",
         "lighthouse": "^13.4.1",
         "marked": "^18.0.11",
-        "micron-parser": "github:RFnexus/micron-parser-js#ce24ce44adf804230a16520a9f79cd5f183c0bb5",
+        "micron-parser": "file:vendor/micron-parser-js",
         "minimatch": ">=10.2.3",
         "ol": "^10.10.0",
         "ol-mapbox-style": "^13.4.3",
