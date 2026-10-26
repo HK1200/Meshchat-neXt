@@ -41,7 +41,7 @@ async def test_repeated_discovery_keeps_database_fds_and_subscriptions_bounded(
         return SimpleNamespace(unsubscribe=lambda: subscriptions.remove(callback))
 
     async def send(**kwargs):
-        for callback in list(subscriptions):
+        for callback in subscriptions:
             callback(
                 SimpleNamespace(
                     payload={
