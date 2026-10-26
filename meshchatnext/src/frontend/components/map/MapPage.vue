@@ -29,6 +29,13 @@
                         : 'flex items-center gap-x-1.5 gap-y-2 px-3 py-2 sm:px-4 border-b border-sem-border bg-sem-surface z-10 relative min-w-0 flex-nowrap overflow-x-auto sm:flex-wrap sm:overflow-visible sm:justify-end'
                 "
             >
+                <button
+                    type="button"
+                    class="px-2 py-2 text-xs font-semibold text-sem-fg rounded-lg border border-sem-border shrink-0"
+                    @click="openOfflineMaps"
+                >
+                    Offline maps
+                </button>
                 <!-- offline/online toggle -->
                 <div class="flex shrink-0 items-center bg-sem-surface-muted rounded-lg p-0.5 sm:p-1 min-w-0 max-w-full">
                     <button
@@ -128,13 +135,6 @@
                     @click="toggleMobileSearch"
                 >
                     <MaterialDesignIcon :icon-name="isMobileSearchOpen ? 'close' : 'magnify'" class="size-[18px]" />
-                </button>
-                <button
-                    type="button"
-                    class="px-2 py-2 text-xs font-semibold text-sem-fg rounded-lg border border-sem-border shrink-0"
-                    @click="openOfflineMaps"
-                >
-                    Offline maps
                 </button>
                 <button
                     ref="mapToolsButton"

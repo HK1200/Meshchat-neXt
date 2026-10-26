@@ -75,7 +75,7 @@
                         >
                             <MaterialDesignIcon :icon-name="isSidebarOpen ? 'close' : 'menu'" class="size-6" />
                         </button>
-                        <div class="flex min-w-0 flex-1 items-center gap-2 sm:flex-initial sm:gap-3">
+                        <div data-app-brand class="flex min-w-0 flex-1 items-center gap-2 sm:flex-initial sm:gap-3">
                             <div class="hidden shrink-0 justify-start sm:flex sm:w-12 sm:justify-center">
                                 <div
                                     class="flex h-10 w-10 cursor-pointer items-center justify-center overflow-hidden rounded-xl sm:h-12 sm:w-12"

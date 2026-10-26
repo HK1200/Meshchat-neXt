@@ -776,6 +776,7 @@ a[href] {
 /* Phone landscape must retain the compact navigation shell and a scrollable body. */
 @media (max-height: 500px) and (pointer: coarse) {
     [data-map-mobile-search] { display: inline-flex; }
+    [data-app-brand] { flex: 0 0 auto; }
     [data-app-brand-text] { flex-shrink: 0; white-space: nowrap; }
     .map-toolbar {
         flex-wrap: nowrap;

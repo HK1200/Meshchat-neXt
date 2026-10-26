@@ -47,24 +47,39 @@ from meshchatnext.src.path_utils import is_path_within_dir
 def register_map_routes(routes, app):
     from meshchatnext.src.backend.regional_map_download import RegionalMapDownload
 
-    regional_download = RegionalMapDownload(app.map_manager)
-    app.map_manager.regional_download = regional_download
+    def get_regional_download():
+        # Deferred startup binds routes before map storage is initialized.
+        if getattr(app, "map_manager", None) is None:
+            return None
+        download = getattr(app, "regional_map_download", None)
+        if download is None:
+            download = RegionalMapDownload(app.map_manager)
+            app.regional_map_download = download
+        return download
 
     @routes.get(API_V1_PREFIX + "/map/mbtiles/regional-download")
     async def regional_download_status(request):
-        return web.json_response(regional_download.state)
+        download = get_regional_download()
+        if download is None:
+            return http_unavailable("Map tools are still starting")
+        return web.json_response(download.state)
 
     @routes.post(API_V1_PREFIX + "/map/mbtiles/regional-download")
     async def start_regional_download(request):
+        download = get_regional_download()
+        if download is None:
+            return http_unavailable("Map tools are still starting")
         try:
-            regional_download.start()
+            download.start()
         except OutboundHttpBlockedError as error:
             return http_forbidden(str(error))
-        return web.json_response(regional_download.state)
+        return web.json_response(download.state)
 
     @routes.delete(API_V1_PREFIX + "/map/mbtiles/regional-download")
     async def cancel_regional_download(request):
-        regional_download.cancel()
+        download = get_regional_download()
+        if download is not None:
+            download.cancel()
         return web.json_response({"status": "cancelling"})
 
     # get offline map metadata

@@ -95,7 +95,7 @@ class RegionalMapDownload:
             ):
                 raise ValueError("Regional map verification failed; please retry")
             with closing(
-                sqlite3.connect(f"file:{temporary}?mode=ro", uri=True)
+                sqlite3.connect(Path(temporary).as_uri() + "?mode=ro", uri=True)
             ) as database:
                 if database.execute("PRAGMA quick_check").fetchone()[0] != "ok":
                     raise ValueError("Regional map database is damaged")
@@ -139,7 +139,7 @@ class RegionalMapDownload:
 
 def install_regional_map_lifecycle(web_app, owner):
     async def stop(_app):
-        download = getattr(owner.map_manager, "regional_download", None)
+        download = getattr(owner, "regional_map_download", None)
         if download and download.task and not download.task.done():
             download.cancel()
             with suppress(asyncio.CancelledError):

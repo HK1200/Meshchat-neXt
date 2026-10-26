@@ -140,8 +140,7 @@ def test_early_cancellation_and_shutdown_are_safe(setup_download):
         download.start()
         download.cancel()
 
-
-        owner = SimpleNamespace(map_manager=SimpleNamespace(regional_download=download))
+        owner = SimpleNamespace(regional_map_download=download)
         web = SimpleNamespace(on_shutdown=[])
         module.install_regional_map_lifecycle(web, owner)
         await web.on_shutdown[0](None)
@@ -149,4 +148,51 @@ def test_early_cancellation_and_shutdown_are_safe(setup_download):
 
     asyncio.run(check())
     assert download.state["status"] == "cancelled"
+    assert not directory.exists()
+
+
+def test_download_routes_wait_for_deferred_map_storage(setup_download):
+    from aiohttp import web
+
+    from meshchatnext.src.backend.http.routes.map import register_map_routes
+
+    download, _, _ = setup_download
+    owner = SimpleNamespace(map_manager=None)
+    routes = web.RouteTableDef()
+    register_map_routes(routes, owner)
+    status = next(
+        route.handler
+        for route in routes
+        if route.handler.__name__ == "regional_download_status"
+    )
+    start = next(
+        route.handler
+        for route in routes
+        if route.handler.__name__ == "start_regional_download"
+    )
+    assert asyncio.run(status(None)).status == 503
+    assert asyncio.run(start(None)).status == 503
+    owner.map_manager = download.manager
+    response = asyncio.run(status(None))
+    assert response.status == 200
+    assert json.loads(response.body)["status"] == "idle"
+    assert owner.regional_map_download.task is None
+
+
+def test_download_route_respects_privacy_mode(setup_download):
+    from aiohttp import web
+
+    from meshchatnext.src.backend.http.routes.map import register_map_routes
+
+    download, directory, _ = setup_download
+    download.manager.config.privacy_mode_enabled.set(True)
+    owner = SimpleNamespace(map_manager=download.manager)
+    routes = web.RouteTableDef()
+    register_map_routes(routes, owner)
+    start = next(
+        route.handler
+        for route in routes
+        if route.handler.__name__ == "start_regional_download"
+    )
+    assert asyncio.run(start(None)).status == 403
     assert not directory.exists()

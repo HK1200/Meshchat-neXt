@@ -33,14 +33,17 @@
         >
             Import map file (.mbtiles)
         </button>
-        <div class="rounded-lg border border-amber-500/40 bg-sem-warning/15 p-2 space-y-2">
-            <div class="text-[11px] text-sem-fg leading-snug">{{ $t("map.offline_empty_hint") }}</div>
+        <div class="rounded-lg border border-sem-border p-2 space-y-2">
+            <p class="text-xs text-sem-fg leading-snug">
+                Included overview · world context and PNW/southern BC through zoom 9. No download needed.
+            </p>
+            <p v-if="!hasOfflineMap" class="text-xs text-sem-fg-muted">{{ $t("map.offline_empty_hint") }}</p>
             <button
                 type="button"
                 class="w-full py-1.5 text-[10px] font-semibold uppercase rounded-lg border border-sem-border"
                 @click="$emit('restore-starter')"
             >
-                {{ $t("map.restore_starter_tiles") }}
+                Use included overview
             </button>
         </div>
         <p v-if="offlineEnabled && hasOfflineMap" class="text-[10px] text-sem-fg-muted leading-snug">

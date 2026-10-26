@@ -853,6 +853,18 @@
             "path": "/api/v1/map/mbtiles/active"
         },
         {
+            "method": "DELETE",
+            "path": "/api/v1/map/mbtiles/regional-download"
+        },
+        {
+            "method": "GET",
+            "path": "/api/v1/map/mbtiles/regional-download"
+        },
+        {
+            "method": "POST",
+            "path": "/api/v1/map/mbtiles/regional-download"
+        },
+        {
             "method": "POST",
             "path": "/api/v1/map/mbtiles/restore-starter"
         },
