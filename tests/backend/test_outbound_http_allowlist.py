@@ -26,6 +26,7 @@ KNOWN_CLEARNET_FETCH_FILES = frozenset(
         "meshcore_tak_http.py",
         "oidc.py",
         "repository_server_manager.py",
+        "regional_map_download.py",
         "translation_catalog.py",
         "update_manager.py",
     },
