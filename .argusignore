@@ -66,3 +66,12 @@ AST-GO-001 geo-wasm/mgrs/geolib_test.go
 AST-GO-001 geo-wasm/mgrs/proj_test.go
 AST-GO-001 geo-wasm/mgrs/ups_proj_test.go
 AST-GO-001 scripts/license_scope_mapper.go
+
+# Guide export executes only the fixed, repository-owned docs/guide/content.js
+# in a fresh context with a one-second timeout. No user/file argument is accepted.
+JS-008 scripts/export-field-guide.cjs
+
+# This regression executes the exact repository-owned Chaquopy patch string
+# against a temporary directory and an injected list.append instead of a shell.
+# It verifies dangling symlinks do not trigger duplicate link creation.
+AST-PY-005 tests/test_android_wheel_soname_links.py

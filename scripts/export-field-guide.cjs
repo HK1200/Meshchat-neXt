@@ -8,7 +8,7 @@ vm.runInNewContext(fs.readFileSync(path.join(folder, "content.js"), "utf8"), con
 const data = context.window.NEXT_GUIDE;
 const lines = [
     "# Meshchat neXt · User guide",
-    "Local release-guide draft, reviewed against the 2026-10-26 build. Features vary by platform, firmware and peer application. No public release is implied.",
+    "User guide for Meshchat neXt 0.1.0, reviewed on 26 October 2026. Features vary by platform, firmware and peer application.",
     "## One app, independent services",
     "Reticulum → RNode / LAN / TCP → LXMF messages and LXST calls.\n\nMeshCore → separate companion → DMs, channels and TAC; optional Radio2 media.\n\nSIP → separate provider account → IP extension calls.\n\nContact linking groups addresses; it does not bridge networks.",
 ];
@@ -27,6 +27,6 @@ lines.push("## Glossary", ...Object.entries(data.glossary).map(([key, value]) =>
 lines.push("## Sources and compatibility references", ...data.sources.map(([name, url]) => `- [${name}](${url})`));
 lines.push(
     "## Review boundaries",
-    "This guide describes implemented UI and documented local validation; it does not claim hosted GitHub CI execution, an already-published release, exhaustive ATAK compatibility or a built-in firmware assistant. External projects and firmware change. Check the exact neXt release notes and hardware before flashing."
+    "This guide describes Meshchat neXt 0.1.0. Compatibility is specific to the firmware, codec, server and package in use; it does not imply support for every ATAK deployment. A firmware assistant is not included. External projects and firmware change. Check the exact neXt release notes and hardware before flashing."
 );
 fs.writeFileSync(path.join(folder, "README.md"), lines.join("\n\n") + "\n");

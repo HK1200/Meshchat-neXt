@@ -1,6 +1,6 @@
 # Meshchat neXt · User guide
 
-Local release-guide draft, reviewed against the 2026-10-26 build. Features vary by platform, firmware and peer application. No public release is implied.
+User guide for Meshchat neXt 0.1.0, reviewed on 26 October 2026. Features vary by platform, firmware and peer application.
 
 ## One app, independent services
 
@@ -790,4 +790,4 @@ No. It is a local reading aid. Checklists save browser progress only; no keys, r
 
 ## Review boundaries
 
-This guide describes implemented UI and documented local validation; it does not claim hosted GitHub CI execution, an already-published release, exhaustive ATAK compatibility or a built-in firmware assistant. External projects and firmware change. Check the exact neXt release notes and hardware before flashing.
+This guide describes Meshchat neXt 0.1.0. Compatibility is specific to the firmware, codec, server and package in use; it does not imply support for every ATAK deployment. A firmware assistant is not included. External projects and firmware change. Check the exact neXt release notes and hardware before flashing.

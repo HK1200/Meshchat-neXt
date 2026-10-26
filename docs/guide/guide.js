@@ -390,7 +390,7 @@
         heading(
             "Built from the app. Checked against the protocols.",
             "Sources & review limits",
-            "This is a local release-guide draft, not a claim that a public release or hosted CI run has happened."
+            "This guide covers Meshchat neXt 0.1.0. Check the release notes for platform support, validation results and known limitations."
         );
         reader.append(
             el(
