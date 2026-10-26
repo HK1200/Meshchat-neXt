@@ -983,7 +983,8 @@ class Database:
         dest_parent = os.path.dirname(os.path.abspath(dest_path))
         if dest_parent:
             os.makedirs(dest_parent, exist_ok=True)
-        shutil.copy2(src, dest_path)
+        shutil.copyfile(src, dest_path)
+        os.chmod(dest_path, 0o600)
         return {
             "name": name,
             "source": src,
@@ -1188,7 +1189,7 @@ class Database:
                             continue
                         self._safe_zip_extract_member(zf, member, staging_dir)
             else:
-                shutil.copy2(backup_path, os.path.join(staging_dir, main_name))
+                shutil.copyfile(backup_path, os.path.join(staging_dir, main_name))
 
             staging_main = os.path.join(staging_dir, main_name)
             if not os.path.exists(staging_main):
@@ -1338,8 +1339,11 @@ class Database:
                         if aside_dir:
                             os.makedirs(aside_dir, exist_ok=True)
                         shutil.move(dest, aside)
-                    shutil.copy2(src, dest)
+                    # Android shared storage rejects copying security xattrs.
+                    # Track the target before copying so partial writes roll back.
                     created.append(dest)
+                    shutil.copyfile(src, dest)
+                    os.chmod(dest, 0o600)
         except Exception:
             for dest in reversed(created):
                 with suppress(OSError):

@@ -513,7 +513,11 @@ def test_backup_includes_identity_rrc_and_history(temp_dir):
         assert "backup-manifest.json" in names
 
 
-def test_restore_includes_identity_rrc_and_history(temp_dir):
+def test_restore_includes_identity_rrc_and_history(temp_dir, monkeypatch):
+    def deny_metadata(*args, **kwargs):
+        raise PermissionError("Android storage blocks extended attributes")
+
+    monkeypatch.setattr(shutil, "_copyxattr", deny_metadata)
 
     import RNS
 
@@ -650,7 +654,7 @@ def test_partial_sidecar_copy_failure_restores_live_identity_files(temp_dir):
     with open(history_path, "wb") as handle:
         handle.write(b"live-history")
 
-    real_copy = shutil.copy2
+    real_copy = shutil.copyfile
 
     def flaky_copy(src, dest, *args, **kwargs):
         if os.path.basename(src) == "lobby.log":
@@ -658,7 +662,7 @@ def test_partial_sidecar_copy_failure_restores_live_identity_files(temp_dir):
         return real_copy(src, dest, *args, **kwargs)
 
     with patch(
-        "meshchatnext.src.backend.database.shutil.copy2", side_effect=flaky_copy
+        "meshchatnext.src.backend.database.shutil.copyfile", side_effect=flaky_copy
     ):
         with pytest.raises(DatabaseRestoreError):
             db.restore_database(backup["path"])
