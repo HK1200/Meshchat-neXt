@@ -37,6 +37,14 @@
             class="block text-sm text-sem-accent"
             >Report on GitHub</a
         >
+        <div class="space-y-1 border-t border-sem-border pt-3">
+            <h4 class="text-sm font-semibold">MeshCore · local user chat</h4>
+            <p class="text-sm text-sem-fg-muted">
+                Join <span class="font-mono">#meshchat_next</span> for support and chat amongst local MeshCore users.
+                This channel is not monitored by the developer. Use GitHub or the neXt Relay for developer reports and
+                feature requests.
+            </p>
+        </div>
         <p v-if="message" role="status" class="text-sm text-sem-fg-muted">{{ message }}</p>
     </section>
 </template>

@@ -575,6 +575,7 @@ window.NEXT_GUIDE = {
             notes: [
                 "The official repository is github.com/hk1200/Meshchat-neXt. Use its Releases page for official downloads and its Issues page for GitHub reports.",
                 "The support relay is Reticulum RRC. It is not a MeshCore hashtag channel, room server or SIP endpoint.",
+                "For support and chat amongst local MeshCore users, add #meshchat_next as a public hashtag channel. Its reach depends on your local mesh. It is not monitored by the developer; use GitHub or Meshchat neXt Relay for developer reports and feature requests.",
             ],
             related: ["troubleshoot", "tools"],
         },

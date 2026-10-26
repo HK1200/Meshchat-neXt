@@ -102,6 +102,8 @@ Join **Meshchat neXt Relay** over Reticulum:
 
 In the app, open **About → Contact / Support**. You can also use the [Meshchat neXt issue tracker](https://github.com/hk1200/Meshchat-neXt/issues) for bugs and feature requests.
 
+**MeshCore local user chat:** Join `#meshchat_next` for support and chat amongst local users. This channel is **not monitored by the developer** and its reach depends on your local mesh. Use GitHub or Meshchat neXt Relay for developer reports and feature requests.
+
 Include the app version, device/platform and steps to reproduce a problem. Remove passwords, private keys and other sensitive information before sharing diagnostics. Opening a relay room does not automatically submit a report.
 
 ## Open source and acknowledgments
