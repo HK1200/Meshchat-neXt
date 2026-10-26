@@ -1,6 +1,7 @@
 <template>
     <section
-        class="flex flex-col flex-1 min-w-0 h-full bg-sem-canvas text-sem-fg"
+        data-meshcore-chat
+        class="flex flex-col flex-1 min-h-0 min-w-0 h-full bg-sem-canvas text-sem-fg"
         aria-label="MeshCore direct messages"
     >
         <header
@@ -24,10 +25,14 @@
                         >MeshCore</span
                     >
                 </h2>
-                <p class="text-xs font-mono text-sem-fg-muted truncate mt-0.5" :title="peer">{{ peer }}</p>
+                <p class="text-xs font-mono text-sem-fg-muted truncate mt-0.5" :title="peer">
+                    <span v-if="!snapshot.connected" class="meshcore-short-status hidden text-sem-warning"
+                        >Disconnected · </span
+                    >{{ peer }}
+                </p>
             </div>
         </header>
-        <p class="px-4 py-2 text-xs text-sem-fg-muted">
+        <p class="meshcore-connection-hint px-4 py-2 text-xs text-sem-fg-muted">
             {{
                 snapshot.connected
                     ? "Direct message over MeshCore"
@@ -36,7 +41,12 @@
         </p>
         <p v-if="positionError" role="alert" class="px-4 py-2 text-sm text-sem-danger">{{ positionError }}</p>
         <p v-if="error" role="alert" class="px-4 text-sm text-sem-danger">{{ error }}</p>
-        <div ref="list" class="flex-1 overflow-y-auto p-4 space-y-3" aria-label="Messages" @scroll.passive="onScroll">
+        <div
+            ref="list"
+            class="flex-1 min-h-0 overflow-y-auto p-4 space-y-3"
+            aria-label="Messages"
+            @scroll.passive="onScroll"
+        >
             <p v-if="!rows.length" class="text-sm text-sem-fg-muted">No MeshCore messages yet.</p>
             <article
                 v-for="row in rows"
@@ -83,7 +93,7 @@
             Show newer messages
         </button>
         <MeshCoreAttachments :owner="snapshot.owner" :peer="peer" :connected="snapshot.connected" @sent="refresh" />
-        <form class="p-4 border-t border-sem-border space-y-2" @submit.prevent="send">
+        <form data-meshcore-compose class="p-4 border-t border-sem-border space-y-2" @submit.prevent="send">
             <label class="text-xs font-semibold" for="meshcore-compose">Message via MeshCore</label>
             <textarea
                 id="meshcore-compose"

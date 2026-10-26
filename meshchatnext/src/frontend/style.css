@@ -778,6 +778,11 @@ a[href] {
     [data-map-mobile-search] { display: inline-flex; }
     [data-app-brand] { flex: 0 0 auto; }
     [data-app-brand-text] { flex-shrink: 0; white-space: nowrap; }
+    .meshcore-connection-hint { display: none; }
+    .meshcore-short-status { display: inline; }
+    [data-meshcore-chat] { overflow-y: auto; }
+    [data-meshcore-compose] { padding: 0.5rem 0.75rem; flex-shrink: 0; }
+    [data-meshcore-compose] textarea { height: 2.5rem; min-height: 2.5rem; max-height: 25dvh; }
     .map-toolbar {
         flex-wrap: nowrap;
         overflow-x: auto;

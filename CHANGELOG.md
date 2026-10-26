@@ -3,7 +3,8 @@
 ## 0.1.1
 
 - Additional Android APKs for 32-bit ARM and x86_64, alongside ARM64.
-- Improved landscape scrolling and compact navigation on phone screens.
+- Improved landscape scrolling, compact message composers and navigation on phone screens.
+- Photo and voice editors use scrollable dialogs so attachment controls cannot push Send off-screen.
 - A visible Offline maps control and a verified, one-step regional map download with progress and cancellation.
 - Fixed the changelog overlapping setup and the map search field overlapping controls on short screens.
 - HOIP live phonebook access from SIP contacts, with clear internet and I2P browser requirements.

@@ -222,7 +222,7 @@ window.NEXT_GUIDE = {
                 "Anyone who has a channel key can participate. A public hashtag’s key is not a private invitation.",
                 "Banishment hides a sender locally. It does not ban them from the radio network or other people’s clients.",
                 "Use a temporary private test channel for repeated experiments, rather than filling a neighborhood public channel with tests.",
-                "The compact chat header keeps notification mode controls; channel scope stays in Manage channels. Use the attachment row for either Photo or Voice clip.",
+                "The compact chat header keeps notification mode controls; channel scope stays in Manage channels. Use the attachment row’s Photo or Voice clip button to open its scrollable editor.",
             ],
             related: ["mentions", "regions", "nodes"],
         },
@@ -325,7 +325,7 @@ window.NEXT_GUIDE = {
             lead: "neXt supports MediaMesh photos and Codec2 recorded voice in MeshCore DMs and channels, plus tactical attachments. A message announcement and the media download are separate stages.",
             steps: [
                 "Connect a compatible Radio2 companion and confirm the recipient has compatible firmware/client support. For channels, share the same channel key and suitable scope.",
-                "In a MeshCore conversation or channel, open the Attachments row and choose Photo or Voice clip. Record a short clip, stop, preview, then explicitly send. Closing or switching attachment type discards the current draft.",
+                "In a MeshCore conversation or channel, choose Photo or Voice clip in the Attachments row. Its editor opens in a scrollable dialog. Record a short clip, stop, preview, then explicitly send. Closing or switching attachment type discards the current draft.",
                 "On the receiving side, wait for the indicated parts to download. Play/view only after completion; an announcement arriving does not mean all media parts arrived.",
                 "If interrupted, reconnect and use the explicit retry/download control on the same item. Completed cached media remains usable offline; incomplete downloads are not presented as complete.",
                 "If the sender cannot be resolved, add/verify their full MeshCore public key. Do not substitute a short displayed name for a cryptographic identity.",

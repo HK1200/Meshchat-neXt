@@ -47,7 +47,7 @@ it("loads only the selected message and can show unknown-path history honestly",
 it("combines attachment controls into one row and unmounts the old draft on switch/close", async () => {
     w = mount(Attachments, {
         props: { owner, peer: target, connected: true },
-        global: { stubs: { MeshCoreImageComposer: true, MeshCoreVoiceComposer: true } },
+        global: { stubs: { AppModal: modal, MeshCoreImageComposer: true, MeshCoreVoiceComposer: true } },
     });
     expect(w.find("mesh-core-image-composer-stub").exists()).toBe(false);
     await w

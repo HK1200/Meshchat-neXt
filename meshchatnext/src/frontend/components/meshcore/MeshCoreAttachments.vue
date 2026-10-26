@@ -12,21 +12,48 @@
                 ×
             </button>
         </div>
-        <div v-if="active" data-app-back-scope class="pt-3 max-h-[45dvh] overflow-y-auto" @app-back.stop="active = ''">
+        <AppModal
+            :model-value="Boolean(active)"
+            title="Attachments · MeshCore Radio2"
+            :max-width="720"
+            :show-close="true"
+            body-class="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4"
+            @update:model-value="onVisibleUpdate"
+            @close="active = ''"
+        >
+            <div class="flex gap-2 mb-3">
+                <button
+                    type="button"
+                    class="secondary-chip"
+                    :aria-pressed="active === 'photo'"
+                    @click="toggle('photo')"
+                >
+                    Photo
+                </button>
+                <button
+                    type="button"
+                    class="secondary-chip"
+                    :aria-pressed="active === 'voice'"
+                    @click="toggle('voice')"
+                >
+                    Voice clip
+                </button>
+            </div>
             <p class="text-xs text-sem-fg-muted mb-2">Closing or switching attachment type discards this draft.</p>
             <MeshCoreImageComposer v-if="active === 'photo'" embedded v-bind="$props" @sent="$emit('sent')" />
             <MeshCoreVoiceComposer
-                v-else
+                v-else-if="active === 'voice'"
                 embedded
                 v-bind="$props"
                 :channel="Boolean(channelId)"
                 @sent="$emit('sent')"
             />
-        </div>
+        </AppModal>
     </div>
 </template>
 <script setup>
 import { ref, watch } from "vue";
+import AppModal from "../AppModal.vue";
 import MeshCoreImageComposer from "./MeshCoreImageComposer.vue";
 import MeshCoreVoiceComposer from "./MeshCoreVoiceComposer.vue";
 const props = defineProps({
@@ -38,6 +65,9 @@ const props = defineProps({
 });
 defineEmits(["sent"]);
 const active = ref("");
+function onVisibleUpdate(value) {
+    if (!value) active.value = "";
+}
 function toggle(type) {
     active.value = active.value === type ? "" : type;
 }

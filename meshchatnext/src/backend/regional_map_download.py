@@ -110,8 +110,15 @@ class RegionalMapDownload:
                 raise ValueError(
                     "Regional detail is already installed; select it in Offline maps"
                 )
-            os.link(temporary, target)
-            os.unlink(temporary)
+            # Android shared storage can reject hard links. Reserve the name
+            # exclusively, then atomically replace only our own empty placeholder.
+            fd = os.open(target, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            os.close(fd)
+            try:
+                os.replace(temporary, target)
+            except BaseException:
+                target.unlink(missing_ok=True)
+                raise
             temporary = None
             self._activate(target)
             self.state.update(status="completed", filename=target.name)

@@ -250,3 +250,16 @@ def test_verification_accepts_storage_paths_with_spaces_and_hashes(setup_downloa
     asyncio.run(download.run())
     assert download.state["status"] == "completed"
     assert download.manager.config.map_offline_path.get().startswith(str(special))
+
+
+def test_install_does_not_require_hard_links_on_android_shared_storage(
+    setup_download, monkeypatch
+):
+    download, _, _ = setup_download
+
+    def unsupported(*args, **kwargs):
+        raise OSError("Hard links are not supported on shared storage")
+
+    monkeypatch.setattr(module.os, "link", unsupported)
+    asyncio.run(download.run())
+    assert download.state["status"] == "completed"

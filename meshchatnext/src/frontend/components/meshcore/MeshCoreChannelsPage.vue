@@ -1,5 +1,9 @@
 <template>
-    <section class="flex flex-col flex-1 min-w-0 h-full bg-sem-canvas text-sem-fg" aria-label="MeshCore channels">
+    <section
+        data-meshcore-chat
+        class="flex flex-col flex-1 min-h-0 min-w-0 h-full bg-sem-canvas text-sem-fg"
+        aria-label="MeshCore channels"
+    >
         <header class="px-3 py-2 border-b border-sem-border flex items-center gap-2 shrink-0">
             <button
                 v-if="channelId"
@@ -242,7 +246,7 @@
                 :scope="mediaScope"
                 @sent="refresh"
             />
-            <form class="p-4 border-t border-sem-border space-y-2" @submit.prevent="send">
+            <form data-meshcore-compose class="p-4 border-t border-sem-border space-y-2" @submit.prevent="send">
                 <label for="meshcore-channel-compose" class="text-xs font-semibold"
                     >Message {{ selected.name }} via MeshCore</label
                 >
