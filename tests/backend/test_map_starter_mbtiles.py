@@ -285,3 +285,26 @@ def test_user_map_named_like_starter_is_not_overwritten(tmp_path):
     before = Path(path).read_bytes()
     manager.ensure_starter_mbtiles()
     assert Path(path).read_bytes() == before
+
+
+def test_legacy_branded_generated_starter_upgrades_to_regional_overview(tmp_path):
+    import contextlib
+    import sqlite3
+
+    cfg = _config(tmp_path)
+    manager = MapManager(cfg, str(tmp_path))
+    path = manager.ensure_starter_mbtiles()
+    write_starter_mbtiles(path, max_zoom=4)
+    with contextlib.closing(sqlite3.connect(path)) as db:
+        db.execute(
+            "UPDATE metadata SET value=? WHERE name='name'",
+            ("MeshChatX starter world (Natural Earth 110m land, z0-z4)",),
+        )
+        db.commit()
+    cfg.map_offline_enabled.set(False)
+    assert manager.ensure_starter_mbtiles() == path
+    with contextlib.closing(sqlite3.connect(path)) as db:
+        meta = dict(db.execute("SELECT name,value FROM metadata"))
+        assert meta["meshchatnext:regional_maxzoom"] == "9"
+        assert meta["name"].startswith("Meshchat neXt starter world")
+    assert cfg.map_offline_enabled.get() is False

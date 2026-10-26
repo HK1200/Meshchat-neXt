@@ -104,8 +104,17 @@ class MapManager:
                 try:
                     with contextlib.closing(sqlite3.connect(existing)) as db:
                         old_meta = dict(db.execute("SELECT name,value FROM metadata"))
-                    if not str(old_meta.get("name", "")).startswith(
-                        "Meshchat neXt starter world"
+                    generated_name = str(old_meta.get("name", ""))
+                    legacy_starter = (
+                        generated_name
+                        == "MeshChatX starter world (Natural Earth 110m land, z0-z4)"
+                        and old_meta.get("format") == "png"
+                        and old_meta.get("minzoom") == "0"
+                        and old_meta.get("maxzoom") == "4"
+                    )
+                    if (
+                        not generated_name.startswith("Meshchat neXt starter world")
+                        and not legacy_starter
                     ):
                         return existing
                     src = ensure_bundled_starter_file()
