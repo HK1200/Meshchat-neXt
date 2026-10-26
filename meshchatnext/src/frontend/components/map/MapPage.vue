@@ -4,7 +4,14 @@
     <div
         class="flex flex-col h-full w-full min-h-0 min-w-0 bg-sem-surface overflow-hidden"
         :data-app-back-scope="
-            isSettingsOpen || selectedMarker || selectedCluster || editingFeature || isMobileSearchOpen ? '' : null
+            isMapToolsOpen ||
+            isSettingsOpen ||
+            selectedMarker ||
+            selectedCluster ||
+            editingFeature ||
+            isMobileSearchOpen
+                ? ''
+                : null
         "
         @app-back.stop="onMapBack"
     >
@@ -969,7 +976,7 @@
                     </button>
                 </div>
                 <MapSidePanel
-                    :initial-tab="mapToolsTab"
+                    v-model:initial-tab="mapToolsTab"
                     class="flex-1 min-h-0"
                     :draw-source="drawSource"
                     :has-vector-draw-features="hasVectorDrawFeatures"
@@ -4344,7 +4351,8 @@ export default {
         },
 
         onMapBack() {
-            if (this.isSettingsOpen) this.isSettingsOpen = false;
+            if (this.isMapToolsOpen) this.isMapToolsOpen = false;
+            else if (this.isSettingsOpen) this.isSettingsOpen = false;
             else if (this.isMobileSearchOpen) this.isMobileSearchOpen = false;
             else if (this.editingFeature) this.closeNoteEditor();
             else if (this.selectedMarker) this.selectedMarker = null;

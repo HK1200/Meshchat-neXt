@@ -196,3 +196,57 @@ def test_download_route_respects_privacy_mode(setup_download):
     )
     assert asyncio.run(start(None)).status == 403
     assert not directory.exists()
+
+
+def test_cancelling_a_partial_download_removes_the_temporary_file(
+    setup_download, monkeypatch
+):
+    download, directory, _ = setup_download
+
+    async def check():
+        written = asyncio.Event()
+
+        class Response:
+            content = property(lambda self: self)
+
+            def raise_for_status(self):
+                pass
+
+            async def iter_chunked(self, size):
+                yield b"partial"
+                written.set()
+                await asyncio.Event().wait()
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+        class Session(Response):
+            def __init__(self, **kwargs):
+                pass
+
+            def get(self, url):
+                return Response()
+
+        monkeypatch.setattr(module.aiohttp, "ClientSession", Session)
+        download.start()
+        await asyncio.wait_for(written.wait(), 5)
+        assert list(directory.glob("*.part"))
+        download.cancel()
+        await download.task
+
+    asyncio.run(check())
+    assert download.state["status"] == "cancelled"
+    assert not list(directory.iterdir())
+    assert download.manager.config.map_offline_path.get() == "old-map"
+
+
+def test_verification_accepts_storage_paths_with_spaces_and_hashes(setup_download):
+    download, directory, _ = setup_download
+    special = directory.with_name("offline maps # region")
+    download.manager.get_mbtiles_dir = lambda: str(special)
+    asyncio.run(download.run())
+    assert download.state["status"] == "completed"
+    assert download.manager.config.map_offline_path.get().startswith(str(special))

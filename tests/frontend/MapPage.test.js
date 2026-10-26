@@ -395,6 +395,26 @@ describe("MapPage.vue", () => {
         expect(wrapper.text()).toContain("map.tab_discover");
     });
 
+    it("reopens Offline maps after changing tabs and closes that panel with Back", async () => {
+        const wrapper = mountMapPage();
+        wrapper.vm.openOfflineMaps();
+        await wrapper.vm.$nextTick();
+        const panel = wrapper.findComponent({ name: "MapSidePanel" });
+        expect(panel.vm.activeTab).toBe("offline");
+        await panel
+            .findAll("button")
+            .find((button) => button.text() === "map.tab_discover")
+            .trigger("click");
+        expect(wrapper.vm.mapToolsTab).toBe("discover");
+        wrapper.vm.openOfflineMaps();
+        await wrapper.vm.$nextTick();
+        expect(panel.vm.activeTab).toBe("offline");
+        expect(wrapper.attributes("data-app-back-scope")).toBe("");
+        wrapper.vm.onMapBack();
+        expect(wrapper.vm.isMapToolsOpen).toBe(false);
+        wrapper.unmount();
+    });
+
     it("does not construct OpenLayers when an embedded tab is inactive", async () => {
         const wrapper = mount(MapPage, {
             props: { embedded: true, isActiveTab: false },

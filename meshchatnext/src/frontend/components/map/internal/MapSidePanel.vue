@@ -13,7 +13,10 @@
                         ? 'text-sem-accent border-b-2 border-sem-accent'
                         : 'text-sem-fg-muted hover:text-sem-fg hover:text-sem-fg'
                 "
-                @click="activeTab = tab.id"
+                @click="
+                    activeTab = tab.id;
+                    $emit('update:initialTab', tab.id);
+                "
             >
                 {{ $t(tab.labelKey) }}
             </button>
@@ -99,6 +102,7 @@ export default {
         announceListenBusy: { type: Boolean, default: false },
     },
     emits: [
+        "update:initialTab",
         "regional-ready",
         "overlays-changed",
         "import-features",
