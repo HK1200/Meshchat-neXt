@@ -1,0 +1,183 @@
+# SPDX-License-Identifier: 0BSD
+
+import os
+import shutil
+import tempfile
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from meshchatnext.meshchat import ReticulumMeshChat
+
+
+@pytest.fixture
+def temp_dir():
+    dir_path = tempfile.mkdtemp()
+    yield dir_path
+    shutil.rmtree(dir_path)
+
+
+@pytest.fixture
+def mock_rns():
+    with (
+        patch("RNS.Reticulum") as mock_reticulum,
+        patch("RNS.Transport"),
+        patch("RNS.Identity") as mock_identity,
+    ):
+        mock_id_instance = MagicMock()
+        mock_id_instance.hash = b"test_hash_32_bytes_long_01234567"
+        mock_id_instance.get_private_key.return_value = b"test_key"
+        mock_identity.return_value = mock_id_instance
+
+        yield {"Reticulum": mock_reticulum, "id_instance": mock_id_instance}
+
+
+def test_rns_config_auto_creation(mock_rns, temp_dir):
+    """Test that Reticulum config is created if it does not exist."""
+    config_dir = os.path.join(temp_dir, ".reticulum")
+    config_file = os.path.join(config_dir, "config")
+
+    # Ensure it doesn't exist
+    assert not os.path.exists(config_file)
+
+    with (
+        patch("meshchatnext.meshchat.IdentityContext"),
+        patch("meshchatnext.meshchat.LazyWebAudioBridge"),
+        patch("meshchatnext.meshchat.memory_log_handler"),
+    ):
+        ReticulumMeshChat(
+            identity=mock_rns["id_instance"],
+            storage_dir=temp_dir,
+            reticulum_config_dir=config_dir,
+        )
+
+        # Method should have been called during init -> setup_identity
+        assert os.path.exists(config_file)
+
+        with open(config_file) as f:
+            content = f.read()
+            assert "[reticulum]" in content
+            assert "[interfaces]" in content
+            assert "enable_transport = False" in content
+
+
+def test_rns_config_repair_if_invalid(mock_rns, temp_dir):
+    """Test that Reticulum config is recreated if it is invalid/corrupt."""
+    config_dir = os.path.join(temp_dir, ".reticulum")
+    os.makedirs(config_dir, exist_ok=True)
+    config_file = os.path.join(config_dir, "config")
+
+    # Create a "corrupt" config
+    with open(config_file, "w") as f:
+        f.write("this is not a valid rns config")
+
+    with (
+        patch("meshchatnext.meshchat.IdentityContext"),
+        patch("meshchatnext.meshchat.LazyWebAudioBridge"),
+        patch("meshchatnext.meshchat.memory_log_handler"),
+    ):
+        ReticulumMeshChat(
+            identity=mock_rns["id_instance"],
+            storage_dir=temp_dir,
+            reticulum_config_dir=config_dir,
+        )
+
+        with open(config_file) as f:
+            content = f.read()
+            # Should have been repaired
+            assert "[reticulum]" in content
+            assert "[interfaces]" in content
+
+
+def test_rns_config_repair_if_sections_present_but_unparseable(mock_rns, temp_dir):
+    """Config files that look valid but fail ConfigObj parsing must be rewritten."""
+    config_dir = os.path.join(temp_dir, ".reticulum")
+    os.makedirs(config_dir, exist_ok=True)
+    config_file = os.path.join(config_dir, "config")
+    with open(config_file, "w") as f:
+        f.write("[reticulum]\n[[broken\n[interfaces]\n")
+
+    with (
+        patch("meshchatnext.meshchat.IdentityContext"),
+        patch("meshchatnext.meshchat.LazyWebAudioBridge"),
+        patch("meshchatnext.meshchat.memory_log_handler"),
+    ):
+        ReticulumMeshChat(
+            identity=mock_rns["id_instance"],
+            storage_dir=temp_dir,
+            reticulum_config_dir=config_dir,
+        )
+
+    with open(config_file) as f:
+        content = f.read()
+    assert "[reticulum]" in content
+    assert "[interfaces]" in content
+    assert "enable_transport = False" in content
+    assert "[[broken" not in content
+
+
+def test_rns_config_file_path_is_normalized_to_directory(mock_rns, temp_dir):
+    """A config file path should be normalized to its parent directory."""
+    config_dir = os.path.join(temp_dir, ".reticulum")
+    config_file = os.path.join(config_dir, "config")
+
+    with (
+        patch("meshchatnext.meshchat.IdentityContext"),
+        patch("meshchatnext.meshchat.LazyWebAudioBridge"),
+        patch("meshchatnext.meshchat.memory_log_handler"),
+    ):
+        app = ReticulumMeshChat(
+            identity=mock_rns["id_instance"],
+            storage_dir=temp_dir,
+            reticulum_config_dir=config_file,
+        )
+
+        assert app.reticulum_config_dir == config_dir
+        assert os.path.exists(config_file)
+
+
+def test_rns_config_disables_unsupported_ble_on_desktop_startup(
+    mock_rns,
+    temp_dir,
+    monkeypatch,
+):
+    """Startup repair must disable ble:// RNode entries when bleak is unavailable."""
+    from meshchatnext.src.backend import rnode_support
+
+    config_dir = os.path.join(temp_dir, ".reticulum")
+    os.makedirs(config_dir, exist_ok=True)
+    config_file = os.path.join(config_dir, "config")
+    with open(config_file, "w", encoding="utf-8") as f:
+        f.write(
+            """[reticulum]
+enable_transport = False
+
+[interfaces]
+[[RNode BLE]]
+type = RNodeInterface
+interface_enabled = True
+port = ble://aa:bb:cc:dd:ee:ff
+[[RNode TCP]]
+type = RNodeInterface
+interface_enabled = True
+port = tcp://192.0.2.1:4242
+""",
+        )
+
+    monkeypatch.setattr(rnode_support, "_is_chaquopy_android", lambda: False)
+    monkeypatch.setattr(rnode_support, "desktop_ble_stack_available", lambda: False)
+    monkeypatch.setattr(rnode_support, "desktop_serial_stack_available", lambda: True)
+
+    with (
+        patch("meshchatnext.meshchat.IdentityContext"),
+        patch("meshchatnext.meshchat.LazyWebAudioBridge"),
+        patch("meshchatnext.meshchat.memory_log_handler"),
+    ):
+        ReticulumMeshChat(
+            identity=mock_rns["id_instance"],
+            storage_dir=temp_dir,
+            reticulum_config_dir=config_dir,
+        )
+
+    text = open(config_file, encoding="utf-8").read().lower()
+    assert text.count("interface_enabled = false") == 1

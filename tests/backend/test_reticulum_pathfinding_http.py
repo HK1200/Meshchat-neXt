@@ -1,0 +1,95 @@
+# SPDX-License-Identifier: 0BSD
+
+import json
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+
+@pytest.mark.asyncio
+async def test_get_destination_path_with_request_is_400(mock_app):
+    h = next(
+        r.handler
+        for r in mock_app.get_routes()
+        if r.path == "/api/v1/destination/{destination_hash}/path" and r.method == "GET"
+    )
+    dest = "a" * 32
+    req = SimpleNamespace(
+        match_info={"destination_hash": dest},
+        query={"request": "1", "timeout": "1"},
+        method="GET",
+    )
+    with patch(
+        "meshchatnext.meshchat.reticulum_pathfinding.prepare_fresh_path_request",
+    ) as pfp:
+        response = await h(req)
+    pfp.assert_not_called()
+    assert response.status == 400
+    data = json.loads(response.body)
+    assert "POST" in data["message"]
+
+
+@pytest.mark.asyncio
+async def test_post_destination_path_calls_prepare_fresh(mock_app):
+    mock_app.reticulum = MagicMock()
+    mock_app.reticulum.get_next_hop.return_value = bytes(16)
+    mock_app.reticulum.get_next_hop_if_name.return_value = "if0"
+    h = next(
+        r.handler
+        for r in mock_app.get_routes()
+        if r.path == "/api/v1/destination/{destination_hash}/path"
+        and r.method == "POST"
+    )
+    dest = "a" * 32
+    req = SimpleNamespace(
+        match_info={"destination_hash": dest},
+        query={"timeout": "1"},
+        method="POST",
+    )
+    with (
+        patch(
+            "meshchatnext.meshchat.reticulum_pathfinding.prepare_fresh_path_request",
+        ) as pfp,
+        patch(
+            "meshchatnext.meshchat.reticulum_pathfinding.path_metadata_for_api",
+            return_value={"path_stale": False, "path_unresponsive": False},
+        ),
+        patch("meshchatnext.meshchat.RNS.Transport.has_path", return_value=True),
+        patch("meshchatnext.meshchat.RNS.Transport.hops_to", return_value=2),
+        patch("meshchatnext.meshchat.asyncio.sleep", new_callable=AsyncMock),
+        patch(
+            "meshchatnext.meshchat.AsyncUtils.run_async",
+            side_effect=lambda coro: coro.close() if hasattr(coro, "close") else None,
+        ),
+    ):
+        response = await h(req)
+    pfp.assert_called_once()
+    assert pfp.call_args[0][0] is mock_app.reticulum
+    assert pfp.call_args[0][1] == bytes.fromhex(dest)
+    data = json.loads(response.body)
+    assert data["path"]["hops"] == 2
+    assert data["path_stale"] is False
+    assert data["path_unresponsive"] is False
+
+
+@pytest.mark.asyncio
+async def test_post_destination_request_path_calls_prepare_fresh(mock_app):
+    mock_app.reticulum = MagicMock()
+    h = next(
+        r.handler
+        for r in mock_app.get_routes()
+        if r.path == "/api/v1/destination/{destination_hash}/request-path"
+    )
+    dest = "b" * 32
+    req = SimpleNamespace(match_info={"destination_hash": dest})
+    with patch(
+        "meshchatnext.meshchat.reticulum_pathfinding.prepare_fresh_path_request",
+    ) as pfp:
+        response = await h(req)
+    pfp.assert_called_once()
+    assert pfp.call_args[0][0] is mock_app.reticulum
+    assert pfp.call_args[0][1] == bytes.fromhex(dest)
+    assert response.status == 200
+    data = json.loads(response.body)
+    assert data["message"] == "ok"

@@ -1,0 +1,216 @@
+#!/usr/bin/env bash
+# Create the GitHub release as a draft if missing, upload every file in DIR, then
+# publish nightly/preview tags as prereleases. Draft-first is required when the
+# repository has immutable releases enabled (assets cannot be added after publish).
+# Skips electron-builder builder-debug.yml (and cosign bundles), including collision-renamed
+# copies (e.g. win__builder-debug.yml). Requires: gh, GH_TOKEN. TAG from TAG or GITHUB_REF_NAME.
+#
+# Notes-only dry run (no gh upload):
+#   MESHCHATNEXT_DRAFT_NOTES_ONLY=1 TAG=vX.Y.Z \
+#     bash scripts/ci/github-draft-release-upload-assets.sh /path/to/assets \
+#     > /tmp/notes.md
+#
+# SPDX-License-Identifier: 0BSD
+set -euo pipefail
+
+DIR="${1:?path to directory of files to upload}"
+TAG="${TAG:-${GITHUB_REF_NAME:?set TAG or GITHUB_REF_NAME}}"
+NOTES_ONLY="${MESHCHATNEXT_DRAFT_NOTES_ONLY:-0}"
+ROOT="$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)"
+
+# Extract the hand-written CHANGELOG section for a vX.Y.Z style tag.
+extract_changelog_notes() {
+    local ver="$1"
+    local changelog="$ROOT/CHANGELOG.md"
+    if [ ! -f "$changelog" ]; then
+        return
+    fi
+    awk -v ver="$ver" '
+        BEGIN { in_section = 0 }
+        /^## \[/ {
+            if (in_section) { exit }
+            if (index($0, "## [" ver "]") == 1) { in_section = 1; next }
+        }
+        in_section { print }
+    ' "$changelog" | sed '/./,$!d'
+}
+
+if [[ "$NOTES_ONLY" != "1" ]]; then
+    if ! command -v gh >/dev/null 2>&1; then
+        echo "gh is required" >&2
+        exit 1
+    fi
+
+    if [ -z "${GH_TOKEN:-}" ]; then
+        echo "GH_TOKEN is required" >&2
+        exit 1
+    fi
+
+    export GH_TOKEN
+
+    if [ -z "${GH_REPO:-}" ] && [ -n "${GITHUB_REPOSITORY:-}" ]; then
+        export GH_REPO="$GITHUB_REPOSITORY"
+    fi
+fi
+
+is_auto_prerelease_tag() {
+    [[ "$1" == nightly-* || "$1" == testing-* || "$1" == beta-* || "$1" == preview-* ]]
+}
+
+mapfile -d '' -t all < <(
+    find "$DIR" -type f \
+        ! -path '*/win-unpacked/*' \
+        ! -path '*/linux-unpacked/*' \
+        ! -path '*/mac-universal/*' \
+        ! -path '*/mac-arm64/*' \
+        ! -path '*/mac-x64/*' \
+        ! -path '*/mac/*.app/*' \
+        -print0
+)
+
+skip_noise() {
+    local base="$1"
+    case "$base" in
+        builder-debug.yml | builder-debug.yml.cosign.bundle) return 0 ;;
+        *__builder-debug.yml | *__builder-debug.yml.cosign.bundle) return 0 ;;
+        library.zip | library.zip.cosign.bundle) return 0 ;;
+        *__library.zip | *__library.zip.cosign.bundle) return 0 ;;
+        *.so.yml | *.so.yml.cosign.bundle) return 0 ;;
+    esac
+    return 1
+}
+
+filtered=()
+for f in "${all[@]}"; do
+    b=$(basename "$f")
+    if skip_noise "$b"; then
+        continue
+    fi
+    filtered+=("$f")
+done
+all=("${filtered[@]}")
+
+if [ "${#all[@]}" -eq 0 ]; then
+    echo "No files under ${DIR} (after excluding electron-builder debug YAML)" >&2
+    exit 1
+fi
+
+declare -A seen
+for f in "${all[@]}"; do
+    b=$(basename "$f")
+    seen[$b]=$((${seen[$b]:-0} + 1))
+done
+
+STAGE=$(mktemp -d)
+notes_file=$(mktemp)
+trap 'rm -rf "$STAGE" "$notes_file"' EXIT
+
+for f in "${all[@]}"; do
+    b=$(basename "$f")
+    if [ "${seen[$b]}" -gt 1 ]; then
+        rel="${f#"$DIR"/}"
+        name="${rel//\//__}"
+    else
+        name="$b"
+    fi
+    cp -- "$f" "$STAGE/$name"
+done
+
+mapfile -t files < <(find "$STAGE" -type f)
+
+{
+    if [[ "$TAG" == nightly-* || "$TAG" == testing-* ]]; then
+        echo "**Testing release** - automated snapshot from \`dev\`. Not a stable release. Use tagged production releases for daily use."
+        echo
+        echo "Commit: \`${GITHUB_SHA:-unknown}\`"
+        echo
+    elif [[ "$TAG" == beta-* || "$TAG" == preview-dev-* || "$TAG" == preview-* ]]; then
+        echo "**Beta release** - pre-stable candidate. Not a stable release. Use tagged production releases for daily use."
+        echo
+        echo "Commit: \`${GITHUB_SHA:-unknown}\`"
+        echo
+    else
+        release_ver="${TAG#v}"
+        release_notes=$(extract_changelog_notes "$release_ver")
+        if [ -n "$release_notes" ]; then
+            echo "<details open>"
+            echo "<summary><strong>Release Notes</strong></summary>"
+            echo
+            echo "$release_notes"
+            echo
+            echo "</details>"
+            echo
+        fi
+    fi
+
+    # Commit list since previous tag, then checksums / verify. Sections are
+    # wrapped in <details> so GitHub renders them collapsible. Blank lines
+    # around the markdown inside each block are required for rendering.
+    echo "<details>"
+    echo "<summary><strong>Changelog</strong></summary>"
+    echo
+    bash "$ROOT/scripts/ci/github-release-changelog.sh" "$TAG"
+    echo "</details>"
+    echo
+
+    echo "<details>"
+    echo "<summary><strong>SHA256 Checksums</strong></summary>"
+    echo
+    echo "| Asset | SHA256 |"
+    echo "|-------|--------|"
+    for f in "${files[@]}"; do
+        b=$(basename "$f")
+        hash=$(sha256sum "$f" | awk '{print $1}')
+        printf "| %s | \`%s\` |\n" "$b" "$hash"
+    done
+    echo "</details>"
+    echo
+
+    echo "<details>"
+    echo "<summary><strong>Verification</strong></summary>"
+    echo
+    echo "- **Cosign bundles** (\`.cosign.bundle\`) are attached for keyless sigstore verification."
+    echo "- **SLSA provenance** (\`.intoto.jsonl\`) is available for supply-chain attestation."
+    echo "- Or verify manually using the SHA256 table above."
+    echo "</details>"
+} > "$notes_file"
+
+if [[ "$NOTES_ONLY" == "1" ]]; then
+    cat "$notes_file"
+    exit 0
+fi
+
+release_exists=false
+is_draft=true
+if gh release view "$TAG" >/dev/null 2>&1; then
+    release_exists=true
+    is_draft="$(gh release view "$TAG" --json isDraft --jq '.isDraft')"
+fi
+
+if [ "$release_exists" = true ] && [ "$is_draft" != "true" ]; then
+    echo "Release ${TAG} is already published." >&2
+    echo "Immutable releases cannot accept new assets after publish." >&2
+    echo "Create a new tag, or delete this release (and its tag if allowed) and re-run." >&2
+    exit 1
+fi
+
+# Always create/keep as draft while uploading. Immutable repos lock assets on publish.
+if [ "$release_exists" = false ]; then
+    gh release create "$TAG" --draft --title "$TAG" --notes-file "$notes_file"
+else
+    gh release edit "$TAG" --draft --title "$TAG" --notes-file "$notes_file"
+fi
+
+for f in "${files[@]}"; do
+    gh release upload "$TAG" "$f" --clobber
+done
+
+# Nightly/preview: publish as prerelease after all assets are attached.
+# Stable tags remain drafts for manual review.
+if is_auto_prerelease_tag "$TAG"; then
+    gh release edit "$TAG" \
+        --draft=false \
+        --prerelease \
+        --title "$TAG" \
+        --notes-file "$notes_file"
+fi

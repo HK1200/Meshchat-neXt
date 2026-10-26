@@ -1,0 +1,59 @@
+// SPDX-License-Identifier: 0BSD
+import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+    NOMAD_CRASH_TAB_CHANNEL,
+    nomadCrashTabRendererUrl,
+} from "../../meshchatnext/src/frontend/js/nomadCrashTabShell.js";
+
+const crashTabHtml = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), "../../meshchatnext/src/frontend/nomad-crash-tab.html"),
+    "utf8"
+);
+
+describe("nomadCrashTabShell", () => {
+    it("exports a stable postMessage channel", () => {
+        expect(NOMAD_CRASH_TAB_CHANNEL).toBe("nomad-crash-tab");
+    });
+
+    it("builds a same-origin crash-tab URL", () => {
+        const url = nomadCrashTabRendererUrl();
+        expect(url).toContain("nomad-crash-tab.html");
+    });
+
+    it("pins the crash-tab URL to the build so stale heuristic caches miss", () => {
+        // In dev __APP_BUILD_TIME__ may be undefined. The URL must still work.
+        const url = nomadCrashTabRendererUrl();
+        expect(url.startsWith("/") || url.startsWith("http")).toBe(true);
+        if (typeof __APP_BUILD_TIME__ !== "undefined" && __APP_BUILD_TIME__) {
+            expect(url).toContain(`v=${encodeURIComponent(__APP_BUILD_TIME__)}`);
+        }
+    });
+
+    it("clamps document width so pages do not spawn a body x-scrollbar", () => {
+        expect(crashTabHtml).toContain("overflow-x: hidden");
+        expect(crashTabHtml).toContain("max-width: 100%");
+        expect(crashTabHtml).toMatch(/#root\s*\{[^}]*overflow-x:\s*hidden/s);
+    });
+
+    it("keeps a single vertical scroll owner on the crash-tab document", () => {
+        // html must not become a second scrollport. A bare overflow-x:hidden
+        // on the shared html,body rule computes overflow-y:auto and stacks two
+        // vertical sliders next to micron pages in Electron.
+        expect(crashTabHtml).toMatch(/html\s*\{[^}]*overflow:\s*hidden/s);
+        expect(crashTabHtml).toMatch(/body\s*\{[^}]*overflow-y:\s*auto/s);
+        expect(crashTabHtml).not.toMatch(/html,\s*body\s*\{[^}]*overflow-x:\s*hidden/s);
+    });
+
+    it("paints a dark document before the renderer module loads", () => {
+        expect(crashTabHtml).toContain('content="dark"');
+        expect(crashTabHtml).toContain("color-scheme: dark");
+        expect(crashTabHtml).toContain("background: #000000");
+    });
+
+    it("has a neutral document title for screen readers before the page loads", () => {
+        expect(crashTabHtml).toContain("<title>Nomad</title>");
+    });
+});

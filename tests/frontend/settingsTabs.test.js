@@ -1,0 +1,185 @@
+// SPDX-License-Identifier: 0BSD
+
+import { describe, expect, it } from "vitest";
+import en from "../../meshchatnext/src/frontend/locales/en.json";
+import {
+    ALL_SETTINGS_SECTIONS,
+    DEFAULT_SETTINGS_TAB,
+    getSettingsTab,
+    isAdvancedSettingsSection,
+    normalizeSettingsTabId,
+    SETTINGS_TABS,
+    settingsSectionBelongsToTab,
+    settingsSectionSearchExtras,
+    settingsTabForSection,
+    settingsTabHasVisibleSections,
+    visibleSectionsForTab,
+} from "../../meshchatnext/src/frontend/js/settings/settingsTabs.js";
+
+const KNOWN_SECTIONS_FROM_SETTINGS_PAGE = [
+    "strangerProtection",
+    "banishment",
+    "stickers",
+    "gifs",
+    "maintenance",
+    "plugins",
+    "telephony",
+    "desktop",
+    "android",
+    "archiver",
+    "nomadRenderer",
+    "crawler",
+    "appearance",
+    "battery",
+    "experimentalLive",
+    "visualiser",
+    "location",
+    "language",
+    "networkSecurity",
+    "transport",
+    "interfaces",
+    "blocked",
+    "privacyData",
+    "auth",
+    "webExposure",
+    "infrastructure",
+    "csp",
+    "messages",
+    "notificationSounds",
+    "propagation",
+    "shortcuts",
+];
+
+describe("settingsTabs", () => {
+    it("defaults to general tab", () => {
+        expect(DEFAULT_SETTINGS_TAB).toBe("general");
+        expect(normalizeSettingsTabId(undefined)).toBe("general");
+        expect(normalizeSettingsTabId(null)).toBe("general");
+        expect(normalizeSettingsTabId("")).toBe("general");
+        expect(normalizeSettingsTabId("   ")).toBe("general");
+        expect(normalizeSettingsTabId("invalid")).toBe("general");
+    });
+
+    it("normalizes valid tab ids and trims whitespace", () => {
+        expect(normalizeSettingsTabId("privacy")).toBe("privacy");
+        expect(normalizeSettingsTabId("  privacy  ")).toBe("privacy");
+    });
+
+    it("rejects case-mismatched tab ids", () => {
+        expect(normalizeSettingsTabId("General")).toBe("general");
+        expect(normalizeSettingsTabId("PRIVACY")).toBe("general");
+    });
+
+    it("maps sections to tabs", () => {
+        expect(settingsTabForSection("appearance")).toBe("general");
+        expect(settingsTabForSection("battery")).toBe("general");
+        expect(settingsTabForSection("location")).toBe("general");
+        expect(settingsTabForSection("messages")).toBe("messages");
+        expect(settingsTabForSection("archiver")).toBe("nomad");
+        expect(settingsTabForSection("plugins")).toBe("plugins");
+        expect(settingsTabForSection("telephony")).toBe("network");
+        expect(settingsTabForSection("banishment")).toBe("privacy");
+        expect(settingsTabForSection("selftest")).toBe("maintenance");
+        expect(settingsTabForSection("infrastructure")).toBe("maintenance");
+        expect(settingsTabForSection("unknown-section")).toBeNull();
+    });
+
+    it("includes every section exactly once", () => {
+        const seen = SETTINGS_TABS.flatMap((tab) => tab.sections);
+        expect(new Set(seen).size).toBe(seen.length);
+        expect(seen).toContain("language");
+        expect(seen).toContain("networkSecurity");
+        expect(seen).toContain("maintenance");
+    });
+
+    it("exports ALL_SETTINGS_SECTIONS matching flattened tab sections", () => {
+        expect(ALL_SETTINGS_SECTIONS).toEqual(SETTINGS_TABS.flatMap((tab) => tab.sections));
+        expect(Object.isFrozen(ALL_SETTINGS_SECTIONS)).toBe(true);
+    });
+
+    it("uses unique tab ids and non-empty labels", () => {
+        const ids = SETTINGS_TABS.map((tab) => tab.id);
+        expect(new Set(ids).size).toBe(ids.length);
+        for (const tab of SETTINGS_TABS) {
+            expect(tab.labelKey.length).toBeGreaterThan(0);
+            expect(tab.descriptionKey.length).toBeGreaterThan(0);
+            expect(tab.sections.length).toBeGreaterThan(0);
+        }
+    });
+
+    it("covers every SettingsPage section key", () => {
+        for (const sectionKey of KNOWN_SECTIONS_FROM_SETTINGS_PAGE) {
+            expect(ALL_SETTINGS_SECTIONS).toContain(sectionKey);
+            expect(settingsTabForSection(sectionKey)).not.toBeNull();
+        }
+    });
+
+    it("round-trips section to tab membership", () => {
+        for (const sectionKey of ALL_SETTINGS_SECTIONS) {
+            const tabId = settingsTabForSection(sectionKey);
+            expect(tabId).not.toBeNull();
+            expect(settingsSectionBelongsToTab(sectionKey, tabId)).toBe(true);
+            for (const otherTab of SETTINGS_TABS) {
+                if (otherTab.id === tabId) {
+                    continue;
+                }
+                expect(settingsSectionBelongsToTab(sectionKey, otherTab.id)).toBe(false);
+            }
+        }
+    });
+
+    it("getSettingsTab returns tab metadata or null", () => {
+        expect(getSettingsTab("network")?.id).toBe("network");
+        expect(getSettingsTab("missing")).toBeNull();
+        expect(getSettingsTab("")).toBeNull();
+    });
+
+    it("uses i18n keys that exist in en.json", () => {
+        for (const tab of SETTINGS_TABS) {
+            const labelTail = tab.labelKey.replace("settings.tabs.", "");
+            const descTail = tab.descriptionKey.replace("settings.tabs.", "");
+            expect(en.settings.tabs[labelTail]).toBeTruthy();
+            expect(en.settings.tabs[descTail]).toBeTruthy();
+        }
+    });
+
+    it("classifies technical sections as advanced and everyday ones as simple", () => {
+        expect(isAdvancedSettingsSection("transport")).toBe(true);
+        expect(isAdvancedSettingsSection("interfaces")).toBe(true);
+        expect(isAdvancedSettingsSection("csp")).toBe(true);
+        expect(isAdvancedSettingsSection("plugins")).toBe(true);
+        expect(isAdvancedSettingsSection("appearance")).toBe(false);
+        expect(isAdvancedSettingsSection("language")).toBe(false);
+        expect(isAdvancedSettingsSection("messages")).toBe(false);
+        expect(isAdvancedSettingsSection("unknown-section")).toBe(false);
+    });
+
+    it("visibleSectionsForTab filters advanced sections only in simple mode", () => {
+        const general = getSettingsTab("general");
+        const simple = visibleSectionsForTab(general, "simple");
+        expect(simple).toContain("appearance");
+        expect(simple).toContain("language");
+        expect(simple).not.toContain("experimentalLive");
+        expect(simple).not.toContain("translation");
+        expect(visibleSectionsForTab(general, "advanced")).toEqual(general.sections);
+        expect(visibleSectionsForTab(null, "simple")).toEqual([]);
+    });
+
+    it("tabs made entirely of advanced sections are hidden in simple mode", () => {
+        expect(settingsTabHasVisibleSections(getSettingsTab("network"), "simple")).toBe(false);
+        expect(settingsTabHasVisibleSections(getSettingsTab("nomad"), "simple")).toBe(false);
+        expect(settingsTabHasVisibleSections(getSettingsTab("plugins"), "simple")).toBe(false);
+        expect(settingsTabHasVisibleSections(getSettingsTab("general"), "simple")).toBe(true);
+        expect(settingsTabHasVisibleSections(getSettingsTab("network"), "advanced")).toBe(true);
+        expect(settingsTabHasVisibleSections(getSettingsTab("nomad"), "advanced")).toBe(true);
+    });
+
+    it("adds tab label and camelCase section id as search extras", () => {
+        expect(settingsSectionSearchExtras("appearance")).toEqual(["settings.tabs.general", "=appearance"]);
+        expect(settingsSectionSearchExtras("strangerProtection")).toEqual([
+            "settings.tabs.messages",
+            "=stranger protection",
+        ]);
+        expect(settingsSectionSearchExtras("unknown-section")).toEqual(["=unknown-section"]);
+    });
+});

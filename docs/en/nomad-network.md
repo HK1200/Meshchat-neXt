@@ -1,0 +1,101 @@
+# Nomad Network and Mesh Server
+
+Nomad Network is a distributed page and file system on top of Reticulum. Meshchat neXt includes a browser for remote nodes and a **Mesh Server** tool for hosting your own pages.
+
+## Nomad browser
+
+Open **Nomad Network** and enter a node destination hash. Meshchat neXt fetches the default entry page (usually /page/index.mu) over Reticulum link requests.
+
+Supported page types:
+
+| Extension | Format                               |
+| --------- | ------------------------------------ |
+| .mu       | Micron markup (NomadNet default)     |
+| .md       | Markdown with GFM-oriented rendering |
+| .txt      | Plain text with preserved whitespace |
+| .html     | Static HTML with sanitised CSS       |
+
+Follow links inside pages to browse further paths on the same node. Download files offered at /file/* paths.
+
+Rendering uses NomadPageRenderer.js with DOMPurify sanitization. Micron can use a JavaScript parser or optional Go WASM when nomad_micron_wasm_enabled is set.
+
+## Favourites and caching
+
+Save frequent nodes as favourites. Link caching (nomadnet_cached_links) speeds up repeat visits on slow links.
+
+Browsing is anonymous by default (null identity on the RNS link), matching NomadNet. The fingerprint control is a sticky **Identify when connecting** toggle stored on the favourite. When it is on, Meshchat neXt calls `link.identify` with your identity before each page or file request on that node. Turning it off clears the cached link so the next visit is anonymous again. Private tabs never identify.
+
+Micron pages can embed images served from the node's media/ and file/ paths. Both the NomadNet 1.4 whole-line form `` `(alt`w=..`h=..`a=..`:/media/name.ext) `` and the `` `[alt`:/media/name.ext`img=1] `` link form are rendered. The image icon in the toolbar sets a per-node loading policy (Inherit, Never, Manual, Auto, Always) on top of the global setting under Settings. It turns accent blue when the effective policy loads images on its own, meaning Auto or Always.
+
+## Archives
+
+When **page archiver** is enabled, Meshchat neXt stores versioned snapshots of pages you visit. Open **Archives** to browse historical copies. An optional crawler can archive automatically.
+
+Archived pages use the same renderer as the live browser based on the stored page_path extension.
+
+**Private tabs** (incognito icon, purple strip) browse without writing archives, without favourites or Identify, and without reusing the shared Nomad link cache. Private tabs are not restored from localStorage. The destination hash stays out of the URL bar and browser history (same idea as SearXNG keeping queries off GET URLs). They use the same Reticulum process as the active identity. They do not create a separate IdentityContext.
+
+## Mesh Server (page nodes)
+
+**Tools -> Mesh Server** lets you run a nomadnetwork.node destination locally.
+
+Typical workflow:
+
+1. Create a page node in the UI.
+2. Upload .mu, .md, .txt, or .html pages and optional files.
+3. Start the node and announce it on the mesh.
+4. Share your destination hash so others can open /page/index.mu on your node.
+
+Pages are only reachable at /page/<name> and files at /file/<name>. Any other
+path fails like an unknown page on a remote node. Content dropped directly
+into the node's pages/ or files/ directories is picked up automatically
+within a few seconds, without restarting the node.
+
+### Executable (dynamic) pages
+
+You can opt in per node to **executable pages**. When enabled:
+
+- Non-executable pages are served as static files.
+- Pages marked executable in the Mesh Server editor run as scripts. On Linux and macOS, chmod +x on the page file also marks it.
+- The first line must be a shebang such as `#!/usr/bin/env python3`. Windows does not exec scripts by shebang, so Mesh Server resolves that interpreter on PATH (python, py, node, and similar).
+- Request field_* and var_* values are passed as environment variables.
+- link_id and remote_identity are supplied when available.
+- Script stdout is returned as the page body. Failures return a controlled error page.
+
+Editing a page in Mesh Server always shows the file source, never the script output.
+
+API endpoints under /api/v1/page-nodes/ manage CRUD operations, start and stop, and file listings.
+
+Pages are served at `/page/<name>` and files at `/file/<name>` on the node destination.
+
+## Browsing flow
+
+```
+User enters destination hash
+    |
+    v
+RNS link request to /page/index.mu (or chosen path)
+    |
+    v
+Remote page node responds with content
+    |
+    v
+NomadPageRenderer picks Micron, Markdown, text, or HTML pipeline
+    |
+    v
+Sanitised HTML shown in Nomad Network view
+```
+
+## Authoring pages
+
+Read **NomadNet page formats** for security rules, Markdown quirks, and API behaviour. The Mesh Server rejects disallowed extensions on upload.
+
+## Micron editor
+
+**Tools -> Micron editor** helps author .mu pages before you upload them to your node. To embed an image, drop a file onto the editor, paste one from the clipboard, or use the image button. The editor inserts the `` `[alt`:/media/name.ext`img=1] `` markup, keeps a local copy so the preview renders it, and uploads referenced images to the node when you publish.
+
+## See also
+
+- **NomadNet page formats** for detailed authoring reference
+- **Tools and utilities** for the full tools list
+- **Reticulum interfaces** if remote pages time out (likely a path issue)

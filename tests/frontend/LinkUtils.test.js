@@ -1,0 +1,339 @@
+import { describe, it, expect } from "vitest";
+import LinkUtils from "@/js/LinkUtils";
+
+describe("LinkUtils.js", () => {
+    describe("renderReticulumLinks", () => {
+        it("detects nomadnet:// links with hash and path", () => {
+            const text = "nomadnet://1dfeb0d794963579bd21ac8f153c77a4:/page/index.mu";
+            const result = LinkUtils.renderReticulumLinks(text);
+            expect(result).toContain('class="nomadnet-link');
+            expect(result).toContain('data-nomadnet-url="1dfeb0d794963579bd21ac8f153c77a4:/page/index.mu"');
+        });
+
+        it("detects nomadnet@ links", () => {
+            const text = "nomadnet@1dfeb0d794963579bd21ac8f153c77a4";
+            const result = LinkUtils.renderReticulumLinks(text);
+            expect(result).toContain('class="nomadnet-link');
+            expect(result).toContain('data-nomadnet-url="1dfeb0d794963579bd21ac8f153c77a4:/page/index.mu"');
+        });
+
+        it("detects bare hash and path links as nomadnet", () => {
+            const text = "1dfeb0d794963579bd21ac8f153c77a4:/page/index.mu";
+            const result = LinkUtils.renderReticulumLinks(text);
+            expect(result).toContain('class="nomadnet-link');
+            expect(result).toContain('data-nomadnet-url="1dfeb0d794963579bd21ac8f153c77a4:/page/index.mu"');
+        });
+
+        it("includes Nomad backtick field parameters in the link", () => {
+            const text =
+                "9ce92808be498e9e05590ff27cbfdfe4:/page/forum/thread.mu`cat=general|thread=critical-security-update-rns-139-fixes-severe-rnsh-security-flaw";
+            const result = LinkUtils.renderReticulumLinks(text);
+            expect(result).toContain('class="nomadnet-link');
+            expect(result).toContain(
+                'data-nomadnet-url="9ce92808be498e9e05590ff27cbfdfe4:/page/forum/thread.mu`cat=general|thread=critical-security-update-rns-139-fixes-severe-rnsh-security-flaw"'
+            );
+            expect(result).toContain(
+                ">9ce92808be498e9e05590ff27cbfdfe4:/page/forum/thread.mu`cat=general|thread=critical-security-update-rns-139-fixes-severe-rnsh-security-flaw</a>"
+            );
+            expect(result).not.toMatch(/thread\.mu<\/a>`cat=/);
+        });
+
+        it("keeps Nomad field params when wrapped with nomadnet:// prefix", () => {
+            const text = "nomadnet://1dfeb0d794963579bd21ac8f153c77a4:/page/forum/thread.mu`cat=general|thread=slug";
+            const result = LinkUtils.renderReticulumLinks(text);
+            expect(result).toContain(
+                'data-nomadnet-url="1dfeb0d794963579bd21ac8f153c77a4:/page/forum/thread.mu`cat=general|thread=slug"'
+            );
+        });
+
+        it("trims trailing sentence punctuation after Nomad field params", () => {
+            const text = "see 1dfeb0d794963579bd21ac8f153c77a4:/page/forum/thread.mu`cat=general|thread=slug.";
+            const result = LinkUtils.renderReticulumLinks(text);
+            expect(result).toContain(
+                'data-nomadnet-url="1dfeb0d794963579bd21ac8f153c77a4:/page/forum/thread.mu`cat=general|thread=slug"'
+            );
+            expect(result).toContain("</a>.");
+        });
+
+        it("does not detect bare hash without prefix as lxmf", () => {
+            const text = "1dfeb0d794963579bd21ac8f153c77a4";
+            const result = LinkUtils.renderReticulumLinks(text);
+            expect(result).not.toContain("lxmf-link");
+            expect(result).not.toContain("<a ");
+            expect(result).toBe(text);
+        });
+
+        it("does not false-detect hex in a github blob url as lxmf", () => {
+            const text =
+                "https://github.com/org/repo/blob/9a47f3fc51dd3318aec0d2eb9ab6fc497c0f1aef/electron-builder.yml#L29";
+            const result = LinkUtils.renderReticulumLinks(text);
+            expect(result).not.toContain("lxmf-link");
+            expect(result).not.toContain("nomadnet-link");
+        });
+
+        it("detects lxmf: links", () => {
+            const text = "lxmf:1dfeb0d794963579bd21ac8f153c77a4";
+            const result = LinkUtils.renderReticulumLinks(text);
+            expect(result).toContain('class="lxmf-link');
+            expect(result).toContain('data-lxmf-address="1dfeb0d794963579bd21ac8f153c77a4"');
+        });
+
+        it("detects lxmf:// links", () => {
+            const text = "lxmf://1dfeb0d794963579bd21ac8f153c77a4";
+            const result = LinkUtils.renderReticulumLinks(text);
+            expect(result).toContain('class="lxmf-link');
+            expect(result).toContain('data-lxmf-address="1dfeb0d794963579bd21ac8f153c77a4"');
+        });
+
+        it("detects lxmf@ links", () => {
+            const text = "lxmf@1dfeb0d794963579bd21ac8f153c77a4";
+            const result = LinkUtils.renderReticulumLinks(text);
+            expect(result).toContain('class="lxmf-link');
+            expect(result).toContain('data-lxmf-address="1dfeb0d794963579bd21ac8f153c77a4"');
+        });
+    });
+
+    describe("renderStandardLinks", () => {
+        it("detects http links", () => {
+            const text = "visit http://example.com";
+            const result = LinkUtils.renderStandardLinks(text);
+            expect(result).toContain('href="#"');
+            expect(result).toMatch(/data-http-url="http:\/\/example\.com\/?"/);
+        });
+
+        it("detects https links", () => {
+            const text = "visit https://example.com/path?query=1";
+            const result = LinkUtils.renderStandardLinks(text);
+            expect(result).toContain('href="#"');
+            expect(result).toContain('data-http-url="https://example.com/path?query=1"');
+        });
+
+        it("trims trailing punctuation from detected urls", () => {
+            const result = LinkUtils.renderStandardLinks("visit https://example.com/path?x=1, now");
+            expect(result).toContain('data-http-url="https://example.com/path?x=1"');
+            expect(result).toContain("</a>, now");
+        });
+
+        it("keeps balanced parenthesis in url but trims unmatched trailing one", () => {
+            const withBalanced = LinkUtils.renderStandardLinks("see https://example.com/path_(v1)");
+            expect(withBalanced).toContain('data-http-url="https://example.com/path_(v1)"');
+
+            const withTrailing = LinkUtils.renderStandardLinks("see (https://example.com/path_(v1))");
+            expect(withTrailing).toContain('data-http-url="https://example.com/path_(v1)"');
+            expect(withTrailing).toContain("</a>)");
+        });
+
+        it("keeps escaped entity query content in data-http-url", () => {
+            const text = "visit https://example.com/search?q=a&amp;lang=en";
+            const result = LinkUtils.renderStandardLinks(text);
+            expect(result).toContain('data-http-url="https://example.com/search?q=a&amp;amp;lang=en"');
+        });
+    });
+
+    describe("renderAllLinks", () => {
+        it("detects both types of links", () => {
+            const text = "Check https://google.com and nomadnet://1dfeb0d794963579bd21ac8f153c77a4";
+            const result = LinkUtils.renderAllLinks(text);
+            expect(result).toMatch(/data-http-url="https:\/\/google\.com\/?"/);
+            expect(result).toContain('data-nomadnet-url="1dfeb0d794963579bd21ac8f153c77a4:/page/index.mu"');
+        });
+
+        it("returns empty string for empty input", () => {
+            expect(LinkUtils.renderAllLinks("")).toBe("");
+        });
+
+        it("returns string with no links for plain text", () => {
+            const result = LinkUtils.renderAllLinks("Just some words.");
+            expect(result).toContain("Just some words.");
+            expect(result).not.toContain("<a ");
+        });
+
+        it("does not double-wrap urls inside existing anchors", () => {
+            const original = 'already linked <a href="https://example.com">https://example.com</a>';
+            const result = LinkUtils.renderAllLinks(original);
+            expect(result).toBe(original);
+            expect((result.match(/<a /g) || []).length).toBe(1);
+        });
+
+        it("keeps reticulum path underscores", () => {
+            const text = "1dfeb0d794963579bd21ac8f153c77a4:/page/meshchatnext_on_pi.mu";
+            const result = LinkUtils.renderAllLinks(text);
+            expect(result).toContain(
+                'data-nomadnet-url="1dfeb0d794963579bd21ac8f153c77a4:/page/meshchatnext_on_pi.mu"'
+            );
+        });
+
+        it("does not false-detect hex in a github blob url as lxmf or nomadnet", () => {
+            const text =
+                "https://github.com/org/repo/blob/9a47f3fc51dd3318aec0d2eb9ab6fc497c0f1aef/electron-builder.yml#L29";
+            const result = LinkUtils.renderAllLinks(text);
+            expect(result).not.toContain("lxmf-link");
+            expect(result).not.toContain("nomadnet-link");
+            expect(result).toContain(
+                'data-http-url="https://github.com/org/repo/blob/9a47f3fc51dd3318aec0d2eb9ab6fc497c0f1aef/electron-builder.yml#L29"'
+            );
+        });
+
+        it("detects lxmf: prefixed address in plain text", () => {
+            const text = "send to lxmf:1dfeb0d794963579bd21ac8f153c77a4 please";
+            const result = LinkUtils.renderAllLinks(text);
+            expect(result).toContain('class="lxmf-link');
+            expect(result).toContain('data-lxmf-address="1dfeb0d794963579bd21ac8f153c77a4"');
+        });
+
+        it("does not inject nomadnet-link markup into a generated anchor", () => {
+            // A hash:/path token inside an http(s) URL must not be re-scanned
+            // by the reticulum pass after the URL becomes anchor markup.
+            const text = "see https://example.com/0123456789abcdef0123456789abcdef:/page/x.mu";
+            const result = LinkUtils.renderAllLinks(text);
+            expect(result).not.toContain("nomadnet-link");
+            expect(result).not.toContain("data-nomadnet-url");
+            expect(result).toContain('data-http-url="https://example.com/0123456789abcdef0123456789abcdef:/page/x.mu"');
+        });
+
+        it("does not resolve user-typed anchor placeholders", () => {
+            // A literal [[ANCHOR_0]] in the input must not splice real anchor
+            // markup into arbitrary positions at restore time.
+            const text = 'x <a href="#" data-http-url="https://example.com/">l</a> [[ANCHOR_0]]';
+            const result = LinkUtils.renderAllLinks(text);
+            expect(result).toContain("[[ANCHOR_0]]");
+            expect((result.match(/<a /g) || []).length).toBe(1);
+        });
+    });
+
+    describe("risky: no script or data URLs in href", () => {
+        it("does not produce javascript: href for text containing javascript: URL", () => {
+            const text = "see javascript:alert(1) here";
+            const result = LinkUtils.renderStandardLinks(text);
+            expect(result).not.toMatch(/\bhref\s*=\s*["']?\s*javascript:/i);
+        });
+
+        it("does not produce data: href for text containing data: URL", () => {
+            const text = "see data:text/html,<script>x</script> here";
+            const result = LinkUtils.renderStandardLinks(text);
+            expect(result).not.toMatch(/\bhref\s*=\s*["']?\s*data\s*:/i);
+        });
+
+        it("does not produce data: href for data image payload text", () => {
+            const text = "inline image data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA";
+            const result = LinkUtils.renderStandardLinks(text);
+            expect(result).not.toMatch(/\bhref\s*=\s*["']?\s*data\s*:/i);
+            expect(result).not.toContain("<a ");
+        });
+
+        it("stops URL at space so no script in same line", () => {
+            const text = "https://example.com javascript:alert(1)";
+            const result = LinkUtils.renderStandardLinks(text);
+            expect(result).toMatch(/data-http-url="https:\/\/example\.com\/?"/);
+            expect(result).not.toMatch(/href="[^"]*javascript:/);
+        });
+
+        it("does not put attacker text inside the anchor opening tag", () => {
+            const text = 'see https://evil.example/path" onmouseover="alert(1) ok';
+            const result = LinkUtils.renderStandardLinks(text);
+            const open = result.indexOf("<a ");
+            const openEnd = result.indexOf(">", open);
+            const openTag = result.slice(open, openEnd + 1);
+            expect(openTag).not.toMatch(/onmouseover/i);
+            expect(openTag).not.toMatch(/javascript:/i);
+        });
+
+        it("handles null and undefined without throwing", () => {
+            expect(LinkUtils.renderReticulumLinks(null)).toBe("");
+            expect(LinkUtils.renderReticulumLinks(undefined)).toBe("");
+            expect(LinkUtils.renderStandardLinks(null)).toBe("");
+        });
+
+        it("handles very long input without hanging", () => {
+            const long = "a".repeat(100000);
+            const start = Date.now();
+            LinkUtils.renderAllLinks(long);
+            expect(Date.now() - start).toBeLessThan(200);
+        });
+    });
+
+    describe("renderRelayLinks", () => {
+        const HUB = "00112233445566778899aabbccddeeff";
+
+        it("detects rrc://hub/room links", () => {
+            const result = LinkUtils.renderRelayLinks(`join rrc://${HUB}/lobby now`);
+            expect(result).toContain('class="rrc-link');
+            expect(result).toContain(`data-rrc-url="rrc://${HUB}/lobby"`);
+        });
+
+        it("detects meshchatnext relay share links", () => {
+            const uri = `meshchatnext://relay?hub=${HUB}&amp;room=general`;
+            const result = LinkUtils.renderRelayLinks(`see ${uri}`);
+            expect(result).toContain('class="rrc-link');
+            expect(result).toContain(`data-rrc-url="meshchatnext://relay?hub=${HUB}&amp;room=general"`);
+        });
+
+        it("folds escaped ampersands before storing the uri", () => {
+            const result = LinkUtils.renderRelayLinks(`meshchatnext://relay?hub=${HUB}&amp;room=general`);
+            // Attribute holds the escaped form. Reading it back yields a real &.
+            const match = result.match(/data-rrc-url="([^"]+)"/);
+            expect(match).not.toBeNull();
+            expect(match[1]).toContain("&amp;room=general");
+            expect(match[1]).not.toContain("&amp;amp;");
+        });
+
+        it("skips invalid rrc and relay uris", () => {
+            expect(LinkUtils.renderRelayLinks("rrc://nothex/lobby")).not.toContain("rrc-link");
+            expect(LinkUtils.renderRelayLinks("meshchatnext://relay?hub=bad")).not.toContain("rrc-link");
+            expect(LinkUtils.renderRelayLinks("rrc://" + HUB)).not.toContain("rrc-link");
+        });
+
+        it("trims trailing punctuation and escaped entities off the match", () => {
+            const result = LinkUtils.renderRelayLinks(`join rrc://${HUB}/lobby.`);
+            expect(result).toContain(`data-rrc-url="rrc://${HUB}/lobby"`);
+            const quoted = LinkUtils.renderRelayLinks(`join "rrc://${HUB}/lobby&quot;`);
+            expect(quoted).toContain(`data-rrc-url="rrc://${HUB}/lobby"`);
+        });
+
+        it("does not let the reticulum pass rewrite the hub hash inside anchors", () => {
+            const result = LinkUtils.renderAllLinks(`rrc://${HUB}/lobby`);
+            expect((result.match(/<a /g) || []).length).toBe(1);
+            expect(result).toContain("rrc-link");
+        });
+    });
+
+    describe("httpUrlHrefOrNull", () => {
+        it("returns canonical https href", () => {
+            expect(LinkUtils.httpUrlHrefOrNull("https://example.com/path")).toBe("https://example.com/path");
+        });
+
+        it("returns null for javascript: payloads that start with https-looking junk", () => {
+            expect(LinkUtils.httpUrlHrefOrNull("https://example.com javascript:alert(1)")).toBeNull();
+        });
+
+        it("returns null for non-http schemes", () => {
+            expect(LinkUtils.httpUrlHrefOrNull("javascript:alert(1)")).toBeNull();
+            expect(LinkUtils.httpUrlHrefOrNull("file:///etc/passwd")).toBeNull();
+        });
+
+        it("returns null for http(s) URLs with userinfo", () => {
+            expect(LinkUtils.httpUrlHrefOrNull("http://127.0.0.1:9337@example.com/x")).toBeNull();
+            expect(LinkUtils.httpUrlHrefOrNull("https://user:pass@evil.example/phish")).toBeNull();
+        });
+    });
+
+    describe("fuzzing robustness", () => {
+        it("httpUrlHrefOrNull and renderAllLinks tolerate random BMP strings", () => {
+            for (let i = 0; i < 300; i++) {
+                let s = "";
+                const len = Math.floor(Math.random() * 600);
+                for (let j = 0; j < len; j++) {
+                    s += String.fromCharCode(Math.floor(Math.random() * 65536));
+                }
+                expect(() => LinkUtils.httpUrlHrefOrNull(s)).not.toThrow();
+                expect(() => LinkUtils.renderAllLinks(s)).not.toThrow();
+                const h = LinkUtils.httpUrlHrefOrNull(s);
+                if (h !== null) {
+                    expect(h.startsWith("http://") || h.startsWith("https://")).toBe(true);
+                }
+                const rendered = LinkUtils.renderAllLinks(s);
+                expect(rendered.toLowerCase()).not.toContain("<script");
+            }
+        });
+    });
+});

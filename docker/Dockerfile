@@ -1,0 +1,122 @@
+# Alpine Meshchat neXt image.
+# Stages: frontend, python builder (deps + app overlay), runtime.
+# VARIANT=standard|extra (extra adds i2pd with SAM and an I2P HTTP site tunnel, plus yggdrasil).
+# LXST musl filterlib bake runs in scripts/docker/prepare-venv.sh.
+
+ARG NODE_IMAGE=node:24-alpine
+ARG NODE_HASH=sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1
+ARG PYTHON_IMAGE=python:3.14.8-alpine3.24
+ARG PYTHON_HASH=sha256:8acac70227ce3b34da9453120c375cc5b66cd0b062d4dc6bc74286f81a3819e1
+ARG VARIANT=standard
+ARG OCI_DESCRIPTION="Meshchat neXt is an all-in-one Reticulum client."
+ARG OCI_LICENSES="MIT AND 0BSD"
+
+FROM --platform=linux/amd64 ${NODE_IMAGE}@${NODE_HASH} AS build-frontend
+WORKDIR /src
+ARG TINYGO_VERSION=0.42.0
+RUN apk add --no-cache git python3 go gcompat \
+    && wget -qO /tmp/tinygo.tar.gz "https://github.com/tinygo-org/tinygo/releases/download/v${TINYGO_VERSION}/tinygo${TINYGO_VERSION}.linux-amd64.tar.gz" \
+    && tar -C /usr/local -xzf /tmp/tinygo.tar.gz \
+    && rm /tmp/tinygo.tar.gz \
+    && /usr/local/tinygo/bin/tinygo version
+ENV PATH="/usr/local/tinygo/bin:${PATH}"
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml vite.config.mjs ./
+COPY patches ./patches
+COPY scripts/fetch-micron-wasm.mjs scripts/fetch-micron-wasm.mjs
+COPY scripts/micron-wasm-resolve-bundled.mjs scripts/micron-wasm-resolve-bundled.mjs
+COPY scripts/micron-parser-go-version.mjs scripts/micron-parser-go-version.mjs
+COPY scripts/vite-dx.mjs scripts/vite-dx.mjs
+COPY scripts/build-visualiser-wasm.mjs scripts/build-visualiser-wasm.mjs
+COPY scripts/build-geo-wasm.mjs scripts/build-geo-wasm.mjs
+COPY scripts/wasm-exec-compat.mjs scripts/wasm-exec-compat.mjs
+COPY scripts/fetch-starter-mbtiles.mjs scripts/fetch-starter-mbtiles.mjs
+COPY scripts/copy-bergamot-wasm.mjs scripts/copy-bergamot-wasm.mjs
+COPY scripts/build-electron-shell-css.mjs scripts/build-electron-shell-css.mjs
+COPY scripts/copy-font-licenses.mjs scripts/copy-font-licenses.mjs
+COPY scripts/ensure-micron-parser-package.js scripts/ensure-micron-parser-package.js
+COPY scripts/sync-meshchatnext-docs.js scripts/sync-meshchatnext-docs.js
+COPY electron/loading.html electron/loading.html
+COPY electron/crash.html electron/crash.html
+COPY electron/assets/css/electron-shell.src.css electron/assets/css/electron-shell.src.css
+COPY scripts/pip_rns_remotes.py scripts/pip_rns_remotes.py
+COPY scripts/build/fetch_reticulum_manual.py scripts/build/fetch_reticulum_manual.py
+COPY scripts/build/generate_service_worker.mjs scripts/build/generate_service_worker.mjs
+COPY scripts/docker/build-frontend.sh scripts/docker/build-frontend.sh
+COPY docs ./docs
+COPY visualiser-wasm ./visualiser-wasm
+COPY geo-wasm ./geo-wasm
+COPY meshchatnext/src/frontend ./meshchatnext/src/frontend
+ENV GOCACHE=/tmp/go-cache
+ENV GOTMPDIR=/tmp/go-tmp
+ENV GOTOOLCHAIN=auto
+ENV STARTER_MBTILES_SKIP=1
+ENV MESHCHATNEXT_SKIP_ELECTRON_CSS=1
+RUN sh scripts/docker/build-frontend.sh
+
+FROM ${PYTHON_IMAGE}@${PYTHON_HASH} AS builder
+WORKDIR /build
+COPY scripts/docker/builder-apk-alpine.sh scripts/docker/builder-apk-alpine.sh
+COPY scripts/ci/github-install-uv.sh scripts/ci/priv.sh /tmp/ci/
+RUN sh scripts/docker/builder-apk-alpine.sh \
+    && UV_VERSION=0.11.15 sh /tmp/ci/github-install-uv.sh \
+    && rm -rf /tmp/ci
+RUN uv venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+ENV UV_PROJECT_ENVIRONMENT=/opt/venv
+RUN uv pip install --no-cache "setuptools>=83.0.0" "wheel" "jaraco.context>=6.1.0"
+COPY pyproject.toml uv.lock README.md CHANGELOG.md ./
+COPY logo ./logo
+COPY vendor ./vendor
+COPY scripts/docker-bake-lxst-filterlib-musl.py ./scripts/docker-bake-lxst-filterlib-musl.py
+COPY scripts/patch_lxst_pyogg_ogg_ctypes.py ./scripts/patch_lxst_pyogg_ogg_ctypes.py
+COPY scripts/patch_lxst_codec2_optional.py ./scripts/patch_lxst_codec2_optional.py
+COPY meshchatnext/src/backend/lxst_pyogg_ctypes_compat.py ./meshchatnext/src/backend/lxst_pyogg_ctypes_compat.py
+COPY scripts/docker/prepare-venv.sh scripts/docker/prepare-venv.sh
+COPY scripts/docker/build-app-overlay.sh scripts/docker/build-app-overlay.sh
+RUN sh scripts/docker/prepare-venv.sh
+COPY meshchatnext ./meshchatnext
+COPY --from=build-frontend /src/meshchatnext/public ./meshchatnext/public
+RUN sh scripts/docker/build-app-overlay.sh
+
+FROM ${PYTHON_IMAGE}@${PYTHON_HASH}
+ARG VARIANT
+ARG OCI_DESCRIPTION
+ARG OCI_LICENSES
+COPY scripts/docker/runtime-setup.sh /tmp/runtime-setup.sh
+RUN sh /tmp/runtime-setup.sh "${VARIANT}" && rm /tmp/runtime-setup.sh
+COPY --from=builder --chown=meshchat:meshchat /opt/venv-deps /opt/venv
+COPY --from=builder --chown=meshchat:meshchat /opt/app-overlay/ /opt/venv/
+COPY scripts/docker-entrypoint.sh /docker-entrypoint.sh
+COPY scripts/docker/start-i2pd.sh /start-i2pd.sh
+COPY docker/i2pd.conf /etc/i2pd/i2pd.conf
+COPY docker/tunnels.conf /etc/i2pd/tunnels.conf
+RUN chmod +x /docker-entrypoint.sh /start-i2pd.sh
+
+ARG OCI_REVISION=""
+ARG OCI_VERSION=""
+ARG OCI_CREATED=""
+
+LABEL org.opencontainers.image.description="${OCI_DESCRIPTION}"
+LABEL org.opencontainers.image.licenses="${OCI_LICENSES}"
+LABEL org.opencontainers.image.authors="Quad4"
+LABEL org.opencontainers.image.revision="${OCI_REVISION}"
+LABEL org.opencontainers.image.version="${OCI_VERSION}"
+LABEL org.opencontainers.image.created="${OCI_CREATED}"
+
+ENV PATH="/opt/venv/bin:$PATH"
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV MESHCHAT_FORCE_WEB_AUDIO=1
+# Cap glibc malloc arenas (default is 8 per CPU core on 64-bit, far more
+# than this workload needs) and keep numpy/OpenBLAS to one worker thread.
+ENV MALLOC_ARENA_MAX=2
+ENV OPENBLAS_NUM_THREADS=1
+
+USER meshchat
+
+# Podman OCI layout drops HEALTHCHECK. Use: podman build --format docker
+HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 \
+    CMD ["python", "-c", "import ssl, urllib.request; urllib.request.urlopen('https://127.0.0.1:8000/api/v1/status', context=ssl._create_unverified_context())"]
+
+ENTRYPOINT ["/docker-entrypoint.sh"]
+CMD ["meshchatnext", "--host=0.0.0.0", "--reticulum-config-dir=/config/.reticulum", "--storage-dir=/config/.meshchat-next", "--headless"]

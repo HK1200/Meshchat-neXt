@@ -1,0 +1,243 @@
+[project]
+name = "meshchat-next"
+version = "0.1.0"
+description = "A simple mesh network communications app powered by the Reticulum Network Stack"
+authors = [
+  {name = "Quad4"}
+]
+license = "0BSD AND MIT"
+readme = "README.md"
+requires-python = ">=3.11"
+keywords = ["reticulum", "meshchat", "meshchatnext", "lxmf", "rns"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Other Audience",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Communications",
+  "Topic :: Software Development :: Build Tools",
+]
+dependencies = [
+  "meshcore==2.3.17",
+  "pycryptodome==3.21.0",
+  "aiohttp>=3.14.3",
+  "aioquic>=1.3.0",
+  "lxmf>=1.2.0",
+  "psutil>=7.2.2",
+  "pyserial>=3.5",
+  "rns>=1.5.7",
+  "websockets>=17.1",
+  "bcrypt>=5.0.0,<6.0.0",
+  "aiohttp-session>=2.12.1,<3.0.0",
+  "packaging>=23",
+  "cryptography>=50.0.2,<51.0.0",
+  "pycparser>=3.0",
+  "audioop-lts>=0.2.2; python_version >= '3.13'",
+  "lxst>=0.5.4",
+  "miniaudio (>=1.71,<2.0)",
+  "cborx>=0.2.5,<0.3",
+  "wasmtime>=49.0.0",
+  "bleak>=3.0.2,<4.0",
+  "httpx[http2]>=0.28.1,<1.0",
+  "landlockpy>=0.2.0,<0.3",
+  "seccompy==0.2.0",
+]
+
+[project.scripts]
+meshchatnext = "meshchatnext.meshchat:main"
+meshchat-next = "meshchatnext.meshchat:main"
+meshchatnext-repository-http = "meshchatnext.repository_http_standalone:main"
+lxmfy = "lxmfy.cli:main"
+rns-filesync = "rns_filesync.cli:main"
+
+[project.optional-dependencies]
+meshcore = [
+  "meshcore==2.3.17",
+  "pyserial-asyncio-fast==0.16",
+  "pycayennelpp==2.4.0",
+  "pycryptodome==3.21.0",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/hk1200/Meshchat-neXt"
+"Issues" = "https://github.com/hk1200/Meshchat-neXt/issues"
+"Upstream source" = "https://github.com/Quad4-Software/MeshChatX"
+
+[tool.uv]
+constraint-dependencies = [
+  "h2>=4.4.1",
+  "numpy>=2.4.6,<2.5; python_version < '3.12'",
+  "numpy>=2.5.3,<2.6; python_version >= '3.12'",
+]
+override-dependencies = [
+  "setuptools>=84.2.1",
+]
+
+[tool.setuptools.packages.find]
+where = [".", "vendor/lxmfy", "vendor/rns_filesync"]
+include = ["meshchatnext*", "lxmfy*", "rns_filesync*"]
+exclude = ["tests*"]
+namespaces = false
+
+[tool.setuptools.package-data]
+meshchatnext = ["public/**/*", "public/*", "src/backend/data/community_interfaces.json", "src/backend/data/licenses_frontend.json", "src/backend/data/licenses_backend.json", "src/backend/data/THIRD_PARTY_NOTICES.txt", "src/backend/data/plugins/**/*", "src/backend/data/interfaces/**/*", "src/backend/data/map/**/*",
+"src/backend/data/map/.gitkeep", "src/frontend/public/repository-server-index.html"]
+
+[tool.setuptools.exclude-package-data]
+meshchatnext = [
+  "public/repository-server-bundled/**",
+  # Belt-and-suspenders if a dirty public/ tree is present at pack time.
+  "public/**/*NerdFont*",
+  "public/**/*RobotoMonoNerdFont*",
+  "public/**/tailwind-v3.4.3-forms-v0.5.7.js",
+]
+
+[build-system]
+requires = ["setuptools>=84.2.1", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[dependency-groups]
+dev = [
+    "cx-freeze>=7.0.0,<8.7.0",
+    "cbor2>=6.1.4",
+    "hypothesis>=6.167.0",
+    "jsonschema>=4.26.0",
+    "pygments>=2.21.0",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "pytest-cov>=7.1.0",
+    "pytest-xdist>=3.8.0",
+    "ruff>=0.14.0,<0.16.0",
+    "debugpy>=1.8.16",
+    "mutmut>=3.7.0; python_version < '4.0'",
+    "basedpyright>=1.39.10",
+    "pytest-rerunfailures>=14",
+    "pytest-timeout>=2.4.0",
+    "atheris>=3.1.0; sys_platform == 'linux' and platform_machine == 'x86_64' and python_version >= '3.12' and python_version < '3.15'",
+    "schemathesis>=4.28.0",
+    "diff-cover>=10.6.0",
+]
+
+[tool.ruff]
+exclude = [
+    ".git",
+    ".mypy_cache",
+    ".pnpm-store",
+    ".ruff_cache",
+    "build",
+    "dist",
+    "node_modules",
+    "venv",
+    ".venv",
+    "tests/frontend",
+    "tests/backend/fixtures/sideband_plugins",
+    "vendor",
+    "*.egg-info",
+]
+
+[tool.ruff.lint]
+select = [
+    "E4",   # pycodestyle errors: indentation
+    "E7",   # pycodestyle errors: statements
+    "E9",   # pycodestyle errors: runtime
+    "F",    # pyflakes
+    "W",    # pycodestyle warnings
+    "I",    # isort
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "C4",   # comprehensions
+    "RET",  # return style
+    "RUF",  # ruff rules
+    "PERF", # performance
+    "DTZ",  # timezone-aware datetimes
+    "A",    # builtins shadowing
+    "S",    # bandit security
+    "D",    # pydocstyle (partial, see ignore)
+    "ASYNC",# blocking calls inside async functions
+    "G",    # logging format (lazy %s args, no f-strings)
+    "LOG",  # logging hygiene
+    "ERA",  # commented-out code
+    "NPY",  # numpy deprecations
+    "SLOT", # __slots__ suggestions
+    "YTT",  # sys.version pitfalls
+    "ICN",  # import conventions
+    "ISC",  # implicit string concatenation
+    "TID",  # tidy imports
+    "EXE",  # shebang/executable-bit consistency
+]
+ignore = [
+    "D100", "D101", "D102", "D103", "D104", "D105", "D106", "D107",
+    "D203", "D213", "D401",
+    "S110",  # try-except-pass: audited defensive pattern throughout the daemon
+    "S112",  # try-except-continue: same
+    "S603",  # subprocess calls are audited; Landlock/AppContainer sandbox applies
+    "S608",  # SQL text uses bound parameters; bandit flags any non-literal
+    "ASYNC109",  # timeout-parameter naming is a trio convention, not asyncio
+    "ASYNC110",  # sleep-poll loops wait on RNS worker threads, no Event exists
+    "ASYNC240",  # os.path calls on the loop are sub-ms; trio.Path does not apply
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S", "E402", "ASYNC", "ERA", "G", "LOG"]
+"cx_setup.py" = ["E402"]
+"scripts/**" = ["E402", "EXE"]
+"meshchatnext/src/backend/web_audio_bridge.py" = ["E731"]
+
+[tool.coverage.run]
+parallel = true
+
+[tool.mutmut]
+paths_to_mutate = ["meshchatnext/src/backend/"]
+# mutmut copies only paths_to_mutate into mutants/, then pytest runs from that
+# directory. meshchatnext/ then shadows the installed package as a namespace
+# package, so these non-backend modules must be copied too.
+# Backend tests also read repo-relative paths (pytest.ini config, CI scripts,
+# workflow files, packaging metadata, and frontend/android sources used by
+# reference tests). Those must exist under mutants/ as well or baseline test
+# collection fails before any mutant is measured.
+also_copy = [
+    "pytest.ini",
+    "package.json",
+    "cx_setup.py",
+    "Taskfile.yml",
+    ".agents/",
+    ".github/",
+    "android/",
+    "electron/",
+    "packaging/",
+    "scripts/",
+    "typings/",
+    "meshchatnext/__init__.py",
+    "meshchatnext/android_codec2.py",
+    "meshchatnext/android_opus.py",
+    "meshchatnext/android_tts.py",
+    "meshchatnext/android_push_bridge.py",
+    "meshchatnext/meshchat.py",
+    "meshchatnext/pycodec2_ctypes.py",
+    "meshchatnext/repository_http_standalone.py",
+    "meshchatnext/src/__init__.py",
+    "meshchatnext/src/build_meta.py",
+    "meshchatnext/src/env_config.py",
+    "meshchatnext/src/env_utils.py",
+    "meshchatnext/src/json_store.py",
+    "meshchatnext/src/path_utils.py",
+    "meshchatnext/src/ssl_self_signed.py",
+    "meshchatnext/src/update_rsm.py",
+    "meshchatnext/src/version.py",
+    "meshchatnext/src/frontend/components/",
+    "meshchatnext/src/frontend/js/",
+]
+pytest_add_cli_args = [
+    "-m",
+    "not integration and not long_running and not eect and not lxst_real and not live_validation",
+]
+pytest_add_cli_args_test_selection = [
+    "tests/backend/",
+    "--ignore=tests/backend/test_performance_hotpaths.py",
+    "--ignore=tests/backend/test_memory_profiling.py",
+    "--ignore=tests/backend/test_performance_bottlenecks.py",
+    "--ignore=tests/backend/test_able_android.py",
+    "--ignore=tests/backend/eect",
+]

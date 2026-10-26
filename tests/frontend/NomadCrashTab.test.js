@@ -1,0 +1,925 @@
+// SPDX-License-Identifier: 0BSD
+import { mount } from "@vue/test-utils";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import NomadCrashTab from "@/components/nomadnetwork/NomadCrashTab.vue";
+import { NOMAD_CRASH_TAB_CHANNEL } from "@/js/nomadCrashTabShell.js";
+
+function setDocumentVisibility(state) {
+    Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        get: () => state,
+    });
+    Object.defineProperty(document, "hidden", {
+        configurable: true,
+        get: () => state === "hidden",
+    });
+}
+
+describe("NomadCrashTab.vue", () => {
+    let postMessageSpy;
+    let previousVisibilityState;
+    let previousHidden;
+
+    let mountedTabs = [];
+
+    beforeEach(() => {
+        postMessageSpy = vi.fn();
+        previousVisibilityState = Object.getOwnPropertyDescriptor(document, "visibilityState");
+        previousHidden = Object.getOwnPropertyDescriptor(document, "hidden");
+        setDocumentVisibility("visible");
+        mountedTabs = [];
+    });
+
+    afterEach(() => {
+        for (const wrapper of mountedTabs) {
+            try {
+                wrapper.unmount();
+            } catch {
+                // Already unmounted in the test body.
+            }
+        }
+        mountedTabs = [];
+        vi.restoreAllMocks();
+        if (previousVisibilityState) {
+            Object.defineProperty(document, "visibilityState", previousVisibilityState);
+        }
+        if (previousHidden) {
+            Object.defineProperty(document, "hidden", previousHidden);
+        }
+    });
+
+    const mountCrashTab = (props = {}) => {
+        const wrapper = mount(NomadCrashTab, {
+            props: {
+                path: "aabb:/page/index.mu",
+                content: ">#!\n# Hi",
+                active: true,
+                ...props,
+            },
+            global: {
+                mocks: {
+                    $t: (key) => key,
+                },
+            },
+        });
+        mountedTabs.push(wrapper);
+        return wrapper;
+    };
+
+    const attachFrame = (wrapper) => {
+        const frameEl = wrapper.vm.$refs.frame;
+        const fakeWindow = { postMessage: postMessageSpy };
+        Object.defineProperty(frameEl, "contentWindow", {
+            configurable: true,
+            get: () => fakeWindow,
+        });
+        return fakeWindow;
+    };
+
+    const mountReadyCrashTab = (props = {}) => {
+        const wrapper = mountCrashTab(props);
+        attachFrame(wrapper);
+        wrapper.vm.frameReady = true;
+        wrapper.vm.status = "ready";
+        wrapper.vm.lastPongAt = Date.now();
+        return wrapper;
+    };
+
+    it("emits the local-network-access allow token on Chromium only", () => {
+        const prev = Object.getOwnPropertyDescriptor(Navigator.prototype, "userAgentData");
+        Object.defineProperty(Navigator.prototype, "userAgentData", {
+            configurable: true,
+            get: () => ({ brands: [] }),
+        });
+        try {
+            const wrapper = mountCrashTab();
+            expect(wrapper.vm.$refs.frame.getAttribute("allow")).toBe("local-network-access");
+        } finally {
+            if (prev) {
+                Object.defineProperty(Navigator.prototype, "userAgentData", prev);
+            } else {
+                delete Navigator.prototype.userAgentData;
+            }
+        }
+    });
+
+    it("abortRender skips re-push after iframe reload ready", async () => {
+        const wrapper = mountCrashTab();
+        const frame = wrapper.vm.$refs.frame;
+        expect(frame.getAttribute("sandbox")).toBe("allow-scripts");
+        // allow= is emitted only on Chromium (navigator.userAgentData)
+        // because Firefox warns on the unsupported token.
+        expect(frame.getAttribute("allow")).toBeFalsy();
+        expect(frame.style.position).toBe("fixed");
+        const frameEl = frame;
+        Object.defineProperty(frameEl, "contentWindow", {
+            configurable: true,
+            get: () => ({ postMessage: postMessageSpy }),
+        });
+
+        wrapper.vm.frameReady = true;
+        wrapper.vm.pushRender();
+        await wrapper.vm.$nextTick();
+        expect(postMessageSpy).toHaveBeenCalled();
+        const renderCalls = postMessageSpy.mock.calls.filter((c) => c[0]?.type === "render");
+        expect(renderCalls.length).toBe(1);
+
+        postMessageSpy.mockClear();
+        wrapper.vm.abortRender();
+        expect(wrapper.vm.skipRenderUntilPropChange).toBe(true);
+        expect(wrapper.emitted("aborted")?.length).toBe(1);
+        expect(wrapper.emitted("render-done")?.length).toBe(1);
+
+        wrapper.vm.frameReady = true;
+        wrapper.vm.pushRender();
+        expect(postMessageSpy.mock.calls.filter((c) => c[0]?.type === "render").length).toBe(0);
+
+        await wrapper.setProps({ content: ">#!\n# New" });
+        expect(wrapper.vm.skipRenderUntilPropChange).toBe(false);
+    });
+
+    it("resolves page text from the frame via extract-text/postMessage", async () => {
+        const wrapper = mountReadyCrashTab();
+        const frame = wrapper.vm.$refs.frame;
+        const fakeWindow = frame.contentWindow;
+
+        const promise = wrapper.vm.getPageText();
+        await wrapper.vm.$nextTick();
+        const calls = postMessageSpy.mock.calls.filter((c) => c[0]?.type === "extract-text");
+        expect(calls.length).toBe(1);
+        const requestId = calls[0][0].id;
+        expect(requestId).toBeGreaterThan(0);
+
+        wrapper.vm.onWindowMessage({
+            source: fakeWindow,
+            origin: "null",
+            data: { channel: NOMAD_CRASH_TAB_CHANNEL, type: "page-text", id: requestId, text: "Hello page" },
+        });
+
+        await expect(promise).resolves.toBe("Hello page");
+        expect(wrapper.vm.pendingTextRequests[requestId]).toBeUndefined();
+    });
+
+    it("resolves empty page text on timeout when the frame never answers", async () => {
+        vi.useFakeTimers();
+        try {
+            const wrapper = mountReadyCrashTab();
+            const promise = wrapper.vm.getPageText(50);
+            await wrapper.vm.$nextTick();
+            vi.advanceTimersByTime(100);
+            await expect(promise).resolves.toBe("");
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("teleports the frame to body so keep-alive detach keeps it alive", () => {
+        const wrapper = mountCrashTab();
+        const frame = wrapper.vm.$refs.frame;
+        expect(frame.parentElement).toBe(document.body);
+        expect(wrapper.element.contains(frame)).toBe(false);
+    });
+
+    it("parks the frame over the host rect and hides it while inactive", async () => {
+        const wrapper = mountCrashTab();
+        const frame = wrapper.vm.$refs.frame;
+        const host = wrapper.vm.$refs.hostEl;
+        // jsdom reports a zero rect, so the frame starts hidden.
+        expect(frame.style.visibility).toBe("hidden");
+
+        host.getBoundingClientRect = () => ({ left: 10, top: 20, width: 300, height: 200 });
+        wrapper.vm.updateFrameRect();
+        await wrapper.vm.$nextTick();
+        expect(frame.style.visibility).toBe("visible");
+        expect(frame.style.left).toBe("10px");
+        expect(frame.style.top).toBe("20px");
+        expect(frame.style.width).toBe("300px");
+        expect(frame.style.height).toBe("200px");
+
+        await wrapper.setProps({ active: false });
+        expect(frame.style.visibility).toBe("hidden");
+        expect(frame.style.pointerEvents).toBe("none");
+    });
+
+    it("polls the host rect during geometry transitions", async () => {
+        const wrapper = mountCrashTab();
+        const host = wrapper.vm.$refs.hostEl;
+        host.getBoundingClientRect = () => ({ left: 50, top: 5, width: 100, height: 50 });
+
+        wrapper.vm.onGeometryTransition({ propertyName: "transform" });
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+        expect(wrapper.vm.frameRect.left).toBe(50);
+        expect(wrapper.vm.$refs.frame.style.visibility).toBe("visible");
+    });
+
+    it("ignores paint-only transitions", async () => {
+        const wrapper = mountCrashTab();
+        const spy = vi.spyOn(wrapper.vm, "updateFrameRect");
+        wrapper.vm.onGeometryTransition({ propertyName: "background-color" });
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        expect(spy).not.toHaveBeenCalled();
+    });
+
+    it("exposes an accessible iframe name and title", () => {
+        const wrapper = mountCrashTab({ path: "aabb:/page/index.mu" });
+        const frame = wrapper.vm.$refs.frame;
+        expect(frame.getAttribute("name")).toBe("nomad-page-renderer");
+        expect(frame.getAttribute("title")).toBe("aabb:/page/index.mu");
+    });
+
+    it("ignores aborted echo from frame after hard cancel", () => {
+        const wrapper = mountCrashTab();
+        const frame = wrapper.vm.$refs.frame;
+        const fakeWindow = { postMessage: postMessageSpy };
+        Object.defineProperty(frame, "contentWindow", {
+            configurable: true,
+            get: () => fakeWindow,
+        });
+
+        wrapper.vm.abortRender();
+        expect(wrapper.emitted("aborted")?.length).toBe(1);
+
+        wrapper.vm.onWindowMessage({
+            source: fakeWindow,
+            origin: "null",
+            data: { channel: NOMAD_CRASH_TAB_CHANNEL, type: "aborted" },
+        });
+        expect(wrapper.emitted("aborted")?.length).toBe(1);
+    });
+
+    it("ignores frame messages that are not opaque-null origin", () => {
+        const wrapper = mountCrashTab();
+        const frame = wrapper.vm.$refs.frame;
+        const fakeWindow = { postMessage: postMessageSpy };
+        Object.defineProperty(frame, "contentWindow", {
+            configurable: true,
+            get: () => fakeWindow,
+        });
+
+        wrapper.vm.onWindowMessage({
+            source: fakeWindow,
+            origin: "https://evil.example",
+            data: { channel: NOMAD_CRASH_TAB_CHANNEL, type: "ready" },
+        });
+        expect(wrapper.vm.frameReady).toBe(false);
+        expect(wrapper.emitted("ready")).toBeUndefined();
+    });
+
+    it("postToFrame uses * targetOrigin for opaque-origin frame", () => {
+        const wrapper = mountCrashTab();
+        const frame = wrapper.vm.$refs.frame;
+        Object.defineProperty(frame, "contentWindow", {
+            configurable: true,
+            get: () => ({ postMessage: postMessageSpy }),
+        });
+        wrapper.vm.postToFrame({ type: "ping", id: 1 });
+        expect(postMessageSpy).toHaveBeenCalledOnce();
+        // HTML forbids targetOrigin "null" when the target browsing context is opaque.
+        expect(postMessageSpy.mock.calls[0][1]).toBe("*");
+    });
+
+    it("postToFrame JSON-clones Vue-like proxies so structured clone succeeds", () => {
+        const wrapper = mountCrashTab({
+            pagePartials: { p1: "<b>x</b>" },
+            renderOptions: { nomad_micron_wasm_use: true, renderMarkdown: true },
+        });
+        const frame = wrapper.vm.$refs.frame;
+        Object.defineProperty(frame, "contentWindow", {
+            configurable: true,
+            get: () => ({ postMessage: postMessageSpy }),
+        });
+
+        // Simulate a reactive-looking nested object (Proxy) that DataClone rejects.
+        const reactivePartials = new Proxy(
+            { p1: "<b>x</b>" },
+            {
+                get(target, prop, receiver) {
+                    return Reflect.get(target, prop, receiver);
+                },
+            }
+        );
+        wrapper.vm.frameReady = true;
+        const ok = wrapper.vm.postToFrame({
+            type: "render",
+            path: "aabb:/page/index.mu",
+            content: "# Hi",
+            pagePartials: reactivePartials,
+            renderOptions: { nomad_micron_wasm_use: true },
+        });
+        expect(ok).toBe(true);
+        expect(postMessageSpy).toHaveBeenCalledOnce();
+        const payload = postMessageSpy.mock.calls[0][0];
+        expect(payload.channel).toBe(NOMAD_CRASH_TAB_CHANNEL);
+        expect(payload.pagePartials).toEqual({ p1: "<b>x</b>" });
+        expect(payload.renderOptions.nomad_micron_wasm_use).toBe(true);
+        expect(Object.getPrototypeOf(payload.pagePartials)).toBe(Object.prototype);
+    });
+
+    it("unstable renderOptions object identity does not retrigger render after done", async () => {
+        const wrapper = mountCrashTab({
+            renderOptions: { renderMarkdown: true },
+        });
+        const frame = wrapper.vm.$refs.frame;
+        Object.defineProperty(frame, "contentWindow", {
+            configurable: true,
+            get: () => ({ postMessage: postMessageSpy }),
+        });
+        wrapper.vm.frameReady = true;
+        wrapper.vm.pushRender();
+        await wrapper.vm.$nextTick();
+        postMessageSpy.mockClear();
+
+        // Simulate parent re-creating the options object with the same values.
+        await wrapper.setProps({ renderOptions: { renderMarkdown: true } });
+        await wrapper.vm.$nextTick();
+        await Promise.resolve();
+        const renderCalls = postMessageSpy.mock.calls.filter((c) => c[0]?.type === "render");
+        expect(renderCalls.length).toBe(0);
+    });
+
+    it("background and contentClass chrome updates do not emit render-started", async () => {
+        const wrapper = mountCrashTab({
+            background: "#000000",
+            contentClass: "nomad-page-rich bg-black",
+        });
+        const frame = wrapper.vm.$refs.frame;
+        Object.defineProperty(frame, "contentWindow", {
+            configurable: true,
+            get: () => ({ postMessage: postMessageSpy }),
+        });
+        wrapper.vm.frameReady = true;
+        wrapper.vm.status = "ready";
+        wrapper.vm.framePainted = true;
+        wrapper.vm.lastPostedRenderKey = wrapper.vm.contentRenderKey;
+
+        await wrapper.setProps({ background: "rgb(0, 0, 0)", contentClass: "nomad-page-rich bg-black pad" });
+        await wrapper.vm.$nextTick();
+        await Promise.resolve();
+
+        expect(wrapper.emitted("render-started")).toBeUndefined();
+        const chromeCalls = postMessageSpy.mock.calls.filter((c) => c[0]?.type === "chrome");
+        expect(chromeCalls.length).toBeGreaterThanOrEqual(1);
+        const renderCalls = postMessageSpy.mock.calls.filter((c) => c[0]?.type === "render");
+        expect(renderCalls.length).toBe(0);
+    });
+
+    it("render deadline emits hung when paint never completes", async () => {
+        vi.useFakeTimers();
+        let wrapper;
+        try {
+            wrapper = mountCrashTab();
+            attachFrame(wrapper);
+            wrapper.vm.frameReady = true;
+            wrapper.vm.pushRender();
+            await wrapper.vm.$nextTick();
+            expect(wrapper.emitted("render-started")?.length).toBe(1);
+
+            vi.advanceTimersByTime(20000);
+            expect(wrapper.vm.status).toBe("hung");
+            expect(wrapper.emitted("hung")?.length).toBe(1);
+        } finally {
+            wrapper?.unmount();
+            vi.useRealTimers();
+        }
+    });
+
+    it("does not mark hung after ping silence while the document is hidden", () => {
+        vi.useFakeTimers();
+        let wrapper;
+        try {
+            wrapper = mountReadyCrashTab();
+            setDocumentVisibility("hidden");
+            wrapper.vm.onVisibilityChange();
+            vi.advanceTimersByTime(30000);
+            expect(wrapper.vm.status).toBe("ready");
+            expect(wrapper.emitted("hung")).toBeUndefined();
+
+            setDocumentVisibility("visible");
+            wrapper.vm.onVisibilityChange();
+            vi.advanceTimersByTime(2000);
+            expect(wrapper.vm.status).toBe("ready");
+            expect(wrapper.emitted("hung")).toBeUndefined();
+        } finally {
+            wrapper?.unmount();
+            vi.useRealTimers();
+        }
+    });
+
+    it("does not mark hung across freeze and resume", () => {
+        vi.useFakeTimers();
+        let wrapper;
+        try {
+            wrapper = mountReadyCrashTab();
+            wrapper.vm.onPageFreeze();
+            vi.advanceTimersByTime(30000);
+            expect(wrapper.vm.status).toBe("ready");
+            expect(wrapper.emitted("hung")).toBeUndefined();
+
+            wrapper.vm.onPageResume();
+            vi.advanceTimersByTime(2000);
+            expect(wrapper.vm.status).toBe("ready");
+            expect(wrapper.emitted("hung")).toBeUndefined();
+        } finally {
+            wrapper?.unmount();
+            vi.useRealTimers();
+        }
+    });
+
+    it("marks hung after ping silence while the document stays visible", () => {
+        vi.useFakeTimers();
+        let wrapper;
+        try {
+            wrapper = mountReadyCrashTab();
+            vi.advanceTimersByTime(13000);
+            expect(wrapper.vm.status).toBe("hung");
+            expect(wrapper.emitted("hung")?.length).toBe(1);
+        } finally {
+            wrapper?.unmount();
+            vi.useRealTimers();
+        }
+    });
+
+    it("treats a coalesced wake gap as a stall instead of a hang", () => {
+        vi.useFakeTimers();
+        let wrapper;
+        try {
+            wrapper = mountReadyCrashTab();
+            wrapper.vm.lastPongAt = Date.now() - 30000;
+            wrapper.vm.checkWatchdog();
+            expect(wrapper.vm.status).toBe("ready");
+            expect(wrapper.emitted("hung")).toBeUndefined();
+            expect(postMessageSpy.mock.calls.some((c) => c[0]?.type === "ping")).toBe(true);
+
+            vi.advanceTimersByTime(13000);
+            expect(wrapper.vm.status).toBe("hung");
+            expect(wrapper.emitted("hung")?.length).toBe(1);
+        } finally {
+            wrapper?.unmount();
+            vi.useRealTimers();
+        }
+    });
+
+    it("does not fire the render deadline while the document is hidden", async () => {
+        vi.useFakeTimers();
+        let wrapper;
+        try {
+            wrapper = mountCrashTab();
+            attachFrame(wrapper);
+            wrapper.vm.frameReady = true;
+            wrapper.vm.pushRender();
+            await wrapper.vm.$nextTick();
+            expect(wrapper.emitted("render-started")?.length).toBe(1);
+
+            setDocumentVisibility("hidden");
+            wrapper.vm.onVisibilityChange();
+            vi.advanceTimersByTime(25000);
+            expect(wrapper.vm.status).toBe("rendering");
+            expect(wrapper.emitted("hung")).toBeUndefined();
+
+            setDocumentVisibility("visible");
+            wrapper.vm.onVisibilityChange();
+            vi.advanceTimersByTime(20000);
+            expect(wrapper.vm.status).toBe("hung");
+            expect(wrapper.emitted("hung")?.length).toBe(1);
+        } finally {
+            wrapper?.unmount();
+            vi.useRealTimers();
+        }
+    });
+
+    it("does not start the ping watchdog while the document is hidden", () => {
+        const wrapper = mountReadyCrashTab();
+        try {
+            setDocumentVisibility("hidden");
+            wrapper.vm.onVisibilityChange();
+            wrapper.vm.startWatchdog();
+            expect(wrapper.vm.watchdogTimer).toBeNull();
+            expect(wrapper.vm.pingTimer).toBeNull();
+        } finally {
+            wrapper.unmount();
+        }
+    });
+
+    const sendFromFrame = (wrapper, fakeWindow, type, extra = {}) => {
+        wrapper.vm.onWindowMessage({
+            source: fakeWindow,
+            origin: "null",
+            data: { channel: NOMAD_CRASH_TAB_CHANNEL, type, ...extra },
+        });
+    };
+
+    it("pong does not clear a render-error crash overlay", () => {
+        const wrapper = mountCrashTab();
+        const fakeWindow = { postMessage: postMessageSpy };
+        Object.defineProperty(wrapper.vm.$refs.frame, "contentWindow", {
+            configurable: true,
+            get: () => fakeWindow,
+        });
+        try {
+            wrapper.vm.frameReady = true;
+            sendFromFrame(wrapper, fakeWindow, "render-error", { message: "render_failed" });
+            expect(wrapper.vm.status).toBe("crashed");
+            expect(wrapper.emitted("hung")?.length).toBe(1);
+
+            sendFromFrame(wrapper, fakeWindow, "pong", { id: 1 });
+            expect(wrapper.vm.status).toBe("crashed");
+            expect(wrapper.vm.framePainted).toBe(false);
+        } finally {
+            wrapper.unmount();
+        }
+    });
+
+    it("pong does not clear hung when the page never painted", () => {
+        const wrapper = mountReadyCrashTab();
+        try {
+            wrapper.vm.status = "hung";
+            wrapper.vm.framePainted = false;
+            sendFromFrame(wrapper, wrapper.vm.$refs.frame.contentWindow, "pong", { id: 1 });
+            expect(wrapper.vm.status).toBe("hung");
+            expect(wrapper.vm.framePainted).toBe(false);
+        } finally {
+            wrapper.unmount();
+        }
+    });
+
+    it("pong recovers hung after a successful paint", () => {
+        const wrapper = mountReadyCrashTab();
+        try {
+            wrapper.vm.status = "hung";
+            wrapper.vm.framePainted = true;
+            sendFromFrame(wrapper, wrapper.vm.$refs.frame.contentWindow, "pong", { id: 1 });
+            expect(wrapper.vm.status).toBe("ready");
+            expect(wrapper.vm.framePainted).toBe(true);
+        } finally {
+            wrapper.unmount();
+        }
+    });
+
+    it("does not mark hung from ping silence while a paint is in flight", () => {
+        vi.useFakeTimers();
+        let wrapper;
+        try {
+            wrapper = mountReadyCrashTab();
+            wrapper.vm.status = "rendering";
+            wrapper.vm.framePainted = false;
+            wrapper.vm.lastPongAt = Date.now();
+            vi.advanceTimersByTime(13000);
+            expect(wrapper.vm.status).toBe("rendering");
+            expect(wrapper.emitted("hung")).toBeUndefined();
+        } finally {
+            wrapper?.unmount();
+            vi.useRealTimers();
+        }
+    });
+
+    it("render deadline still fires when the iframe never posts ready", async () => {
+        vi.useFakeTimers();
+        let wrapper;
+        try {
+            wrapper = mountCrashTab();
+            expect(wrapper.vm.frameReady).toBe(false);
+            await Promise.resolve();
+            // Boot retries fire at 8s and 16s. exhaustion surfaces 'hung' ~24s.
+            vi.advanceTimersByTime(25000);
+            expect(wrapper.vm.status).toBe("hung");
+            expect(wrapper.emitted("hung")?.length).toBe(1);
+        } finally {
+            wrapper?.unmount();
+            vi.useRealTimers();
+        }
+    });
+
+    it("ignores late render-done after abort", () => {
+        const wrapper = mountCrashTab();
+        const fakeWindow = { postMessage: postMessageSpy };
+        Object.defineProperty(wrapper.vm.$refs.frame, "contentWindow", {
+            configurable: true,
+            get: () => fakeWindow,
+        });
+        try {
+            wrapper.vm.abortRender();
+            expect(wrapper.vm.status).toBe("aborted");
+            sendFromFrame(wrapper, fakeWindow, "render-done", { partials: [{ id: "p1" }] });
+            expect(wrapper.vm.status).toBe("aborted");
+            expect(wrapper.vm.framePainted).toBe(false);
+            expect(wrapper.emitted("render-done")?.length).toBe(1);
+            expect(wrapper.emitted("partials")).toBeUndefined();
+        } finally {
+            wrapper.unmount();
+        }
+    });
+
+    it("emits images from render-done", () => {
+        const wrapper = mountReadyCrashTab();
+        const fakeWindow = attachFrame(wrapper);
+        try {
+            const images = [{ index: 0, url: ":/file/a.webp", alt: "A" }];
+            sendFromFrame(wrapper, fakeWindow, "render-done", { partials: [], images });
+            expect(wrapper.emitted("images")?.[0]?.[0]).toEqual(images);
+        } finally {
+            wrapper.unmount();
+        }
+    });
+
+    it("emits image-action from frame and setImage posts to frame", () => {
+        const wrapper = mountReadyCrashTab();
+        const fakeWindow = attachFrame(wrapper);
+        try {
+            sendFromFrame(wrapper, fakeWindow, "image-action", {
+                action: "load",
+                index: 0,
+                url: ":/file/a.webp",
+                alt: "A",
+            });
+            expect(wrapper.emitted("image-action")?.[0]?.[0]).toMatchObject({
+                action: "load",
+                index: 0,
+                url: ":/file/a.webp",
+            });
+            postMessageSpy.mockClear();
+            wrapper.vm.setImage(0, "loaded", { dataUrl: "data:image/webp;base64,abc" });
+            expect(postMessageSpy).toHaveBeenCalledWith(
+                {
+                    channel: NOMAD_CRASH_TAB_CHANNEL,
+                    type: "set-image",
+                    index: 0,
+                    state: "loaded",
+                    dataUrl: "data:image/webp;base64,abc",
+                },
+                "*"
+            );
+        } finally {
+            wrapper.unmount();
+        }
+    });
+
+    it("render-done after paint deadline hung recovers the overlay", async () => {
+        vi.useFakeTimers();
+        let wrapper;
+        try {
+            wrapper = mountCrashTab();
+            const fakeWindow = attachFrame(wrapper);
+            wrapper.vm.frameReady = true;
+            wrapper.vm.pushRender();
+            await wrapper.vm.$nextTick();
+            vi.advanceTimersByTime(20000);
+            expect(wrapper.vm.status).toBe("hung");
+            sendFromFrame(wrapper, fakeWindow, "render-done", { partials: [] });
+            expect(wrapper.vm.status).toBe("ready");
+            expect(wrapper.vm.framePainted).toBe(true);
+        } finally {
+            wrapper?.unmount();
+            vi.useRealTimers();
+        }
+    });
+
+    it("does not fire the render deadline while the tab is inactive", async () => {
+        vi.useFakeTimers();
+        let wrapper;
+        try {
+            wrapper = mountCrashTab({ active: false });
+            attachFrame(wrapper);
+            wrapper.vm.frameReady = true;
+            wrapper.vm.pushRender();
+            await wrapper.vm.$nextTick();
+            expect(wrapper.emitted("render-started")?.length).toBe(1);
+
+            vi.advanceTimersByTime(25000);
+            expect(wrapper.vm.status).toBe("rendering");
+            expect(wrapper.emitted("hung")).toBeUndefined();
+
+            await wrapper.setProps({ active: true });
+            vi.advanceTimersByTime(20000);
+            expect(wrapper.vm.status).toBe("hung");
+            expect(wrapper.emitted("hung")?.length).toBe(1);
+        } finally {
+            wrapper?.unmount();
+            vi.useRealTimers();
+        }
+    });
+
+    it("parks the never-ready deadline while hidden and fires after visible", async () => {
+        vi.useFakeTimers();
+        setDocumentVisibility("hidden");
+        let wrapper;
+        try {
+            wrapper = mountCrashTab();
+            vi.advanceTimersByTime(25000);
+            expect(wrapper.vm.status).toBe("loading");
+            expect(wrapper.emitted("hung")).toBeUndefined();
+
+            setDocumentVisibility("visible");
+            wrapper.vm.onVisibilityChange();
+            // Boot retries resume on visibility and exhaust around t+23s,
+            // which surfaces 'hung' for the never-ready frame.
+            vi.advanceTimersByTime(30000);
+            expect(wrapper.vm.status).toBe("hung");
+            expect(wrapper.emitted("hung")?.length).toBe(1);
+        } finally {
+            wrapper?.unmount();
+            vi.useRealTimers();
+        }
+    });
+
+    it("does not deep-watch renderOptions object identity", () => {
+        const wrapper = mountCrashTab();
+        const src = wrapper.vm.$options.watch || {};
+        // Watchers are on stable JSON keys, not deep object identity.
+        expect(wrapper.vm.renderOptionsKey).toEqual(expect.any(String));
+        expect(wrapper.vm.pagePartialsKey).toEqual(expect.any(String));
+        expect(src.renderOptions).toBeUndefined();
+        expect(src.pagePartials).toBeUndefined();
+        expect(src.renderOptionsKey).toBeTruthy();
+        expect(src.pagePartialsKey).toBeTruthy();
+    });
+
+    it("crash-tab entry boots dark and lazy-loads the Micron renderer", async () => {
+        const fs = await import("node:fs");
+        const path = await import("node:path");
+        const src = fs.readFileSync(
+            path.resolve(__dirname, "../../meshchatnext/src/frontend/js/nomadCrashTabMain.js"),
+            "utf8"
+        );
+        expect(src).toContain('import "../css/nomad-page-chrome.css"');
+        expect(src).toContain('parts = ["nodeContainer"]');
+        expect(src).toContain("paintShell");
+        expect(src).toContain("loadRenderer");
+        expect(src).toContain('import("./MicronParser.js")');
+        expect(src).toContain('import("dompurify")');
+        expect(src).toContain("globalThis.DOMPurify = DOMPurify");
+        expect(src).toContain('import("../fonts/RobotoMonoNerdFont/font.css")');
+        expect(src).toContain('parent.postMessage({ channel: NOMAD_CRASH_TAB_CHANNEL, ...msg }, "*")');
+        expect(src).not.toContain("parentTargetOrigin");
+        expect(src).toContain('d.type === "chrome"');
+        expect(src).not.toMatch(/^import MicronParser from/m);
+        expect(src).toMatch(/try \{\s*id = decodeURIComponent\(id\)/);
+        expect(src).not.toContain('replace(/"/g, "")');
+    });
+
+    it("opens the field paste menu when the frame posts field-contextmenu", async () => {
+        const wrapper = mountReadyCrashTab();
+        const fakeWindow = attachFrame(wrapper);
+
+        wrapper.vm.onWindowMessage({
+            source: fakeWindow,
+            origin: "null",
+            data: { channel: NOMAD_CRASH_TAB_CHANNEL, type: "field-contextmenu", x: 12, y: 34 },
+        });
+        await wrapper.vm.$nextTick();
+
+        expect(wrapper.vm.fieldContextMenu.show).toBe(true);
+        expect(wrapper.vm.fieldContextMenu.x).toBe(12);
+        expect(wrapper.vm.fieldContextMenu.y).toBe(34);
+        expect(document.body.textContent).toContain("common.paste");
+        wrapper.vm.fieldContextMenu.show = false;
+    });
+
+    it("forwards page-contextmenu from the frame with iframe-offset coords", async () => {
+        const wrapper = mountReadyCrashTab();
+        const fakeWindow = attachFrame(wrapper);
+
+        wrapper.vm.onWindowMessage({
+            source: fakeWindow,
+            origin: "null",
+            data: { channel: NOMAD_CRASH_TAB_CHANNEL, type: "page-contextmenu", x: 5, y: 9 },
+        });
+
+        const emitted = wrapper.emitted("contextmenu");
+        expect(emitted).toBeTruthy();
+        expect(emitted[0][0]).toEqual({ clientX: 5, clientY: 9 });
+    });
+
+    it("ignores field-contextmenu messages from other sources", async () => {
+        const wrapper = mountReadyCrashTab();
+        wrapper.vm.onWindowMessage({
+            source: { postMessage: vi.fn() },
+            origin: "null",
+            data: { channel: NOMAD_CRASH_TAB_CHANNEL, type: "field-contextmenu", x: 1, y: 1 },
+        });
+        expect(wrapper.vm.fieldContextMenu.show).toBe(false);
+    });
+
+    it("posts paste-text into the frame after a successful clipboard read", async () => {
+        const wrapper = mountReadyCrashTab();
+        attachFrame(wrapper);
+        Object.defineProperty(window, "isSecureContext", { configurable: true, value: true });
+        Object.defineProperty(navigator, "clipboard", {
+            configurable: true,
+            value: { readText: vi.fn().mockResolvedValue("aabbcc:/page/index.mu") },
+        });
+
+        postMessageSpy.mockClear();
+        await wrapper.vm.pasteIntoFrameField();
+        expect(postMessageSpy).toHaveBeenCalledWith(
+            expect.objectContaining({ type: "paste-text", text: "aabbcc:/page/index.mu" }),
+            "*"
+        );
+    });
+
+    it("falls back to the Android bridge when async clipboard read is unavailable", async () => {
+        const wrapper = mountReadyCrashTab();
+        attachFrame(wrapper);
+        Object.defineProperty(window, "isSecureContext", { configurable: true, value: false });
+        window.MeshchatNextAndroid = { getClipboardText: vi.fn(() => "bridge-text") };
+
+        postMessageSpy.mockClear();
+        await wrapper.vm.pasteIntoFrameField();
+        expect(window.MeshchatNextAndroid.getClipboardText).toHaveBeenCalled();
+        expect(postMessageSpy).toHaveBeenCalledWith(
+            expect.objectContaining({ type: "paste-text", text: "bridge-text" }),
+            "*"
+        );
+        delete window.MeshchatNextAndroid;
+    });
+
+    it("does not post when the clipboard is empty", async () => {
+        const wrapper = mountReadyCrashTab();
+        attachFrame(wrapper);
+        Object.defineProperty(window, "isSecureContext", { configurable: true, value: false });
+
+        postMessageSpy.mockClear();
+        await wrapper.vm.pasteIntoFrameField();
+        expect(postMessageSpy.mock.calls.filter((c) => c[0]?.type === "paste-text")).toHaveLength(0);
+    });
+
+    it("crash-tab entry routes field long-press to the parent paste flow", async () => {
+        const fs = await import("node:fs");
+        const path = await import("node:path");
+        const src = fs.readFileSync(
+            path.resolve(__dirname, "../../meshchatnext/src/frontend/js/nomadCrashTabMain.js"),
+            "utf8"
+        );
+        expect(src).toContain('post({ type: "field-contextmenu"');
+        expect(src).toContain('d.type === "paste-text"');
+        expect(src).toContain('root.addEventListener("contextmenu", onFieldContextMenu, true)');
+        expect(src).toContain('el.setRangeText(value, start, end, "end")');
+    });
+
+    it("auto-reloads the frame when boot never posts ready", async () => {
+        vi.useFakeTimers();
+        try {
+            const wrapper = mountCrashTab();
+            attachFrame(wrapper);
+            const initialSrc = wrapper.vm.frameSrc;
+            expect(wrapper.vm.frameReady).toBe(false);
+
+            await vi.advanceTimersByTimeAsync(8500);
+            expect(wrapper.vm.frameBootRetries).toBe(1);
+            expect(wrapper.vm.frameSrc).not.toBe(initialSrc);
+
+            const secondSrc = wrapper.vm.frameSrc;
+            await vi.advanceTimersByTimeAsync(8500);
+            expect(wrapper.vm.frameBootRetries).toBe(2);
+            expect(wrapper.vm.frameSrc).not.toBe(secondSrc);
+
+            // Retries are capped. no further reloads once exhausted.
+            const lastSrc = wrapper.vm.frameSrc;
+            await vi.advanceTimersByTimeAsync(17000);
+            expect(wrapper.vm.frameBootRetries).toBe(2);
+            expect(wrapper.vm.frameSrc).toBe(lastSrc);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("stops boot retries and resets the counter when ready arrives", async () => {
+        vi.useFakeTimers();
+        try {
+            const wrapper = mountCrashTab();
+            attachFrame(wrapper);
+
+            await vi.advanceTimersByTimeAsync(8500);
+            expect(wrapper.vm.frameBootRetries).toBe(1);
+
+            wrapper.vm.onWindowMessage({
+                source: wrapper.vm.$refs.frame.contentWindow,
+                origin: "null",
+                data: { channel: NOMAD_CRASH_TAB_CHANNEL, type: "ready" },
+            });
+            expect(wrapper.vm.frameBootRetries).toBe(0);
+            expect(wrapper.vm.frameReady).toBe(true);
+
+            const src = wrapper.vm.frameSrc;
+            await vi.advanceTimersByTimeAsync(20000);
+            expect(wrapper.vm.frameSrc).toBe(src);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("defers boot retry while the document is hidden", async () => {
+        setDocumentVisibility("hidden");
+        vi.useFakeTimers();
+        try {
+            const wrapper = mountCrashTab();
+            attachFrame(wrapper);
+            const src = wrapper.vm.frameSrc;
+            await vi.advanceTimersByTimeAsync(8500);
+            expect(wrapper.vm.frameSrc).toBe(src);
+            expect(wrapper.vm.frameBootRetries).toBe(0);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+});

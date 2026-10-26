@@ -1,0 +1,92 @@
+---
+- name: Create meshchatnext user
+  ansible.builtin.user:
+      name: "{{ meshchatnext_user }}"
+      uid: "{{ meshchatnext_uid }}"
+      system: true
+      shell: /usr/sbin/nologin
+      create_home: false
+
+- name: Create config directory
+  ansible.builtin.file:
+      path: "{{ meshchatnext_config_dir }}"
+      state: directory
+      owner: "{{ meshchatnext_uid }}"
+      group: "{{ meshchatnext_gid }}"
+      mode: "0750"
+
+- name: Pull meshchatnext image
+  containers.podman.podman_image:
+      name: "{{ meshchatnext_image }}:{{ meshchatnext_version }}"
+      pull: true
+  when: ansible_facts.packages.podman is defined
+
+- name: Pull meshchatnext image (docker)
+  community.docker.docker_image:
+      name: "{{ meshchatnext_image }}:{{ meshchatnext_version }}"
+      source: pull
+  when: ansible_facts.packages.podman is not defined
+
+- name: Run meshchatnext container
+  containers.podman.podman_container:
+      name: "{{ meshchatnext_container_name }}"
+      image: "{{ meshchatnext_image }}:{{ meshchatnext_version }}"
+      state: started
+      restart_policy: unless-stopped
+      read_only: true
+      no_new_privileges: true
+      cap_drop:
+          - ALL
+      ports:
+          - "{{ meshchatnext_bind }}:{{ meshchatnext_port }}:8000"
+      volumes:
+          - "{{ meshchatnext_config_dir }}:/config:Z"
+      tmpfs:
+          - /tmp:noexec,nosuid,size=256m
+          - /home/meshchat:nosuid,size=64m
+      ulimits:
+          - "nofile=65536:65536"
+      env: "{{ meshchatnext_extra_env }}"
+      command_args: "{{ meshchatnext_extra_args }}"
+  when: ansible_facts.packages.podman is defined
+
+- name: Run meshchatnext container (docker)
+  community.docker.docker_container:
+      name: "{{ meshchatnext_container_name }}"
+      image: "{{ meshchatnext_image }}:{{ meshchatnext_version }}"
+      state: started
+      restart_policy: unless-stopped
+      read_only: true
+      no_new_privileges: true
+      cap_drop:
+          - ALL
+      ports:
+          - "{{ meshchatnext_bind }}:{{ meshchatnext_port }}:8000"
+      volumes:
+          - "{{ meshchatnext_config_dir }}:/config"
+      tmpfs:
+          - /tmp:noexec,nosuid,size=256m
+          - /home/meshchat:nosuid,size=64m
+      ulimits:
+          - "nofile=65536:65536"
+      env: "{{ meshchatnext_extra_env }}"
+  when: ansible_facts.packages.podman is not defined
+
+- name: Configure nginx reverse proxy
+  when: meshchatnext_nginx_enabled
+  block:
+      - name: Install nginx config
+        ansible.builtin.template:
+            src: nginx.conf.j2
+            dest: "/etc/nginx/sites-available/{{ meshchatnext_domain }}.conf"
+            owner: root
+            group: root
+            mode: "0644"
+        notify: Reload nginx
+
+      - name: Enable nginx site
+        ansible.builtin.file:
+            src: "/etc/nginx/sites-available/{{ meshchatnext_domain }}.conf"
+            dest: "/etc/nginx/sites-enabled/{{ meshchatnext_domain }}.conf"
+            state: link
+        notify: Reload nginx

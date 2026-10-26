@@ -1,0 +1,8 @@
+---
+# Deploy Meshchat neXt via Ansible.
+# Usage: ansible-playbook -i inventory ansible/playbook.yml
+- name: Deploy Meshchat neXt
+  hosts: meshchatnext
+  become: true
+  roles:
+      - meshchatnext

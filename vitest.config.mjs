@@ -1,0 +1,106 @@
+import { defineConfig } from "vitest/config";
+import vue from "@vitejs/plugin-vue";
+import path from "path";
+import fs from "fs";
+import { MICRON_PARSER_GO_RELEASE_TAG } from "./scripts/micron-parser-go-version.mjs";
+
+function isMicronWasmBundledResolved(repoRoot) {
+    const wasmDir = path.join(repoRoot, "meshchatnext", "src", "frontend", "public", "vendor", "micron-parser-go");
+    const wasmFile = path.join(wasmDir, "micron-parser-go.wasm");
+    const execFile = path.join(wasmDir, "wasm_exec.js");
+    try {
+        if (!fs.existsSync(wasmFile) || !fs.existsSync(execFile)) {
+            return false;
+        }
+        return fs.statSync(wasmFile).size >= 8192 && fs.statSync(execFile).size >= 1024;
+    } catch {
+        return false;
+    }
+}
+
+const micronWasmBundled = isMicronWasmBundledResolved(import.meta.dirname);
+
+function loadMicronWasmIntegrity(repoRoot) {
+    if (!micronWasmBundled) return null;
+    const integrityPath = path.join(
+        repoRoot,
+        "meshchatnext",
+        "src",
+        "frontend",
+        "public",
+        "vendor",
+        "micron-parser-go",
+        "integrity.json"
+    );
+    try {
+        const content = fs.readFileSync(integrityPath, "utf-8");
+        return JSON.parse(content);
+    } catch {
+        return null;
+    }
+}
+
+const micronWasmIntegrity = loadMicronWasmIntegrity(import.meta.dirname);
+const appBuildTimeIso = new Date().toISOString();
+
+export default defineConfig({
+    define: {
+        __APP_BUILD_TIME__: JSON.stringify(appBuildTimeIso),
+        "import.meta.env.VITE_MICRON_WASM_BUNDLED": JSON.stringify(micronWasmBundled ? "true" : "false"),
+        "import.meta.env.VITE_MICRON_PARSER_GO_RELEASE": JSON.stringify(MICRON_PARSER_GO_RELEASE_TAG),
+        __MICRON_WASM_SRI_WASM__: JSON.stringify(micronWasmIntegrity?.wasm || ""),
+        __MICRON_WASM_SRI_EXEC__: JSON.stringify(micronWasmIntegrity?.wasmExec || ""),
+    },
+    plugins: [
+        vue({
+            template: {
+                compilerOptions: {
+                    isCustomElement: (tag) => tag === "emoji-picker",
+                },
+            },
+        }),
+    ],
+    test: {
+        execArgv: [
+            "--no-experimental-webstorage",
+            "--require",
+            path.resolve(import.meta.dirname, "tests/frontend/patch-console.cjs"),
+        ],
+        testTimeout: 20000,
+        hookTimeout: 20000,
+        teardownTimeout: 30000,
+        globals: true,
+        environment: "jsdom",
+        // vitest-worker teardown race: a console log RPC still in flight
+        // when the worker closes surfaces as an unhandled rejection even
+        // though every test passed. Ignore only that specific race.
+        onUnhandledError(error) {
+            const message = error && error.message ? String(error.message) : String(error);
+            if (message.includes("Closing rpc while")) {
+                return false;
+            }
+        },
+        include: ["tests/frontend/**/*.{test,spec}.{js,ts,jsx,tsx}"],
+        setupFiles: ["tests/frontend/setup.js"],
+        ui: false,
+        open: false,
+        coverage: {
+            provider: "v8",
+            reporter: ["text", "json-summary"],
+            reportsDirectory: "./coverage",
+            include: ["meshchatnext/src/frontend/**/*.{js,vue}"],
+            exclude: [
+                "meshchatnext/src/frontend/**/*.d.ts",
+                "meshchatnext/src/frontend/public/**",
+                "meshchatnext/src/frontend/locales/**",
+                "**/node_modules/**",
+            ],
+        },
+    },
+    resolve: {
+        tsconfigPaths: true,
+        alias: {
+            "@": path.resolve(import.meta.dirname, "meshchatnext", "src", "frontend"),
+        },
+    },
+});

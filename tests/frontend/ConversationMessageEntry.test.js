@@ -1,0 +1,344 @@
+import { mount } from "@vue/test-utils";
+import { describe, it, expect, vi } from "vitest";
+import ConversationMessageEntry from "@/components/messages/ConversationMessageEntry.vue";
+
+function makeCv(overrides = {}) {
+    return {
+        hasMessageBubble: () => true,
+        hasFileAttachments: () => false,
+        getParsedItems: () => null,
+        bubbleViewModel: (item) => ({
+            kind: "html",
+            textForRender: item?.lxmf_message?.content || "",
+            singleEmoji: false,
+            showFooter: false,
+        }),
+        renderMarkdown: (text) => text,
+        bubbleMessageBodyFontSizePx: () => 14,
+        shouldHideAutoImageCaption: () => false,
+        isMessageBodyTooLargeForDisplay: () => false,
+        messageBodyCharCount: () => 0,
+        formatTimeAgo: () => "now",
+        getMessageInfoLines: () => [],
+        outboundBubbleSurfaceClass: () => "bubble",
+        outboundBubbleFooterTimeClass: () => "",
+        outboundEmbeddedCardClass: () => "",
+        outboundEmbeddedSecondaryTextClass: () => "",
+        outboundReplySnippetTitleClass: () => "",
+        outboundExpandedActionsShellClass: () => "",
+        outboundMessageMenuButtonClass: () => "",
+        outboundMessageMenuButtonHoverClass: () => "",
+        outboundBubbleDeliveredIconClass: () => "",
+        outboundBubbleSentCheckIconClass: () => "",
+        outboundSendingStatusIconClass: () => "",
+        outboundBubblePendingCheckIconClass: () => "",
+        outboundSentStatusTitle: () => "",
+        outboundBubbleFailedTitle: () => "",
+        outboundBubbleStatusHoverTitle: () => "",
+        isOutboundPendingForUi: (item) => item?.lxmf_message?.state === "sending",
+        isOutboundWaitingBubble: () => false,
+        isOpportunisticDeferredDelivery: () => false,
+        isThemeOutboundBubble: () => false,
+        showRichOutboundPendingUi: () => false,
+        showOutboundTransferProgress: () => false,
+        canCancelOutboundSend: (item) =>
+            item?.is_outbound && ["sending", "outbound", "generating"].includes(item?.lxmf_message?.state),
+        isOutboundResendable: (item) =>
+            item?.is_outbound && ["failed", "cancelled"].includes(item?.lxmf_message?.state),
+        onChatItemClick: vi.fn((item) => {
+            item.is_actions_expanded = !item.is_actions_expanded;
+        }),
+        onMessageContextMenu: vi.fn(),
+        replyToMessage: vi.fn(),
+        deleteChatItem: vi.fn(),
+        showRawMessage: vi.fn(),
+        cancelSendingMessage: vi.fn(),
+        downloadLxmfFileAttachment: vi.fn(),
+        scrollToMessage: vi.fn(),
+        copyOversizedMessageBody: vi.fn(),
+        formatAttachmentSize: () => "1 B",
+        bubbleStyles: () => ({}),
+        isImageOnlyMessage: () => false,
+        isPaperMessageIngested: () => false,
+        ingestPaperMessage: vi.fn(),
+        pendingOutboundImageSrc: () => "",
+        onOutboundImageClick: vi.fn(),
+        openImage: vi.fn(),
+        imageGroupSortedChron: (items) => items,
+        imageGroupGalleryUrls: () => [],
+        lxmfImageUrl: () => "",
+        expandedMessageInfo: null,
+        ...overrides,
+    };
+}
+
+describe("ConversationMessageEntry wiring", () => {
+    it("shows Cancel send in expanded actions while outbound message is sending", async () => {
+        const chatItem = {
+            type: "lxmf_message",
+            is_outbound: true,
+            is_actions_expanded: true,
+            lxmf_message: {
+                hash: "aa".repeat(16),
+                state: "sending",
+                progress: 10,
+                content: "hello",
+                destination_hash: "bb".repeat(16),
+                source_hash: "cc".repeat(16),
+                fields: {},
+            },
+        };
+        const cv = makeCv();
+
+        const wrapper = mount(ConversationMessageEntry, {
+            props: {
+                entry: { type: "message", key: "m1", chatItem, showTimestamp: true },
+                cv,
+            },
+            global: {
+                mocks: { $t: (key) => key },
+                stubs: {
+                    MaterialDesignIcon: { template: "<span />" },
+                    MessageReactionsOverlay: true,
+                    OutboundTransferProgressFooter: true,
+                },
+            },
+        });
+
+        expect(wrapper.text()).toContain("messages.cancel_send");
+    });
+
+    it("clicking Cancel send calls cv.cancelSendingMessage", async () => {
+        const chatItem = {
+            type: "lxmf_message",
+            is_outbound: true,
+            is_actions_expanded: true,
+            lxmf_message: {
+                hash: "aa".repeat(16),
+                state: "sending",
+                content: "cancel me",
+                destination_hash: "bb".repeat(16),
+                source_hash: "cc".repeat(16),
+                fields: {},
+            },
+        };
+        const cv = makeCv();
+
+        const wrapper = mount(ConversationMessageEntry, {
+            props: {
+                entry: { type: "message", key: "m2", chatItem, showTimestamp: true },
+                cv,
+            },
+            global: {
+                mocks: { $t: (key) => key },
+                stubs: {
+                    MaterialDesignIcon: { template: "<span />" },
+                    MessageReactionsOverlay: true,
+                    OutboundTransferProgressFooter: true,
+                },
+            },
+        });
+
+        const cancelBtn = wrapper.findAll("button").find((b) => b.text().includes("messages.cancel_send"));
+        expect(cancelBtn).toBeDefined();
+        await cancelBtn.trigger("click");
+        expect(cv.cancelSendingMessage).toHaveBeenCalledWith(chatItem);
+    });
+
+    it("shows inline cancel inside the bubble for a sending outbound message", async () => {
+        const chatItem = {
+            type: "lxmf_message",
+            is_outbound: true,
+            is_actions_expanded: false,
+            lxmf_message: {
+                hash: "ab".repeat(16),
+                state: "sending",
+                content: "still sending",
+                destination_hash: "bb".repeat(16),
+                source_hash: "cc".repeat(16),
+                fields: {},
+            },
+        };
+        const cv = makeCv();
+
+        const wrapper = mount(ConversationMessageEntry, {
+            props: {
+                entry: { type: "message", key: "m-inline", chatItem, showTimestamp: true },
+                cv,
+            },
+            global: {
+                mocks: { $t: (key) => key },
+                stubs: {
+                    MaterialDesignIcon: { template: "<span />" },
+                    MessageReactionsOverlay: true,
+                    OutboundTransferProgressFooter: true,
+                },
+            },
+        });
+
+        const inlineCancel = wrapper.find("[data-message-bubble] [data-testid='cancel-send-inline']");
+        expect(inlineCancel.exists()).toBe(true);
+        expect(inlineCancel.attributes("title")).toBe("messages.cancel_send");
+        await inlineCancel.trigger("click");
+        expect(cv.cancelSendingMessage).toHaveBeenCalledWith(chatItem);
+    });
+
+    it("does not render a standalone cancel bubble outside the message bubble", () => {
+        const chatItem = {
+            type: "lxmf_message",
+            is_outbound: true,
+            is_actions_expanded: true,
+            lxmf_message: {
+                hash: "ac".repeat(16),
+                state: "sending",
+                content: "expanded sending",
+                destination_hash: "bb".repeat(16),
+                source_hash: "cc".repeat(16),
+                fields: {},
+            },
+        };
+        const cv = makeCv();
+
+        const wrapper = mount(ConversationMessageEntry, {
+            props: {
+                entry: { type: "message", key: "m-nofloat", chatItem, showTimestamp: true },
+                cv,
+            },
+            global: {
+                mocks: { $t: (key) => key },
+                stubs: {
+                    MaterialDesignIcon: { template: "<span />" },
+                    MessageReactionsOverlay: true,
+                    OutboundTransferProgressFooter: true,
+                },
+            },
+        });
+
+        // every cancel affordance must live inside the message bubble, never as
+        // a separate floating bubble above the message
+        const cancels = wrapper
+            .findAll("button")
+            .filter((b) => (b.attributes("title") || b.text()).includes("messages.cancel_send"));
+        expect(cancels.length).toBeGreaterThan(0);
+        for (const btn of cancels) {
+            expect(btn.element.closest("[data-message-bubble]")).not.toBeNull();
+        }
+    });
+
+    it("file attachment row calls downloadLxmfFileAttachment instead of navigating", async () => {
+        const chatItem = {
+            type: "lxmf_message",
+            is_outbound: false,
+            lxmf_message: {
+                hash: "dd".repeat(16),
+                state: "delivered",
+                content: "",
+                destination_hash: "bb".repeat(16),
+                source_hash: "cc".repeat(16),
+                fields: {
+                    file_attachments: [{ file_name: "photo.jpg", file_size: 100 }],
+                },
+            },
+        };
+        const cv = makeCv({
+            hasFileAttachments: () => true,
+        });
+
+        const wrapper = mount(ConversationMessageEntry, {
+            props: {
+                entry: { type: "message", key: "m3", chatItem, showTimestamp: true },
+                cv,
+            },
+            global: {
+                mocks: { $t: (key) => key },
+                stubs: {
+                    MaterialDesignIcon: { template: "<span />" },
+                    MessageReactionsOverlay: true,
+                    OutboundTransferProgressFooter: true,
+                },
+            },
+        });
+
+        const fileBtn = wrapper.findAll("button").find((b) => b.text().includes("photo.jpg"));
+        expect(fileBtn).toBeDefined();
+        expect(fileBtn.attributes("href")).toBeUndefined();
+        await fileBtn.trigger("click");
+        expect(cv.downloadLxmfFileAttachment).toHaveBeenCalledWith(chatItem, 0);
+    });
+
+    it("shows ingest button for paper message and passes hash on click", async () => {
+        const uri = "lxmf://deadbeefpaperpayload";
+        const chatItem = {
+            type: "lxmf_message",
+            is_outbound: false,
+            lxmf_message: {
+                hash: "ee".repeat(16),
+                state: "delivered",
+                content: uri,
+                destination_hash: "bb".repeat(16),
+                source_hash: "cc".repeat(16),
+                fields: {},
+            },
+        };
+        const cv = makeCv({
+            getParsedItems: () => ({ paperMessage: uri, isOnlyPaperMessage: true }),
+            isPaperMessageIngested: () => false,
+        });
+        const wrapper = mount(ConversationMessageEntry, {
+            props: {
+                entry: { type: "message", key: "m4", chatItem, showTimestamp: true },
+                cv,
+            },
+            global: {
+                mocks: { $t: (key) => key },
+                stubs: {
+                    MaterialDesignIcon: { template: "<span />" },
+                    MessageReactionsOverlay: true,
+                    OutboundTransferProgressFooter: true,
+                },
+            },
+        });
+        expect(wrapper.text()).toContain("messages.paper_message_detected");
+        const ingestBtn = wrapper.findAll("button").find((b) => b.text().includes("messages.paper_message_ingest"));
+        expect(ingestBtn).toBeDefined();
+        await ingestBtn.trigger("click");
+        expect(cv.ingestPaperMessage).toHaveBeenCalledWith(uri, chatItem.lxmf_message.hash);
+    });
+
+    it("shows ingested paper state without ingest button", () => {
+        const uri = "lxmf://alreadyingested";
+        const chatItem = {
+            type: "lxmf_message",
+            is_outbound: false,
+            lxmf_message: {
+                hash: "ff".repeat(16),
+                state: "delivered",
+                content: uri,
+                destination_hash: "bb".repeat(16),
+                source_hash: "cc".repeat(16),
+                fields: {},
+            },
+        };
+        const cv = makeCv({
+            getParsedItems: () => ({ paperMessage: uri, isOnlyPaperMessage: true }),
+            isPaperMessageIngested: () => true,
+        });
+        const wrapper = mount(ConversationMessageEntry, {
+            props: {
+                entry: { type: "message", key: "m5", chatItem, showTimestamp: true },
+                cv,
+            },
+            global: {
+                mocks: { $t: (key) => key },
+                stubs: {
+                    MaterialDesignIcon: { template: "<span />" },
+                    MessageReactionsOverlay: true,
+                    OutboundTransferProgressFooter: true,
+                },
+            },
+        });
+        expect(wrapper.text()).toContain("messages.paper_message_ingested");
+        const ingestBtn = wrapper.findAll("button").find((b) => b.text().trim() === "messages.paper_message_ingest");
+        expect(ingestBtn).toBeUndefined();
+    });
+});

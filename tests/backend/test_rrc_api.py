@@ -1,0 +1,294 @@
+# SPDX-License-Identifier: 0BSD
+
+"""Tests for the Reticulum Relay Chat HTTP API endpoints."""
+
+import json
+
+import pytest
+
+from tests.backend.http_request_stubs import JsonContent
+
+
+def _find_handler(app, path, method):
+    for route in app.get_routes():
+        if route.path == path and route.method == method:
+            return route.handler
+    return None
+
+
+def _make_request(json_body=None, match_info=None):
+    from unittest.mock import MagicMock
+
+    request = MagicMock()
+
+    async def _json():
+        return json_body if json_body is not None else {}
+
+    request.json = _json
+    request.content = JsonContent(json_body if json_body is not None else {})
+    request.match_info = match_info or {}
+    request.query = {}
+    return request
+
+
+HUB_HASH_HEX = "00112233445566778899aabbccddeeff"
+
+
+@pytest.mark.asyncio
+async def test_rrc_hubs_empty(mock_app):
+    handler = _find_handler(mock_app, "/api/v1/rrc/hubs", "GET")
+    assert handler is not None
+    response = await handler(_make_request())
+    data = json.loads(response.body)
+    assert data == {"hubs": []}
+
+
+@pytest.mark.asyncio
+async def test_rrc_add_hub_and_list(mock_app):
+    post = _find_handler(mock_app, "/api/v1/rrc/hubs", "POST")
+    response = await post(
+        _make_request(json_body={"hub_hash": HUB_HASH_HEX, "name": "My Hub"}),
+    )
+    assert response.status == 200
+    data = json.loads(response.body)
+    assert data["hub"]["hub_hash"] == HUB_HASH_HEX
+    assert data["hub"]["name"] == "My Hub"
+
+    get = _find_handler(mock_app, "/api/v1/rrc/hubs", "GET")
+    listing = json.loads((await get(_make_request())).body)
+    assert len(listing["hubs"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_rrc_add_hub_invalid_hash(mock_app):
+    post = _find_handler(mock_app, "/api/v1/rrc/hubs", "POST")
+    response = await post(_make_request(json_body={"hub_hash": "zzzz"}))
+    assert response.status == 400
+
+
+@pytest.mark.asyncio
+async def test_rrc_add_hub_wrong_length(mock_app):
+    post = _find_handler(mock_app, "/api/v1/rrc/hubs", "POST")
+    response = await post(_make_request(json_body={"hub_hash": "aabb"}))
+    assert response.status == 400
+
+
+@pytest.mark.asyncio
+async def test_rrc_join_room_offline_adds_room(mock_app):
+    post_hub = _find_handler(mock_app, "/api/v1/rrc/hubs", "POST")
+    await post_hub(_make_request(json_body={"hub_hash": HUB_HASH_HEX}))
+
+    join = _find_handler(mock_app, "/api/v1/rrc/hubs/{hub_hash}/rooms", "POST")
+    response = await join(
+        _make_request(
+            json_body={"room": "lobby"},
+            match_info={"hub_hash": HUB_HASH_HEX},
+        ),
+    )
+    assert response.status == 200
+    data = json.loads(response.body)
+    assert "lobby" in data["hub"]["known_rooms"]
+
+
+@pytest.mark.asyncio
+async def test_rrc_join_room_requires_name(mock_app):
+    post_hub = _find_handler(mock_app, "/api/v1/rrc/hubs", "POST")
+    await post_hub(_make_request(json_body={"hub_hash": HUB_HASH_HEX}))
+
+    join = _find_handler(mock_app, "/api/v1/rrc/hubs/{hub_hash}/rooms", "POST")
+    response = await join(
+        _make_request(json_body={"room": ""}, match_info={"hub_hash": HUB_HASH_HEX}),
+    )
+    assert response.status == 400
+
+
+@pytest.mark.asyncio
+async def test_rrc_messages_for_unknown_hub(mock_app):
+    handler = _find_handler(
+        mock_app,
+        "/api/v1/rrc/hubs/{hub_hash}/rooms/{room}/messages",
+        "GET",
+    )
+    response = await handler(
+        _make_request(match_info={"hub_hash": HUB_HASH_HEX, "room": "lobby"}),
+    )
+    assert response.status == 404
+
+
+@pytest.mark.asyncio
+async def test_rrc_send_message_when_disconnected_fails(mock_app):
+    post_hub = _find_handler(mock_app, "/api/v1/rrc/hubs", "POST")
+    await post_hub(_make_request(json_body={"hub_hash": HUB_HASH_HEX}))
+    join = _find_handler(mock_app, "/api/v1/rrc/hubs/{hub_hash}/rooms", "POST")
+    await join(
+        _make_request(
+            json_body={"room": "lobby"},
+            match_info={"hub_hash": HUB_HASH_HEX},
+        ),
+    )
+
+    send = _find_handler(
+        mock_app,
+        "/api/v1/rrc/hubs/{hub_hash}/rooms/{room}/messages",
+        "POST",
+    )
+    response = await send(
+        _make_request(
+            json_body={"text": "hello"},
+            match_info={"hub_hash": HUB_HASH_HEX, "room": "lobby"},
+        ),
+    )
+    # not connected to the hub link, so sending should fail gracefully
+    assert response.status == 400
+
+
+@pytest.mark.asyncio
+async def test_rrc_remove_hub(mock_app):
+    post_hub = _find_handler(mock_app, "/api/v1/rrc/hubs", "POST")
+    await post_hub(_make_request(json_body={"hub_hash": HUB_HASH_HEX}))
+
+    delete = _find_handler(mock_app, "/api/v1/rrc/hubs/{hub_hash}", "DELETE")
+    response = await delete(_make_request(match_info={"hub_hash": HUB_HASH_HEX}))
+    assert response.status == 200
+
+    get = _find_handler(mock_app, "/api/v1/rrc/hubs", "GET")
+    listing = json.loads((await get(_make_request())).body)
+    assert listing["hubs"] == []
+
+
+@pytest.mark.asyncio
+async def test_rrc_rooms_list_requests_refresh(mock_app):
+    post_hub = _find_handler(mock_app, "/api/v1/rrc/hubs", "POST")
+    await post_hub(_make_request(json_body={"hub_hash": HUB_HASH_HEX}))
+    hub = mock_app.rrc_manager.find_hub_by_hex(HUB_HASH_HEX)
+    calls = []
+    hub.send_command = lambda text, room=None, record_local=True: calls.append(
+        (text, room, record_local),
+    )
+
+    handler = _find_handler(mock_app, "/api/v1/rrc/hubs/{hub_hash}/rooms/list", "POST")
+    assert handler is not None
+    response = await handler(_make_request(match_info={"hub_hash": HUB_HASH_HEX}))
+    assert response.status == 200
+    data = json.loads(response.body)
+    assert data["message"] == "Room list requested"
+    assert "hub" in data
+    assert calls == [("/list", None, False)]
+
+
+@pytest.mark.asyncio
+async def test_rrc_rooms_list_disconnected_returns_400(mock_app):
+    post_hub = _find_handler(mock_app, "/api/v1/rrc/hubs", "POST")
+    await post_hub(_make_request(json_body={"hub_hash": HUB_HASH_HEX}))
+
+    handler = _find_handler(mock_app, "/api/v1/rrc/hubs/{hub_hash}/rooms/list", "POST")
+    response = await handler(_make_request(match_info={"hub_hash": HUB_HASH_HEX}))
+    assert response.status == 400
+    data = json.loads(response.body)
+    assert "not connected" in data["message"]
+
+
+@pytest.mark.asyncio
+async def test_rrc_send_message_rate_limited_returns_429(mock_app):
+    import time as _time
+
+    post_hub = _find_handler(mock_app, "/api/v1/rrc/hubs", "POST")
+    await post_hub(_make_request(json_body={"hub_hash": HUB_HASH_HEX}))
+    hub = mock_app.rrc_manager.find_hub_by_hex(HUB_HASH_HEX)
+    assert hub is not None
+    hub.rate_limit_msgs_per_minute = 1
+    hub._send_budget_tokens = 0.0
+    hub._send_budget_last = _time.monotonic()
+
+    send = _find_handler(
+        mock_app,
+        "/api/v1/rrc/hubs/{hub_hash}/rooms/{room}/messages",
+        "POST",
+    )
+    response = await send(
+        _make_request(
+            json_body={"text": "hello"},
+            match_info={"hub_hash": HUB_HASH_HEX, "room": "lobby"},
+        ),
+    )
+    assert response.status == 429
+    body = json.loads(response.body)
+    assert body["code"] == "rate_limited"
+    assert "rate limit" in body["message"].lower()
+    assert body["error"] == body["message"]
+    assert body["retry_after"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_rrc_retry_message_rate_limited_returns_429(mock_app):
+    import time as _time
+
+    from meshchatnext.src.backend.rrc import protocol as proto
+
+    post_hub = _find_handler(mock_app, "/api/v1/rrc/hubs", "POST")
+    await post_hub(_make_request(json_body={"hub_hash": HUB_HASH_HEX}))
+    hub = mock_app.rrc_manager.find_hub_by_hex(HUB_HASH_HEX)
+    msg = proto.RRCMessage("msg", "lobby", b"\x22" * 16, "me", "x", 0)
+    msg.delivery = "failed"
+    msg.seq = 1
+    hub.messages["lobby"] = [msg]
+    hub.rate_limit_msgs_per_minute = 1
+    hub._send_budget_tokens = 0.0
+    hub._send_budget_last = _time.monotonic()
+
+    retry = _find_handler(
+        mock_app,
+        "/api/v1/rrc/hubs/{hub_hash}/rooms/{room}/messages/{seq}/retry",
+        "POST",
+    )
+    response = await retry(
+        _make_request(
+            match_info={"hub_hash": HUB_HASH_HEX, "room": "lobby", "seq": "1"},
+        ),
+    )
+    assert response.status == 429
+    assert json.loads(response.body)["code"] == "rate_limited"
+    # The row was not flipped to sending by the rejected retry.
+    assert msg.delivery == "failed"
+
+
+@pytest.mark.asyncio
+async def test_rrc_server_patch_sets_and_clamps_rate_limit(mock_app):
+    post = _find_handler(mock_app, "/api/v1/rrc/servers", "POST")
+    created = await post(_make_request(json_body={"name": "Limited Hub"}))
+    hub_id = json.loads(created.body)["hub"]["id"]
+
+    patch = _find_handler(mock_app, "/api/v1/rrc/servers/{hub_id}", "PATCH")
+    response = await patch(
+        _make_request(
+            json_body={"rate_limit_msgs_per_minute": 30},
+            match_info={"hub_id": hub_id},
+        ),
+    )
+    assert response.status == 200
+    assert json.loads(response.body)["hub"]["rate_limit_msgs_per_minute"] == 30
+
+    response = await patch(
+        _make_request(
+            json_body={"rate_limit_msgs_per_minute": 999999},
+            match_info={"hub_id": hub_id},
+        ),
+    )
+    assert json.loads(response.body)["hub"]["rate_limit_msgs_per_minute"] == 10000
+
+
+@pytest.mark.asyncio
+async def test_rrc_server_patch_rejects_bad_rate_limit(mock_app):
+    post = _find_handler(mock_app, "/api/v1/rrc/servers", "POST")
+    created = await post(_make_request(json_body={"name": "Hub"}))
+    hub_id = json.loads(created.body)["hub"]["id"]
+
+    patch = _find_handler(mock_app, "/api/v1/rrc/servers/{hub_id}", "PATCH")
+    for bad in ("fast", 12.5, True, None):
+        response = await patch(
+            _make_request(
+                json_body={"rate_limit_msgs_per_minute": bad},
+                match_info={"hub_id": hub_id},
+            ),
+        )
+        assert response.status == 400, bad

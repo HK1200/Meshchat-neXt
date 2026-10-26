@@ -1,0 +1,536 @@
+# SPDX-License-Identifier: 0BSD
+
+"""RNode USB serial / Bluetooth / BLE support checks for desktop and Android.
+
+RNode over TCP ("RNode over IP") needs no native Android modules and works
+unconditionally. On Android, Meshchat neXt ships a Chaquopy jnius shim plus a
+patched usb4a context bridge so USB serial and classic Bluetooth can use
+usbserial4a. BLE (ble://) uses the bundled able package and org.able.BLE.
+Serial and classic-Bluetooth still need usbserial4a + jnius. BLE needs able.
+This module lets the rest of the app tell which RNode config entries can
+actually be brought up on the current build, so only the genuinely
+unsupported ones get disabled.
+"""
+
+from __future__ import annotations
+
+import importlib.util
+import logging
+import re
+
+logger = logging.getLogger(__name__)
+
+_TRUE_STRINGS = ("true", "yes", "1", "on")
+
+
+def _optional_module_available(module_name: str) -> bool:
+    """Return True when *module_name* can be resolved without importing it."""
+    try:
+        return importlib.util.find_spec(module_name) is not None
+    except (ImportError, ModuleNotFoundError, ValueError):
+        return False
+
+
+def _is_chaquopy_android() -> bool:
+    try:
+        from meshchatnext.android_push_bridge import _is_chaquopy_android as _check
+
+        return _check()
+    except ImportError:
+        return False
+
+
+def android_usbserial4a_available() -> bool:
+    """True when usbserial4a can be imported (RNode serial/Bluetooth-classic on Android)."""
+    return _optional_module_available("usbserial4a")
+
+
+def android_jnius_available() -> bool:
+    """True when jnius (or the Chaquopy jnius shim) can be imported.
+
+    RNS's Android-specific RNodeInterface needs jnius for USB serial and
+    classic Bluetooth (RFCOMM) access. Meshchat neXt ships a Chaquopy-backed
+    shim under android/app/src/main/python/jnius so this resolves on device.
+    """
+    return _optional_module_available("jnius")
+
+
+def android_able_available() -> bool:
+    """True when able can be imported (BLE GATT support for RNode ble://).
+
+    Meshchat neXt ships a Chaquopy-compatible able package plus org.able.BLE.
+    """
+    return _optional_module_available("able")
+
+
+def desktop_serial_stack_available() -> bool:
+    return _optional_module_available("serial.tools.list_ports")
+
+
+def desktop_ble_stack_available() -> bool:
+    return _optional_module_available("bleak")
+
+
+def _is_rnode_tcp_config_type(iface_type: object) -> bool:
+    return iface_type in ("RNodeInterface", "RNodeIPInterface")
+
+
+def rnode_serial_supported() -> bool:
+    """Whether RNode USB serial / classic-Bluetooth ports can be opened here.
+
+    On desktop this is also a hard requirement for tcp:// and ble:// ports:
+    RNS's RNodeInterface imports pyserial unconditionally in its
+    constructor. ble:// additionally needs bleak on desktop, or able on
+    Android.
+    """
+    if _is_chaquopy_android():
+        return android_usbserial4a_available() and android_jnius_available()
+    return desktop_serial_stack_available()
+
+
+def _is_enabled(iface: dict) -> bool:
+    for key in ("interface_enabled", "enabled"):
+        if key in iface and str(iface.get(key, "")).lower() in _TRUE_STRINGS:
+            return True
+    return False
+
+
+def rnode_port_is_tcp(port: object) -> bool:
+    return str(port or "").strip().lower().startswith("tcp://")
+
+
+def rnode_port_is_ble(port: object) -> bool:
+    return str(port or "").strip().lower().startswith("ble://")
+
+
+def rnode_port_is_bt(port: object) -> bool:
+    """Classic-Bluetooth target written as bt://<name|mac|port>."""
+    return str(port or "").strip().lower().startswith("bt://")
+
+
+def _bt_target_from_port(port: object) -> str:
+    return str(port or "").strip()[len("bt://") :].strip()
+
+
+def _ble_target_from_port(port: object) -> str:
+    return str(port or "").strip()[len("ble://") :].strip()
+
+
+_BLE_MAC_RE = re.compile(r"^(?:[0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}$|^[0-9a-fA-F]{12}$")
+
+
+def _looks_like_mac(value: str) -> bool:
+    return _BLE_MAC_RE.match(value.strip()) is not None
+
+
+def _tcp_host_from_port(port: object) -> str | None:
+    if not rnode_port_is_tcp(port):
+        return None
+    host_part = str(port).strip()[len("tcp://") :].strip().strip(":")
+    if not host_part or set(host_part) <= {"/"}:
+        return None
+    return host_part
+
+
+def _port_is_blank(port: object) -> bool:
+    return not str(port or "").strip()
+
+
+def _rnode_iface_transport(iface: dict) -> str:
+    """Classify an RNodeInterface config entry's transport.
+
+    Returns one of "tcp", "ble", "bluetooth_classic", or "serial". Both the
+    desktop-style port schemes (ble://, bt://) and the Android RNS keys
+    (ble_name/ble_addr/force_ble, allow_bluetooth) are recognised.
+    """
+    port = iface.get("port")
+    if rnode_port_is_tcp(port) or iface.get("tcp_host"):
+        return "tcp"
+    if rnode_port_is_ble(port) or rnode_port_is_bt(port):
+        return "ble" if rnode_port_is_ble(port) else "bluetooth_classic"
+    if (
+        any(str(iface.get(key, "")).strip() for key in ("ble_name", "ble_addr"))
+        or str(iface.get("force_ble", "")).lower() in _TRUE_STRINGS
+    ):
+        return "ble"
+    allow_bluetooth = str(iface.get("allow_bluetooth", "")).lower() in _TRUE_STRINGS
+    if allow_bluetooth and (
+        _port_is_blank(port)
+        or iface.get("target_device_name")
+        or iface.get("target_device_address")
+    ):
+        return "bluetooth_classic"
+    return "serial"
+
+
+def rnode_transport_supported(iface: dict, *, is_android: bool | None = None) -> bool:
+    """Whether a specific RNodeInterface config entry can be brought up here.
+
+    Serial and classic-Bluetooth need usbserial4a + jnius on Android. BLE
+    needs able. On desktop every RNode transport requires pyserial because
+    RNS's RNodeInterface imports serial unconditionally before it decides
+    which transport to open, and BLE additionally needs bleak.
+
+    is_android lets a caller that already determined the platform pass
+    that result through explicitly, instead of re-detecting it here.
+    """
+    if is_android is None:
+        is_android = _is_chaquopy_android()
+
+    transport = _rnode_iface_transport(iface)
+    if is_android:
+        if transport == "tcp":
+            return True
+        if transport == "ble":
+            return android_able_available()
+        return android_usbserial4a_available() and android_jnius_available()
+    if not desktop_serial_stack_available():
+        return False
+    if transport == "ble":
+        return desktop_ble_stack_available()
+    return True
+
+
+def normalize_rnode_tcp_host_in_config(config_path: str) -> bool:
+    """Backfill tcp_host for RNodeInterface entries configured with a tcp:// port.
+
+    RNS's desktop RNodeInterface derives tcp_host from a tcp:// port itself,
+    but the Android-specific implementation reads tcp_host as its own,
+    separate config key and never looks at port for that. Configs written or
+    hand-edited with only port = tcp://host:port therefore silently try
+    (and fail) to open the RNode as a serial device on Android. This keeps
+    both keys in sync regardless of how the entry was created, so RNode over
+    TCP works the same way on both platforms.
+
+    Returns True if any interfaces were modified.
+    """
+    import os
+
+    if not os.path.isfile(config_path):
+        return False
+    try:
+        from RNS.vendor.configobj import ConfigObj
+
+        cfg = ConfigObj(config_path)
+    except Exception:
+        return False
+
+    modified = False
+    interfaces = cfg.get("interfaces")
+    if not isinstance(interfaces, dict):
+        return False
+    for iface in interfaces.values():
+        if not isinstance(iface, dict):
+            continue
+        if not _is_rnode_tcp_config_type(iface.get("type")):
+            continue
+        port = iface.get("port")
+        if not rnode_port_is_tcp(port):
+            continue
+        host_part = _tcp_host_from_port(port)
+        if host_part is None:
+            continue
+        if str(iface.get("tcp_host", "")).strip() != host_part:
+            iface["tcp_host"] = host_part
+            modified = True
+    if modified:
+        try:
+            cfg.write()
+        except Exception:
+            pass
+    return modified
+
+
+def translate_rnode_bluetooth_port_for_android(iface: dict) -> bool:
+    """Rewrite a desktop-style Bluetooth RNode port as Android RNS keys.
+
+    The desktop RNodeInterface takes the transport from the port value
+    (ble://name|mac, bt://name|mac). The Android-specific implementation
+    ignores that and reads ble_name/ble_addr/force_ble for BLE and
+    allow_bluetooth plus target_device_name/target_device_address for
+    classic Bluetooth. A port that is set always means USB serial, so an
+    untranslated entry attaches as a dead serial device and never connects.
+
+    Mutates *iface* in place. Returns True when the entry was rewritten.
+    """
+    port = iface.get("port")
+
+    if rnode_port_is_ble(port):
+        target = _ble_target_from_port(port)
+        iface.pop("port", None)
+        if target and _looks_like_mac(target):
+            iface["ble_addr"] = target
+            iface.pop("ble_name", None)
+        elif target:
+            iface["ble_name"] = target
+            iface.pop("ble_addr", None)
+        else:
+            iface["force_ble"] = True
+        return True
+
+    if rnode_port_is_bt(port):
+        target = _bt_target_from_port(port)
+        iface.pop("port", None)
+        iface["allow_bluetooth"] = True
+        if target and _looks_like_mac(target):
+            iface["target_device_address"] = target
+            iface.pop("target_device_name", None)
+        elif target:
+            iface["target_device_name"] = target
+            iface.pop("target_device_address", None)
+        return True
+
+    allow_bluetooth = str(iface.get("allow_bluetooth", "")).lower() in _TRUE_STRINGS
+    if allow_bluetooth and _port_is_blank(port) and "port" in iface:
+        # A blank port still counts as "a port is set" for the Android
+        # implementation, which would pick the USB-serial path.
+        iface.pop("port", None)
+        return True
+    if not _port_is_blank(port) or str(iface.get("tcp_host", "")).strip():
+        # A real serial/TCP port leaves stale Android Bluetooth keys from an
+        # earlier edit reachable: ble_name/ble_addr/force_ble force use_ble
+        # ahead of the serial path in open_port.
+        removed = False
+        for key in (
+            "ble_name",
+            "ble_addr",
+            "force_ble",
+            "allow_bluetooth",
+            "target_device_name",
+            "target_device_address",
+        ):
+            if key in iface:
+                iface.pop(key, None)
+                removed = True
+        return removed
+    return False
+
+
+def normalize_rnode_bluetooth_in_config(
+    config_path: str,
+    *,
+    is_android: bool | None = None,
+) -> bool:
+    """Translate desktop-style Bluetooth RNode ports to Android RNS keys.
+
+    Entries written through the UI use the desktop schemes, so on Android
+    they must be rewritten or the interface silently tries to open a USB
+    device and never connects.
+
+    Returns True if any interfaces were modified.
+    """
+    import os
+
+    if is_android is None:
+        is_android = _is_chaquopy_android()
+    if not is_android:
+        return False
+    if not os.path.isfile(config_path):
+        return False
+    try:
+        from RNS.vendor.configobj import ConfigObj
+
+        cfg = ConfigObj(config_path)
+    except Exception:
+        return False
+
+    modified = False
+    interfaces = cfg.get("interfaces")
+    if not isinstance(interfaces, dict):
+        return False
+    for iface in interfaces.values():
+        if not isinstance(iface, dict):
+            continue
+        if not _is_rnode_tcp_config_type(iface.get("type")):
+            continue
+        if translate_rnode_bluetooth_port_for_android(iface):
+            modified = True
+
+    if modified:
+        try:
+            cfg.write()
+        except Exception:
+            pass
+    return modified
+
+
+def disable_rnode_interfaces_in_config(
+    config_path: str,
+    *,
+    is_android: bool | None = None,
+) -> bool:
+    """Disable RNode* interfaces in a Reticulum config file that can't run here.
+
+    RNode over TCP is left enabled since it needs no native Android modules.
+    RNodeMultiInterface has no Android-specific implementation upstream and is
+    always disabled on Android. Serial, classic-Bluetooth, and BLE entries are
+    disabled only when their required native module isn't available.
+
+    Returns True if any interfaces were disabled.
+    """
+    import os
+
+    if not os.path.isfile(config_path):
+        return False
+    try:
+        from RNS.vendor.configobj import ConfigObj
+
+        cfg = ConfigObj(config_path)
+    except Exception:
+        return False
+
+    if is_android is None:
+        is_android = _is_chaquopy_android()
+
+    modified = False
+    interfaces = cfg.get("interfaces")
+    if not isinstance(interfaces, dict):
+        return False
+    for iface in interfaces.values():
+        if not isinstance(iface, dict):
+            continue
+        iface_type = iface.get("type", "")
+        if not isinstance(iface_type, str) or not iface_type.startswith("RNode"):
+            continue
+        if not _is_enabled(iface):
+            continue
+
+        if iface_type == "RNodeMultiInterface":
+            should_disable = is_android
+        else:
+            should_disable = not rnode_transport_supported(iface, is_android=is_android)
+
+        if should_disable:
+            iface["interface_enabled"] = "false"
+            modified = True
+    if modified:
+        try:
+            cfg.write()
+        except Exception:
+            pass
+    return modified
+
+
+def _find_invalid_rnode_txpower(
+    iface_name: str,
+    iface: dict,
+    interfaces: dict,
+) -> object | None:
+    from meshchatnext.src.backend.interface_editor import validate_rnode_txpower
+
+    iface_type = iface.get("type", "")
+    if not isinstance(iface_type, str):
+        return None
+    if iface_type in ("RNodeInterface", "RNodeIPInterface"):
+        txpower = iface.get("txpower")
+        if validate_rnode_txpower(txpower) is not None:
+            return txpower
+        return None
+    if iface_type != "RNodeMultiInterface":
+        return None
+
+    for value in iface.values():
+        if isinstance(value, dict) and "txpower" in value:
+            txpower = value.get("txpower")
+            if validate_rnode_txpower(txpower) is not None:
+                return txpower
+    prefix = f"{iface_name}."
+    for sub_name, sub_iface in interfaces.items():
+        if not sub_name.startswith(prefix):
+            continue
+        if not isinstance(sub_iface, dict):
+            continue
+        txpower = sub_iface.get("txpower")
+        if validate_rnode_txpower(txpower) is not None:
+            return txpower
+    return None
+
+
+def _rnode_interface_has_invalid_txpower(
+    iface_name: str,
+    iface: dict,
+    interfaces: dict,
+) -> bool:
+    return _find_invalid_rnode_txpower(iface_name, iface, interfaces) is not None
+
+
+def guard_invalid_rnode_txpower_in_config(config_path: str) -> bool:
+    """Disable RNode interfaces whose TX power would crash Reticulum on startup."""
+    import os
+
+    if not os.path.isfile(config_path):
+        return False
+    try:
+        from RNS.vendor.configobj import ConfigObj
+
+        from meshchatnext.src.backend.interface_editor import validate_rnode_txpower
+
+        cfg = ConfigObj(config_path)
+    except Exception:
+        return False
+
+    modified = False
+    interfaces = cfg.get("interfaces")
+    if not isinstance(interfaces, dict):
+        return False
+    for iface_name, iface in interfaces.items():
+        if not isinstance(iface, dict):
+            continue
+        if not _rnode_interface_has_invalid_txpower(iface_name, iface, interfaces):
+            continue
+        if not _is_enabled(iface):
+            continue
+        iface["interface_enabled"] = "false"
+        modified = True
+        txpower = _find_invalid_rnode_txpower(iface_name, iface, interfaces)
+        detail = validate_rnode_txpower(txpower) or "invalid TX power"
+        logger.warning(
+            'Disabled RNode interface "%s" before startup: %s',
+            iface_name,
+            detail,
+        )
+    if modified:
+        try:
+            cfg.write()
+        except Exception:
+            pass
+    return modified
+
+
+def guard_rnode_interfaces_on_android(config_path: str) -> bool:
+    """On Android, disable RNode interfaces that can't be brought up on this build.
+
+    RNode over TCP is unaffected. Serial, classic-Bluetooth, and BLE entries
+    are disabled only when their required native module isn't bundled, and
+    RNodeMultiInterface is always disabled since RNS has no Android-specific
+    implementation of it.
+    """
+    if not _is_chaquopy_android():
+        return False
+    disabled = disable_rnode_interfaces_in_config(config_path, is_android=True)
+    if disabled:
+        logger.warning(
+            "One or more RNode interfaces were disabled because their transport "
+            "is not supported on this Android build. RNode over TCP is unaffected.",
+        )
+    return disabled
+
+
+def guard_rnode_interfaces_on_desktop(config_path: str) -> bool:
+    """On desktop, disable RNode interfaces that can't be brought up here.
+
+    Every RNode transport needs pyserial on desktop because RNS imports it
+    unconditionally in the interface constructor. BLE additionally needs
+    bleak. Unsupported entries are disabled before Reticulum startup so RNS
+    does not crash with a missing-dependency panic.
+    """
+    if _is_chaquopy_android():
+        return False
+    disabled = disable_rnode_interfaces_in_config(config_path, is_android=False)
+    if disabled:
+        logger.warning(
+            "One or more RNode interfaces were disabled because their transport "
+            "is not supported on this build (all RNode transports need "
+            "pyserial. BLE additionally needs bleak).",
+        )
+    return disabled

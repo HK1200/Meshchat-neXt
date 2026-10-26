@@ -1,0 +1,38 @@
+# Reproducible native build (wheel, Linux AppImage/deb/rpm/apk) in one image.
+# Default target builds everything; override with --build-arg MESHCHATNEXT_BUILD_TARGETS=wheel|electron|all
+# Pick specific Linux package formats with --build-arg MESHCHATNEXT_LINUX_FORMATS=appimage,deb,rpm,apk (default: all)
+#
+# Build (all formats):
+#   docker build -f docker/Dockerfile.build -t meshchatnext-build:local .
+#
+# Build only an AppImage and deb:
+#   docker build -f docker/Dockerfile.build \
+#       --build-arg MESHCHATNEXT_BUILD_TARGETS=electron \
+#       --build-arg MESHCHATNEXT_LINUX_FORMATS=appimage,deb \
+#       -t meshchatnext-build:local .
+#
+# Copy artifacts to the host (example):
+#   cid=$(docker create meshchatnext-build:local)
+#   docker cp "$cid":/artifacts ./meshchatnext-artifacts
+#   docker rm "$cid"
+
+ARG PYTHON_IMAGE=python:3.14.8-slim-trixie
+ARG PYTHON_HASH=sha256:89fb7d3da20043c370643435258bdd7ab755d326d359001d02988ed15ae5219e
+FROM ${PYTHON_IMAGE}@${PYTHON_HASH}
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    MESHCHATNEXT_BUILD_TARGETS=all \
+    MESHCHATNEXT_LINUX_FORMATS=all
+
+ARG MESHCHATNEXT_BUILD_TARGETS=all
+ENV MESHCHATNEXT_BUILD_TARGETS=${MESHCHATNEXT_BUILD_TARGETS}
+ARG MESHCHATNEXT_LINUX_FORMATS=all
+ENV MESHCHATNEXT_LINUX_FORMATS=${MESHCHATNEXT_LINUX_FORMATS}
+
+WORKDIR /src
+COPY . /src
+
+RUN chmod +x scripts/ci/docker-build-entry.sh && \
+    find scripts/ci -maxdepth 1 -name '*.sh' -exec chmod +x {} + && \
+    bash scripts/ci/docker-build-entry.sh

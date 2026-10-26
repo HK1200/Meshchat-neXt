@@ -1,0 +1,784 @@
+import { mount } from "@vue/test-utils";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import ConversationViewer from "@/components/messages/ConversationViewer.vue";
+import WebSocketConnection from "@/js/WebSocketConnection";
+import DialogUtils from "@/js/DialogUtils";
+import GlobalEmitter from "@/js/GlobalEmitter";
+import * as TranslationService from "@/js/TranslationService.js";
+import { useConfigStore } from "@/js/stores/configStore";
+import { useIdentityStore } from "@/js/stores/identityStore";
+import { clickOutsideDirective } from "@/libs/clickOutside.js";
+
+vi.mock("@/js/TranslationService.js", () => ({
+    listPacks: vi.fn().mockResolvedValue([]),
+    translate: vi.fn().mockRejectedValue(new Error("No pack installed")),
+    refreshPacks: vi.fn().mockResolvedValue(undefined),
+}));
+
+const RENDER_THRESHOLD_MS = 5000;
+
+vi.mock("@/js/DialogUtils", () => ({
+    default: {
+        confirm: vi.fn(() => Promise.resolve(true)),
+        alert: vi.fn(),
+    },
+}));
+
+vi.mock("@/js/ToastUtils", () => ({
+    default: {
+        success: vi.fn(),
+        error: vi.fn(),
+        loading: vi.fn(),
+        info: vi.fn(),
+    },
+}));
+
+describe("ConversationViewer.vue button interactions", () => {
+    let axiosMock;
+
+    beforeEach(() => {
+        WebSocketConnection.connect();
+        vi.clearAllMocks();
+        axiosMock = {
+            get: vi.fn().mockImplementation((url) => {
+                if (url.includes("/path")) return Promise.resolve({ data: { path: [] } });
+                if (url.includes("/stamp-info")) return Promise.resolve({ data: { stamp_info: {} } });
+                if (url.includes("/signal-metrics")) return Promise.resolve({ data: { signal_metrics: {} } });
+                return Promise.resolve({ data: {} });
+            }),
+            post: vi.fn().mockResolvedValue({ data: {} }),
+            delete: vi.fn().mockResolvedValue({ data: {} }),
+        };
+        window.api = axiosMock;
+
+        useIdentityStore().blockedDestinations = [];
+        useConfigStore().config = { banished_effect_enabled: false };
+
+        vi.stubGlobal("localStorage", {
+            getItem: vi.fn(),
+            setItem: vi.fn(),
+            removeItem: vi.fn(),
+        });
+        window.URL.createObjectURL = vi.fn(() => "mock-url");
+        vi.stubGlobal(
+            "FileReader",
+            vi.fn(() => ({
+                readAsDataURL: vi.fn(function () {
+                    this.result = "data:image/png;base64,mock";
+                    this.onload?.({ target: { result: this.result } });
+                }),
+            }))
+        );
+    });
+
+    afterEach(() => {
+        delete window.api;
+        vi.unstubAllGlobals();
+        WebSocketConnection.destroy();
+    });
+
+    const mountViewer = (overrides = {}) =>
+        mount(ConversationViewer, {
+            props: {
+                selectedPeer: { destination_hash: "a".repeat(32), display_name: "Test Peer" },
+                myLxmfAddressHash: "b".repeat(32),
+                conversations: [],
+                ...overrides,
+            },
+            global: {
+                directives: { "click-outside": { mounted: () => {}, unmounted: () => {} } },
+                mocks: { $t: (key) => key, $i18n: { locale: "en" } },
+                stubs: {
+                    MaterialDesignIcon: true,
+                    AddImageButton: true,
+                    AddAudioButton: true,
+                    SendMessageButton: true,
+                    ConversationDropDownMenu: true,
+                    PaperMessageModal: true,
+                    AudioWaveformPlayer: true,
+                    LxmfUserIcon: true,
+                },
+            },
+        });
+
+    it("mounts within render threshold", () => {
+        const start = performance.now();
+        const wrapper = mountViewer();
+        const elapsed = performance.now() - start;
+        expect(wrapper.find(".flex").exists()).toBe(true);
+        expect(elapsed).toBeLessThan(RENDER_THRESHOLD_MS);
+    });
+
+    it("banish button calls API when confirmed", async () => {
+        const emitSpy = vi.spyOn(GlobalEmitter, "emit");
+        const wrapper = mountViewer();
+        await wrapper.vm.$nextTick();
+
+        await wrapper.vm.onBanishHeaderClick();
+
+        expect(DialogUtils.confirm).toHaveBeenCalled();
+        expect(axiosMock.post).toHaveBeenCalledWith(
+            "/api/v1/blocked-destinations",
+            expect.objectContaining({ destination_hash: "a".repeat(32) })
+        );
+        expect(emitSpy).toHaveBeenCalledWith("block-status-changed");
+        emitSpy.mockRestore();
+    });
+
+    it("banish button hidden when peer is blocked", async () => {
+        useIdentityStore().blockedDestinations = [{ destination_hash: "a".repeat(32) }];
+        const wrapper = mountViewer();
+        await wrapper.vm.$nextTick();
+        wrapper.vm.checkIfSelectedPeerBlocked();
+        await wrapper.vm.$nextTick();
+
+        const banishBtn = wrapper.findAll("button").find((b) => b.attributes("title")?.includes("banish"));
+        expect(banishBtn).toBeUndefined();
+    });
+
+    it("telemetry history modal can be opened", async () => {
+        const wrapper = mountViewer();
+        await wrapper.vm.$nextTick();
+
+        wrapper.vm.isTelemetryHistoryModalOpen = true;
+        await wrapper.vm.$nextTick();
+
+        expect(wrapper.vm.isTelemetryHistoryModalOpen).toBe(true);
+    });
+
+    it("close button emits close", async () => {
+        const wrapper = mountViewer();
+        await wrapper.vm.$nextTick();
+
+        const closeBtn = wrapper.find("[data-testid=conversation-close]");
+        expect(closeBtn.exists()).toBe(true);
+
+        await closeBtn.trigger("click");
+
+        expect(wrapper.emitted("close")).toHaveLength(1);
+    });
+
+    it("onMessageContextMenu opens menu and Reply works", async () => {
+        const wrapper = mountViewer();
+        const chatItem = {
+            type: "lxmf_message",
+            is_outbound: false,
+            lxmf_message: {
+                hash: "msg-1",
+                content: "Hello",
+                state: "delivered",
+                fields: {},
+            },
+        };
+        wrapper.vm.chatItems = [chatItem];
+        await wrapper.vm.$nextTick();
+
+        const replySpy = vi.spyOn(wrapper.vm, "replyToMessage");
+
+        wrapper.vm.onMessageContextMenu({ clientX: 100, clientY: 100 }, chatItem);
+        await wrapper.vm.$nextTick();
+
+        expect(wrapper.vm.messageContextMenu.show).toBe(true);
+
+        const menuEl = Array.from(document.body.querySelectorAll(".context-menu-panel")).find(
+            (el) => el.textContent?.includes("messages.reply") && el.textContent?.includes("common.delete")
+        );
+        expect(menuEl).toBeTruthy();
+
+        const replyBtn = menuEl?.querySelector("button");
+        expect(replyBtn?.textContent).toContain("messages.reply");
+
+        replyBtn?.click();
+        await wrapper.vm.$nextTick();
+
+        expect(replySpy).toHaveBeenCalledWith(chatItem);
+    });
+
+    it("onMessageContextMenu defers when text is selected so Android copy can work", async () => {
+        const wrapper = mountViewer();
+        const chatItem = {
+            type: "lxmf_message",
+            is_outbound: false,
+            lxmf_message: {
+                hash: "msg-sel",
+                content: "Selectable text",
+                state: "delivered",
+                fields: {},
+            },
+        };
+        const p = document.createElement("p");
+        p.textContent = "Selectable text";
+        document.body.appendChild(p);
+        try {
+            const range = document.createRange();
+            range.selectNodeContents(p);
+            const selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+
+            const event = {
+                clientX: 40,
+                clientY: 40,
+                target: p,
+                preventDefault: vi.fn(),
+                stopPropagation: vi.fn(),
+            };
+            wrapper.vm.onMessageContextMenu(event, chatItem, true);
+            await wrapper.vm.$nextTick();
+
+            expect(wrapper.vm.messageContextMenu.show).toBe(false);
+            expect(event.preventDefault).not.toHaveBeenCalled();
+        } finally {
+            window.getSelection()?.removeAllRanges?.();
+            p.remove();
+            wrapper.unmount();
+        }
+    });
+
+    it("message context menu Delete calls deleteChatItem", async () => {
+        const wrapper = mountViewer();
+        const chatItem = {
+            type: "lxmf_message",
+            is_outbound: false,
+            lxmf_message: { hash: "msg-del", content: "Hi", state: "delivered", fields: {} },
+        };
+        wrapper.vm.chatItems = [chatItem];
+        await wrapper.vm.$nextTick();
+
+        const deleteSpy = vi.spyOn(wrapper.vm, "deleteChatItem");
+
+        wrapper.vm.messageContextMenu.chatItem = chatItem;
+        wrapper.vm.messageContextMenu.show = true;
+        await wrapper.vm.$nextTick();
+
+        const menuEl = Array.from(document.body.querySelectorAll(".context-menu-panel")).find(
+            (el) => el.textContent?.includes("messages.reply") && el.textContent?.includes("common.delete")
+        );
+        const deleteBtn = menuEl
+            ? Array.from(menuEl.querySelectorAll("button")).find((b) => b.textContent.includes("common.delete"))
+            : null;
+        expect(deleteBtn).toBeTruthy();
+
+        deleteBtn?.click();
+        await wrapper.vm.$nextTick();
+
+        expect(deleteSpy).toHaveBeenCalledWith(chatItem);
+    });
+
+    it("default translate target prefers meshchatnext.translateTargetLang from localStorage", async () => {
+        localStorage.getItem.mockImplementation((k) => {
+            if (k === "meshchatnext.translateTargetLang") {
+                return "ende";
+            }
+            return null;
+        });
+        const wrapper = mountViewer();
+        await wrapper.vm.$nextTick();
+        wrapper.vm.translatorLanguages = [
+            { pair: "ende", from: "en", to: "de" },
+            { pair: "enes", from: "en", to: "es" },
+        ];
+        expect(wrapper.vm.defaultTranslateTargetForModal()).toBe("ende");
+        expect(wrapper.vm.defaultBubbleTranslateTargetForModal()).toBe("ende");
+    });
+
+    it("openBubbleTranslateFromContextMenu opens the bubble target bar on the next microtask", async () => {
+        const chatItem = {
+            type: "lxmf_message",
+            is_outbound: false,
+            lxmf_message: {
+                hash: "msg-tr",
+                content: "Hello for translate",
+                state: "delivered",
+                fields: {},
+            },
+        };
+        const wrapper = mountViewer({
+            config: {
+                language: "en",
+            },
+        });
+        await wrapper.vm.$nextTick();
+        wrapper.vm.hasTranslator = true;
+        wrapper.vm.translatorLanguages = [
+            { pair: "ende", from: "en", to: "de" },
+            { pair: "enes", from: "en", to: "es" },
+        ];
+        wrapper.vm.messageContextMenu = {
+            show: true,
+            x: 0,
+            y: 0,
+            chatItem,
+            justOpened: false,
+            openedFromBubble: true,
+        };
+        wrapper.vm.openBubbleTranslateFromContextMenu();
+        expect(wrapper.vm.translateTargetBarOpen).toBe(false);
+        expect(wrapper.vm.messageContextMenu.show).toBe(false);
+        await new Promise((r) => queueMicrotask(r));
+        await vi.waitFor(() => expect(wrapper.vm.translateTargetBarOpen).toBe(true), { timeout: 2000 });
+        expect(wrapper.vm.translateTargetModalContext).toEqual({ type: "bubble", chatItem });
+    });
+
+    it("call button exists and onStartCall is callable", async () => {
+        const wrapper = mountViewer();
+        expect(typeof wrapper.vm.onStartCall).toBe("function");
+        await wrapper.vm.onStartCall();
+    });
+
+    it("share contact button exists and openShareContactModal is callable", async () => {
+        const wrapper = mountViewer();
+        expect(typeof wrapper.vm.openShareContactModal).toBe("function");
+        wrapper.vm.openShareContactModal();
+    });
+
+    describe("compose area: clipboard, file attachments, and toolbar actions", () => {
+        it("add files button triggers the hidden file input click", async () => {
+            const wrapper = mountViewer();
+            await wrapper.vm.$nextTick();
+            const fileInput = wrapper.find('input[type="file"]');
+            const clickSpy = vi.spyOn(fileInput.element, "click").mockImplementation(() => {});
+
+            wrapper.vm.onMobileAttachFiles();
+
+            expect(clickSpy).toHaveBeenCalled();
+            clickSpy.mockRestore();
+        });
+
+        it("file input does not restrict accepted mime types", async () => {
+            const wrapper = mountViewer();
+            await wrapper.vm.$nextTick();
+            const fileInput = wrapper.find('input[type="file"]');
+            expect(fileInput.attributes("accept")).toBeUndefined();
+        });
+
+        it("onFileInputChange appends selected files to newMessageFiles", () => {
+            const wrapper = mountViewer();
+            const f = new File(["x"], "attach.txt", { type: "text/plain" });
+            wrapper.vm.onFileInputChange({ target: { files: [f] } });
+            expect(wrapper.vm.newMessageFiles).toContain(f);
+        });
+
+        it("removeFileAttachment removes one file from newMessageFiles", () => {
+            const wrapper = mountViewer();
+            const f1 = new File(["a"], "a.txt", { type: "text/plain" });
+            const f2 = new File(["b"], "b.txt", { type: "text/plain" });
+            wrapper.vm.newMessageFiles = [f1, f2];
+            wrapper.vm.removeFileAttachment(f1);
+            expect(wrapper.vm.newMessageFiles).toEqual([f2]);
+        });
+
+        it("does not render a dedicated paste toolbar button", async () => {
+            const wrapper = mountViewer();
+            await wrapper.vm.$nextTick();
+            const pasteIcon = wrapper.find('[icon-name="content-paste"]');
+            expect(pasteIcon.exists()).toBe(false);
+        });
+
+        it("applyComposeTranslation posts translate and replaces text", async () => {
+            TranslationService.translate.mockResolvedValue({ target: { text: "translated" } });
+            const wrapper = mountViewer();
+            wrapper.vm.hasTranslator = true;
+            wrapper.vm.translatorLanguages = [{ pair: "ende", from: "en", to: "de" }];
+            wrapper.vm.newMessageText = "hello";
+            await wrapper.vm.applyComposeTranslation("ende");
+            expect(wrapper.vm.newMessageText).toBe("translated");
+            expect(TranslationService.translate).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    text: "hello",
+                    from: "en",
+                    to: "de",
+                })
+            );
+        });
+
+        it("bubble translation never writes into the composer draft", async () => {
+            TranslationService.translate.mockResolvedValue({ target: { text: "übersetzte Nachricht" } });
+            const wrapper = mountViewer();
+            wrapper.vm.hasTranslator = true;
+            wrapper.vm.translatorLanguages = [{ pair: "ende", from: "en", to: "de" }];
+            const chatItem = {
+                type: "lxmf_message",
+                is_outbound: false,
+                lxmf_message: { hash: "msg-bubble", content: "Hello for translate", state: "delivered", fields: {} },
+            };
+            wrapper.vm.newMessageText = "my draft stays";
+
+            await wrapper.vm.applyBubbleMessageTranslation(chatItem, "ende");
+
+            expect(wrapper.vm.newMessageText).toBe("my draft stays");
+            expect(wrapper.vm.messageBubbleTranslation["msg-bubble"].translatedText).toBe("übersetzte Nachricht");
+            // and a send snapshot still carries only the draft text
+            const snapshot = await wrapper.vm.buildOutboundJobSnapshot();
+            expect(snapshot.text).toBe("my draft stays");
+        });
+
+        it("a quoted reply embeds the original text, not the translation", async () => {
+            TranslationService.translate.mockResolvedValue({ target: { text: "übersetzt" } });
+            const wrapper = mountViewer();
+            wrapper.vm.hasTranslator = true;
+            wrapper.vm.translatorLanguages = [{ pair: "ende", from: "en", to: "de" }];
+            const chatItem = {
+                type: "lxmf_message",
+                is_outbound: false,
+                lxmf_message: { hash: "msg-orig", content: "original english", state: "delivered", fields: {} },
+            };
+            await wrapper.vm.applyBubbleMessageTranslation(chatItem, "ende");
+            expect(wrapper.vm.messageBubbleTranslation["msg-orig"].translatedText).toBe("übersetzt");
+
+            // copyableMessagePlainText powers copy + translate + quote paths;
+            // it must always yield the original content.
+            expect(wrapper.vm.copyableMessagePlainText(chatItem)).toBe("original english");
+            wrapper.vm.chatItems.push(chatItem);
+            wrapper.vm.replyToMessage(chatItem);
+            const snapshot = await wrapper.vm.buildOutboundJobSnapshot();
+            expect(snapshot.text).not.toBe("übersetzt");
+            expect(snapshot.replyQuotedContent).toBe("original english");
+        });
+
+        it("per-peer translate prefs roundtrip through localStorage", async () => {
+            const store = {};
+            localStorage.getItem.mockImplementation((k) => store[k] ?? null);
+            localStorage.setItem.mockImplementation((k, v) => {
+                store[k] = v;
+            });
+            const wrapper = mountViewer();
+            wrapper.vm._persistPeerTranslatePrefs("ende", true);
+            expect(wrapper.vm._readPeerTranslatePrefs()).toEqual({ pair: "ende", auto: true });
+            wrapper.vm._persistPeerTranslatePrefs("enes", false);
+            expect(wrapper.vm._readPeerTranslatePrefs()).toEqual({ pair: "enes", auto: false });
+        });
+
+        it("defaultBubbleTranslateTargetForModal prefers the peer's remembered pair", async () => {
+            localStorage.getItem.mockImplementation((k) =>
+                k.startsWith("meshchatnext.peerTranslate.") ? JSON.stringify({ pair: "enes", auto: false }) : null
+            );
+            const wrapper = mountViewer();
+            wrapper.vm.hasTranslator = true;
+            wrapper.vm.translatorLanguages = [
+                { pair: "ende", from: "en", to: "de" },
+                { pair: "enes", from: "en", to: "es" },
+            ];
+            expect(wrapper.vm.defaultBubbleTranslateTargetForModal()).toBe("enes");
+        });
+
+        it("confirming a bubble translate with auto persists prefs and translates loaded inbound", async () => {
+            const store = {};
+            localStorage.getItem.mockImplementation((k) => store[k] ?? null);
+            localStorage.setItem.mockImplementation((k, v) => {
+                store[k] = v;
+            });
+            TranslationService.translate.mockResolvedValue({ target: { text: "tr" } });
+            const wrapper = mountViewer();
+            wrapper.vm.hasTranslator = true;
+            wrapper.vm.translatorLanguages = [{ pair: "ende", from: "en", to: "de" }];
+            const chatItem = {
+                type: "lxmf_message",
+                is_outbound: false,
+                lxmf_message: { hash: "m1", content: "hi", state: "delivered", fields: {} },
+            };
+            wrapper.vm.chatItems = [chatItem];
+            wrapper.vm.translateTargetModalContext = { type: "bubble", chatItem };
+            wrapper.vm.translateTargetModalValue = "ende";
+            wrapper.vm.peerTranslateAuto = true;
+            await wrapper.vm.confirmTranslateTargetModal();
+
+            const key = "meshchatnext.peerTranslate." + "a".repeat(32);
+            expect(JSON.parse(store[key])).toEqual({ pair: "ende", auto: true });
+            expect(wrapper.vm.messageBubbleTranslation["m1"].translatedText).toBe("tr");
+        });
+
+        it("new inbound messages auto-translate when the peer pref is enabled", async () => {
+            localStorage.getItem.mockImplementation((k) =>
+                k.startsWith("meshchatnext.peerTranslate.") ? JSON.stringify({ pair: "enes", auto: true }) : null
+            );
+            TranslationService.translate.mockResolvedValue({ target: { text: "hola" } });
+            const wrapper = mountViewer();
+            wrapper.vm.hasTranslator = true;
+            wrapper.vm.translatorLanguages = [{ pair: "enes", from: "en", to: "es" }];
+
+            wrapper.vm.onLxmfMessageReceived({
+                hash: "in-1",
+                source_hash: "a".repeat(32),
+                destination_hash: "b".repeat(32),
+                content: "hello",
+                state: "delivered",
+                fields: {},
+            });
+            await new Promise((r) => setTimeout(r, 0));
+            expect(TranslationService.translate).toHaveBeenCalledWith(
+                expect.objectContaining({ from: "en", to: "es", text: "hello" })
+            );
+            expect(wrapper.vm.messageBubbleTranslation["in-1"].translatedText).toBe("hola");
+            expect(wrapper.vm.newMessageText ?? "").not.toBe("hola");
+        });
+
+        it("new inbound messages stay untranslated when the peer pref is off", async () => {
+            localStorage.getItem.mockImplementation((k) =>
+                k.startsWith("meshchatnext.peerTranslate.") ? JSON.stringify({ pair: "enes", auto: false }) : null
+            );
+            const wrapper = mountViewer();
+            wrapper.vm.hasTranslator = true;
+            wrapper.vm.translatorLanguages = [{ pair: "enes", from: "en", to: "es" }];
+
+            wrapper.vm.onLxmfMessageReceived({
+                hash: "in-2",
+                source_hash: "a".repeat(32),
+                destination_hash: "b".repeat(32),
+                content: "hello",
+                state: "delivered",
+                fields: {},
+            });
+            await new Promise((r) => setTimeout(r, 0));
+            expect(TranslationService.translate).not.toHaveBeenCalled();
+        });
+
+        it("generatePaperMessageFromComposition sends lxm.generate_paper_uri over the websocket", async () => {
+            const sendSpy = vi.spyOn(WebSocketConnection, "send").mockImplementation(() => {});
+            const wrapper = mountViewer();
+            wrapper.vm.newMessageText = "paper body";
+            await wrapper.vm.generatePaperMessageFromComposition();
+            expect(sendSpy).toHaveBeenCalled();
+            const payload = JSON.parse(sendSpy.mock.calls[0][0]);
+            expect(payload.type).toBe("lxm.generate_paper_uri");
+            expect(payload.destination_hash).toBe("a".repeat(32));
+            expect(payload.content).toBe("paper body");
+            sendSpy.mockRestore();
+        });
+
+        it("requestLocation posts a telemetry request command", async () => {
+            const wrapper = mountViewer();
+            await wrapper.vm.requestLocation();
+            expect(axiosMock.post).toHaveBeenCalledWith(
+                "/api/v1/lxmf-messages/send",
+                expect.objectContaining({
+                    lxmf_message: expect.objectContaining({
+                        destination_hash: "a".repeat(32),
+                        fields: {
+                            commands: [{ "0x01": expect.any(Number) }],
+                        },
+                    }),
+                })
+            );
+        });
+
+        it("location action menu toggles and closes", () => {
+            const wrapper = mountViewer();
+            expect(wrapper.vm.showLocationActionMenu).toBe(false);
+            wrapper.vm.toggleLocationActionMenu();
+            expect(wrapper.vm.showLocationActionMenu).toBe(true);
+            wrapper.vm.closeLocationActionMenu();
+            expect(wrapper.vm.showLocationActionMenu).toBe(false);
+        });
+
+        it("selectSendLocation closes menu and calls shareLocation", async () => {
+            const wrapper = mountViewer();
+            wrapper.vm.showLocationActionMenu = true;
+            const shareSpy = vi.spyOn(wrapper.vm, "shareLocation").mockResolvedValue(undefined);
+            await wrapper.vm.selectSendLocation();
+            expect(shareSpy).toHaveBeenCalled();
+            expect(wrapper.vm.showLocationActionMenu).toBe(false);
+            shareSpy.mockRestore();
+        });
+
+        it("selectRequestLocation closes menu and calls requestLocation", async () => {
+            const wrapper = mountViewer();
+            wrapper.vm.showLocationActionMenu = true;
+            const reqSpy = vi.spyOn(wrapper.vm, "requestLocation").mockResolvedValue(undefined);
+            await wrapper.vm.selectRequestLocation();
+            expect(reqSpy).toHaveBeenCalled();
+            expect(wrapper.vm.showLocationActionMenu).toBe(false);
+            reqSpy.mockRestore();
+        });
+
+        it("sendCommandOrRequest sends typed Sideband command", async () => {
+            const wrapper = mountViewer();
+            wrapper.vm.newMessageText = "ping";
+            await wrapper.vm.sendCommandOrRequest();
+            expect(axiosMock.post).toHaveBeenCalledWith(
+                "/api/v1/lxmf-messages/send",
+                expect.objectContaining({
+                    lxmf_message: expect.objectContaining({
+                        destination_hash: "a".repeat(32),
+                        fields: {
+                            commands: [{ "0x02": true }],
+                        },
+                    }),
+                })
+            );
+        });
+
+        it("sendCommandOrRequest accepts JSON command input", async () => {
+            const wrapper = mountViewer();
+            wrapper.vm.newMessageText = '{"0x03":"hello"}';
+            await wrapper.vm.sendCommandOrRequest();
+            expect(axiosMock.post).toHaveBeenCalledWith(
+                "/api/v1/lxmf-messages/send",
+                expect.objectContaining({
+                    lxmf_message: expect.objectContaining({
+                        fields: {
+                            commands: [{ "0x03": "hello" }],
+                        },
+                    }),
+                })
+            );
+        });
+
+        it("enableNextSendAsCommandOrRequest only arms mode until send button is pressed", async () => {
+            const wrapper = mountViewer();
+            expect(wrapper.vm.pendingSendAsCommandOrRequest).toBe(false);
+            wrapper.vm.enableNextSendAsCommandOrRequest();
+            expect(wrapper.vm.pendingSendAsCommandOrRequest).toBe(true);
+            wrapper.vm.newMessageText = "ping";
+            await wrapper.vm.onComposerSendClick();
+            expect(axiosMock.post).toHaveBeenCalledWith(
+                "/api/v1/lxmf-messages/send",
+                expect.objectContaining({
+                    lxmf_message: expect.objectContaining({
+                        fields: {
+                            commands: [{ "0x02": true }],
+                        },
+                    }),
+                })
+            );
+            expect(wrapper.vm.pendingSendAsCommandOrRequest).toBe(false);
+        });
+
+        it("onComposerSendClick falls back to normal message send when not armed", async () => {
+            const wrapper = mountViewer();
+            const sendSpy = vi.spyOn(wrapper.vm, "sendMessage").mockResolvedValue(undefined);
+            await wrapper.vm.onComposerSendClick();
+            expect(sendSpy).toHaveBeenCalled();
+            sendSpy.mockRestore();
+        });
+
+        it("shareLocation with manual coordinates sets telemetry and calls sendMessage", async () => {
+            const wrapper = mountViewer({
+                config: {
+                    location_source: "manual",
+                    location_manual_lat: "12.34",
+                    location_manual_lon: "56.78",
+                    location_manual_alt: "9",
+                },
+            });
+            const sendSpy = vi.spyOn(wrapper.vm, "sendMessage").mockResolvedValue(undefined);
+            await wrapper.vm.shareLocation();
+            expect(sendSpy).toHaveBeenCalled();
+            expect(wrapper.vm.newMessageTelemetry).toMatchObject({
+                latitude: 12.34,
+                longitude: 56.78,
+                altitude: 9,
+            });
+            sendSpy.mockRestore();
+        });
+
+        it("openConversationPopout opens a popout URL with the peer hash", () => {
+            const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+            const wrapper = mountViewer();
+            wrapper.vm.openConversationPopout();
+            expect(openSpy).toHaveBeenCalledWith(
+                expect.stringContaining(encodeURIComponent("a".repeat(32))),
+                "_blank",
+                expect.stringContaining("width=")
+            );
+            openSpy.mockRestore();
+        });
+
+        it("attachment popup stays inside the paperclip click-outside wrapper", async () => {
+            const wrapper = mountViewer();
+            await wrapper.vm.$nextTick();
+
+            const clip = wrapper.findAll("button").find((b) => b.attributes("title") === "messages.attachments");
+            expect(clip).toBeTruthy();
+
+            await wrapper.setData({ showMobileAttachmentMenu: true });
+            await wrapper.vm.$nextTick();
+
+            const holder = clip.element.parentElement;
+            const menu = [...holder.children].find((el) => el !== clip.element && el.classList.contains("absolute"));
+            expect(menu).toBeTruthy();
+            // menu items outside this wrapper are swallowed as outside clicks
+            expect(holder.contains(menu)).toBe(true);
+
+            const acc = [...menu.querySelectorAll("button")].find((b) => b.textContent.includes("messages.add_image"));
+            expect(acc).toBeTruthy();
+            acc.click();
+            await wrapper.vm.$nextTick();
+
+            expect(wrapper.vm.mobileImageQualityOpen).toBe(true);
+            expect(wrapper.vm.showMobileAttachmentMenu).toBe(true);
+        });
+
+        it("menu item clicks are not swallowed by the real click-outside directive", async () => {
+            const wrapper = mount(ConversationViewer, {
+                attachTo: document.body,
+                props: {
+                    selectedPeer: { destination_hash: "a".repeat(32), display_name: "Test Peer" },
+                    myLxmfAddressHash: "b".repeat(32),
+                    conversations: [],
+                },
+                global: {
+                    directives: { "click-outside": clickOutsideDirective },
+                    mocks: { $t: (key) => key, $i18n: { locale: "en" } },
+                    stubs: {
+                        MaterialDesignIcon: true,
+                        AddImageButton: true,
+                        AddAudioButton: true,
+                        SendMessageButton: true,
+                        ConversationDropDownMenu: true,
+                        PaperMessageModal: true,
+                        AudioWaveformPlayer: true,
+                        LxmfUserIcon: true,
+                    },
+                },
+            });
+            await wrapper.vm.$nextTick();
+            // the directive registers its documentElement listeners in a deferred setTimeout
+            await new Promise((r) => setTimeout(r, 10));
+
+            await wrapper.setData({ showMobileAttachmentMenu: true });
+            await wrapper.vm.$nextTick();
+
+            const acc = [...document.querySelectorAll("button")].find((b) =>
+                b.textContent.includes("messages.add_image")
+            );
+            expect(acc).toBeTruthy();
+            // a tap is touchstart then click. the touchstart used to count as
+            // an outside click and destroyed the menu before the click landed.
+            acc.dispatchEvent(new Event("touchstart", { bubbles: true }));
+            await wrapper.vm.$nextTick();
+            acc.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+            await wrapper.vm.$nextTick();
+
+            expect(wrapper.vm.mobileImageQualityOpen).toBe(true);
+            expect(wrapper.vm.showMobileAttachmentMenu).toBe(true);
+            wrapper.unmount();
+        });
+
+        it("adjustTextareaHeight grows the composer textarea up to the 200px cap", () => {
+            const wrapper = mountViewer();
+            const ta = wrapper.find("#message-input").element;
+            expect(ta).toBeTruthy();
+
+            Object.defineProperty(ta, "scrollHeight", { value: 96, configurable: true });
+            wrapper.vm.adjustTextareaHeight();
+            expect(ta.style.height).toBe("96px");
+
+            Object.defineProperty(ta, "scrollHeight", { value: 500, configurable: true });
+            wrapper.vm.adjustTextareaHeight();
+            expect(ta.style.height).toBe("200px");
+        });
+
+        it("typing a long message grows the composer via the newMessageText watcher", async () => {
+            const wrapper = mountViewer();
+            const ta = wrapper.find("#message-input").element;
+            Object.defineProperty(ta, "scrollHeight", { value: 96, configurable: true });
+
+            await wrapper.setData({ newMessageText: "line one\nline two\nline three" });
+            await wrapper.vm.$nextTick();
+            await wrapper.vm.$nextTick();
+
+            expect(ta.style.height).toBe("96px");
+        });
+    });
+});

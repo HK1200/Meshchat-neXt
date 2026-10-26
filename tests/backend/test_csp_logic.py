@@ -1,0 +1,500 @@
+# SPDX-License-Identifier: 0BSD
+
+import re
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+import RNS
+from aiohttp import web
+
+from meshchatnext.meshchat import ReticulumMeshChat
+from meshchatnext.src.backend.http.middleware import is_opaque_frame_cors_resource
+from tests.backend.http_request_stubs import JsonContent
+
+
+@pytest.fixture
+def mock_rns_minimal():
+    with (
+        patch("RNS.Reticulum") as mock_rns,
+        patch("RNS.Transport"),
+        patch("LXMF.LXMRouter"),
+        patch("meshchatnext.meshchat.get_file_path", return_value="/tmp/mock_path"),
+    ):
+        mock_rns_instance = mock_rns.return_value
+        mock_rns_instance.configpath = "/tmp/mock_config"
+        mock_rns_instance.is_connected_to_shared_instance = False
+        mock_rns_instance.transport_enabled.return_value = True
+
+        mock_id = MagicMock(spec=RNS.Identity)
+        mock_id.hash = b"test_hash_32_bytes_long_01234567"
+        mock_id.hexhash = mock_id.hash.hex()
+        mock_id.get_private_key.return_value = b"test_private_key"
+        yield mock_id
+
+
+def test_opaque_frame_cors_covers_shared_vite_asset_chunks():
+    assert is_opaque_frame_cors_resource("/nomad-crash-tab.html") is True
+    assert is_opaque_frame_cors_resource("/assets/nomad-crash-tab-abc.js") is True
+    assert is_opaque_frame_cors_resource("/assets/shared-async-DbyfccQO.js") is True
+    assert is_opaque_frame_cors_resource("/assets/rolldown-runtime-Bpd4S2KM.js") is True
+    assert is_opaque_frame_cors_resource("/assets/vendor-vue-Cweu0crb.js") is True
+    assert is_opaque_frame_cors_resource("/vendor/micron-parser-go/x.wasm") is True
+    assert is_opaque_frame_cors_resource("/api/v1/status") is False
+    assert is_opaque_frame_cors_resource("/") is False
+
+
+@pytest.mark.asyncio
+async def test_csp_header_logic(mock_rns_minimal, tmp_path):
+    storage_dir = str(tmp_path / "storage")
+    config_dir = str(tmp_path / "config")
+
+    with patch("meshchatnext.meshchat.generate_ssl_certificate"):
+        app_instance = ReticulumMeshChat(
+            identity=mock_rns_minimal,
+            storage_dir=storage_dir,
+            reticulum_config_dir=config_dir,
+        )
+
+        # Mock the config values
+        app_instance.config.csp_extra_connect_src.set("https://api.example.com")
+        app_instance.config.map_tile_server_url.set(
+            "https://tiles.example.com/{z}/{x}/{y}.png",
+        )
+
+        # Mock a request and handler
+        request = MagicMock(spec=web.Request)
+        request.path = "/"
+        request.app = {}
+
+        # We need to mock the handler to return a real response
+        async def mock_handler(req):
+            return web.Response(text="test")
+
+        # Call _define_routes to get the security_middleware
+        routes = web.RouteTableDef()
+        _, _, _, _, _, security_middleware, _, _, _ = app_instance._define_routes(
+            routes
+        )
+
+        response = await security_middleware(request, mock_handler)
+
+        csp = response.headers.get("Content-Security-Policy", "")
+        assert "https://api.example.com" in csp
+        assert "https://tiles.example.com" in csp
+        assert "default-src 'self'" in csp
+        assert "wasm-unsafe-eval" in csp
+        assert "wss://127.0.0.1:*" in csp
+        assert "ws://[::1]" not in csp
+        assert "wss://[::1]" not in csp
+        assert (
+            response.headers.get("Permissions-Policy")
+            == "microphone=(self), camera=(self), autoplay=(self)"
+        )
+        assert "bluetooth" not in (response.headers.get("Permissions-Policy") or "")
+        assert "serial" not in (response.headers.get("Permissions-Policy") or "")
+        assert "usb" not in (response.headers.get("Permissions-Policy") or "")
+        assert "speaker-selection" not in (
+            response.headers.get("Permissions-Policy") or ""
+        )
+        assert "Feature-Policy" not in response.headers
+        m = re.search(r"script-src([^;]+);", csp)
+        assert m is not None and "blob:" in m.group(1)
+        script_src = m.group(1)
+        assert "'unsafe-inline'" not in script_src
+        assert "'self'" in script_src
+
+
+@pytest.mark.asyncio
+async def test_security_middleware_sets_cors_headers_on_rnode_flasher(
+    mock_rns_minimal,
+    tmp_path,
+):
+    storage_dir = str(tmp_path / "storage")
+    config_dir = str(tmp_path / "config")
+
+    with patch("meshchatnext.meshchat.generate_ssl_certificate"):
+        app_instance = ReticulumMeshChat(
+            identity=mock_rns_minimal,
+            storage_dir=storage_dir,
+            reticulum_config_dir=config_dir,
+        )
+
+        request = MagicMock(spec=web.Request)
+        request.path = "/rnode-flasher/js/esptool-js@0.4.5/bundle.js"
+        request.app = {}
+
+        async def mock_handler(req):
+            return web.Response(text="// module")
+
+        routes = web.RouteTableDef()
+        _, _, _, _, _, security_middleware, _, _, _ = app_instance._define_routes(
+            routes
+        )
+
+        response = await security_middleware(request, mock_handler)
+
+        assert response.headers.get("Access-Control-Allow-Origin") == "*"
+        assert response.headers.get("Cross-Origin-Resource-Policy") == "cross-origin"
+        csp = response.headers.get("Content-Security-Policy", "")
+        m = re.search(r"script-src([^;]+);", csp)
+        assert m is not None and "'unsafe-eval'" in m.group(1)
+
+
+@pytest.mark.asyncio
+async def test_security_middleware_allows_nomad_crash_tab_frame_and_cors(
+    mock_rns_minimal,
+    tmp_path,
+):
+    storage_dir = str(tmp_path / "storage")
+    config_dir = str(tmp_path / "config")
+
+    with patch("meshchatnext.meshchat.generate_ssl_certificate"):
+        app_instance = ReticulumMeshChat(
+            identity=mock_rns_minimal,
+            storage_dir=storage_dir,
+            reticulum_config_dir=config_dir,
+        )
+
+        routes = web.RouteTableDef()
+        _, _, _, _, _, security_middleware, _, _, _ = app_instance._define_routes(
+            routes
+        )
+
+        async def mock_handler(req):
+            return web.Response(text="// crash tab")
+
+        for path in (
+            "/nomad-crash-tab.html",
+            "/assets/nomad-crash-tab-abc123.js",
+            "/assets/nomad-page-chrome-abc123.css",
+            "/assets/RobotoMonoNerdFont-Regular-abc123.ttf",
+            # Shared Vite chunks imported by the crash-tab entry (no "nomad-crash-tab"
+            # in the filename). Opaque null Origin requires ACAO on these too.
+            "/assets/shared-async-DbyfccQO.js",
+            "/assets/rolldown-runtime-Bpd4S2KM.js",
+            "/assets/vendor-vue-Cweu0crb.js",
+            "/assets/vendor-micron-e8e4huBB.js",
+            "/vendor/micron-parser-go/micron-parser-go.wasm",
+        ):
+            request = MagicMock(spec=web.Request)
+            request.path = path
+            request.app = {}
+            request.host = "meshchatnext.example"
+            response = await security_middleware(request, mock_handler)
+            assert response.headers.get("Access-Control-Allow-Origin") == "*", path
+            assert (
+                response.headers.get("Cross-Origin-Resource-Policy") == "cross-origin"
+            ), path
+            # Only the crash-tab document/scripts are framed. CSS/fonts/shared
+            # chunks stay DENY for clickjacking.
+            if path == "/nomad-crash-tab.html" or (
+                path.startswith("/assets/") and "nomad-crash-tab" in path
+            ):
+                assert response.headers.get("X-Frame-Options") == "SAMEORIGIN"
+            elif path.startswith("/assets/"):
+                assert response.headers.get("X-Frame-Options") == "DENY"
+            if path == "/nomad-crash-tab.html":
+                csp = response.headers.get("Content-Security-Policy", "")
+                assert "default-src 'none'" in csp
+                assert "connect-src 'self'" in csp
+                assert "openstreetmap.org" not in csp
+                assert "blob:" in csp
+                assert "wasm-unsafe-eval" in csp
+                assert "'unsafe-inline'" in csp
+                assert "form-action 'none'" in csp
+
+
+@pytest.mark.asyncio
+async def test_nomad_crash_tab_csp_is_tighter_than_shell(
+    mock_rns_minimal,
+    tmp_path,
+):
+    storage_dir = str(tmp_path / "storage")
+    config_dir = str(tmp_path / "config")
+
+    with patch("meshchatnext.meshchat.generate_ssl_certificate"):
+        app_instance = ReticulumMeshChat(
+            identity=mock_rns_minimal,
+            storage_dir=storage_dir,
+            reticulum_config_dir=config_dir,
+        )
+        app_instance.config.csp_extra_connect_src.set("https://api.example.com")
+        app_instance.config.map_tile_server_url.set(
+            "https://tiles.example.com/{z}/{x}/{y}.png",
+        )
+
+        shell_csp = await _csp_for_path(app_instance, "/")
+        crash_csp = await _csp_for_path(app_instance, "/nomad-crash-tab.html")
+        assert "tiles.example.com" in shell_csp
+        assert "api.example.com" in shell_csp
+        assert "tiles.example.com" not in crash_csp
+        assert "api.example.com" not in crash_csp
+        assert "ws://127.0.0.1:*" not in crash_csp
+        assert "default-src 'none'" in crash_csp
+        assert (
+            "script-src 'self' http://meshchatnext.example https://meshchatnext.example 'wasm-unsafe-eval' blob:"
+            in crash_csp
+        )
+
+
+@pytest.mark.asyncio
+async def test_security_middleware_does_not_set_cors_on_reticulum_docs(
+    mock_rns_minimal,
+    tmp_path,
+):
+    storage_dir = str(tmp_path / "storage")
+    config_dir = str(tmp_path / "config")
+
+    with patch("meshchatnext.meshchat.generate_ssl_certificate"):
+        app_instance = ReticulumMeshChat(
+            identity=mock_rns_minimal,
+            storage_dir=storage_dir,
+            reticulum_config_dir=config_dir,
+        )
+
+        request = MagicMock(spec=web.Request)
+        request.path = "/reticulum-docs/manual/index.html"
+        request.app = {}
+
+        async def mock_handler(req):
+            return web.Response(text="<html></html>")
+
+        routes = web.RouteTableDef()
+        _, _, _, _, _, security_middleware, _, _, _ = app_instance._define_routes(
+            routes
+        )
+
+        response = await security_middleware(request, mock_handler)
+
+        assert response.headers.get("Access-Control-Allow-Origin") is None
+        assert response.headers.get("Cross-Origin-Resource-Policy") is None
+        csp = response.headers.get("Content-Security-Policy", "")
+        m = re.search(r"script-src([^;]+);", csp)
+        assert m is not None and "'unsafe-eval'" not in m.group(1)
+
+
+@pytest.mark.asyncio
+async def test_config_update_csp(mock_rns_minimal, tmp_path):
+    storage_dir = str(tmp_path / "storage")
+    config_dir = str(tmp_path / "config")
+
+    with patch("meshchatnext.meshchat.generate_ssl_certificate"):
+        app_instance = ReticulumMeshChat(
+            identity=mock_rns_minimal,
+            storage_dir=storage_dir,
+            reticulum_config_dir=config_dir,
+        )
+
+        # Find the config update handler
+        config_update_handler = None
+        for route in app_instance.get_routes():
+            if route.path == "/api/v1/config" and route.method == "PATCH":
+                config_update_handler = route.handler
+                break
+
+        assert config_update_handler is not None
+
+        # Mock request with new CSP settings
+        request_data = {
+            "csp_extra_connect_src": "https://api1.com, https://api2.com",
+            "csp_extra_img_src": "https://img.com",
+        }
+
+        request = MagicMock(spec=web.Request)
+        # request.json() must be awaited, so it should return an awaitable
+        request.json = AsyncMock(return_value=request_data)
+        request.content = JsonContent(request_data)
+
+        # To avoid the JSON serialization error of MagicMock in get_config_dict,
+        # we mock get_config_dict to return a serializable dict.
+        with (
+            patch.object(
+                app_instance,
+                "get_config_dict",
+                return_value={"status": "ok"},
+            ),
+            patch.object(app_instance, "send_config_to_websocket_clients"),
+        ):
+            response = await config_update_handler(request)
+            assert response.status == 200
+
+        assert (
+            app_instance.config.csp_extra_connect_src.get()
+            == "https://api1.com, https://api2.com"
+        )
+        assert app_instance.config.csp_extra_img_src.get() == "https://img.com"
+
+
+@pytest.mark.asyncio
+async def test_csp_privacy_mode_strips_external_sources(mock_rns_minimal, tmp_path):
+    storage_dir = str(tmp_path / "storage")
+    config_dir = str(tmp_path / "config")
+
+    with patch("meshchatnext.meshchat.generate_ssl_certificate"):
+        app_instance = ReticulumMeshChat(
+            identity=mock_rns_minimal,
+            storage_dir=storage_dir,
+            reticulum_config_dir=config_dir,
+        )
+        app_instance.config.privacy_mode_enabled.set(True)
+        app_instance.config.csp_extra_connect_src.set("https://api.example.com")
+        app_instance.config.map_tile_server_url.set(
+            "https://tiles.example.com/{z}/{x}/{y}.png",
+        )
+
+        request = MagicMock(spec=web.Request)
+        request.path = "/"
+        request.app = {}
+
+        async def mock_handler(req):
+            return web.Response(text="test")
+
+        routes = web.RouteTableDef()
+        _, _, _, _, _, security_middleware, _, _, _ = app_instance._define_routes(
+            routes
+        )
+        response = await security_middleware(request, mock_handler)
+        csp = response.headers.get("Content-Security-Policy", "")
+        # Built-in public origins are stripped in privacy mode, but
+        # user-configured endpoints are explicit opt-ins and stay allowed:
+        # mesh-hosted tile/search servers are the privacy mode use case.
+        assert "openstreetmap.org" not in csp
+        assert "cartocdn.com" not in csp
+        assert "openfreemap.org" not in csp
+        assert "https://api.example.com" in csp
+        assert "https://tiles.example.com" in csp
+        assert "connect-src 'self'" in csp
+
+
+@pytest.mark.asyncio
+async def test_csp_scheme_less_and_subdomain_tile_urls_allowed(
+    mock_rns_minimal,
+    tmp_path,
+):
+    """Scheme-less hosts and {s} subdomain templates must reach the CSP."""
+    storage_dir = str(tmp_path / "storage")
+    config_dir = str(tmp_path / "config")
+
+    with patch("meshchatnext.meshchat.generate_ssl_certificate"):
+        app_instance = ReticulumMeshChat(
+            identity=mock_rns_minimal,
+            storage_dir=storage_dir,
+            reticulum_config_dir=config_dir,
+        )
+        app_instance.config.map_tile_server_url.set(
+            "tiles.example.com/{z}/{x}/{y}.png",
+        )
+
+        request = MagicMock(spec=web.Request)
+        request.path = "/"
+        request.app = {}
+
+        async def mock_handler(req):
+            return web.Response(text="test")
+
+        routes = web.RouteTableDef()
+        _, _, _, _, _, security_middleware, _, _, _ = app_instance._define_routes(
+            routes
+        )
+        response = await security_middleware(request, mock_handler)
+        csp = response.headers.get("Content-Security-Policy", "")
+        assert "https://tiles.example.com" in csp
+
+        app_instance.config.map_tile_server_url.set(
+            "https://{s}.tiles.example.com/{z}/{x}/{y}.png",
+        )
+        response = await security_middleware(request, mock_handler)
+        csp = response.headers.get("Content-Security-Policy", "")
+        assert "https://*.tiles.example.com" in csp
+
+
+@pytest.mark.asyncio
+async def test_csp_demo_mode_allows_map_tiles_with_privacy(mock_rns_minimal, tmp_path):
+    storage_dir = str(tmp_path / "storage")
+    config_dir = str(tmp_path / "config")
+
+    with patch("meshchatnext.meshchat.generate_ssl_certificate"):
+        app_instance = ReticulumMeshChat(
+            identity=mock_rns_minimal,
+            storage_dir=storage_dir,
+            reticulum_config_dir=config_dir,
+            demo_mode=True,
+        )
+        app_instance.config.privacy_mode_enabled.set(True)
+
+        request = MagicMock(spec=web.Request)
+        request.path = "/"
+        request.app = {}
+
+        async def mock_handler(req):
+            return web.Response(text="test")
+
+        routes = web.RouteTableDef()
+        _, _, _, _, _, security_middleware, _, _, _ = app_instance._define_routes(
+            routes
+        )
+        response = await security_middleware(request, mock_handler)
+        csp = response.headers.get("Content-Security-Policy", "")
+        assert "tile.openstreetmap.org" in csp
+        assert "tiles.openfreemap.org" in csp
+        assert "api.example.com" not in csp
+
+
+def _script_src_directive(csp: str) -> str:
+    m = re.search(r"script-src([^;]+);", csp)
+    assert m is not None
+    return m.group(1)
+
+
+async def _csp_for_path(app_instance, path: str) -> str:
+    request = MagicMock(spec=web.Request)
+    request.path = path
+    request.app = {}
+    request.host = "meshchatnext.example"
+
+    async def mock_handler(req):
+        return web.Response(text="test")
+
+    routes = web.RouteTableDef()
+    _, _, _, _, _, security_middleware, _, _, _ = app_instance._define_routes(routes)
+    response = await security_middleware(request, mock_handler)
+    return response.headers.get("Content-Security-Policy", "")
+
+
+@pytest.mark.asyncio
+async def test_main_app_csp_rejects_inline_scripts(mock_rns_minimal, tmp_path):
+    """Main UI CSP must not allow unsafe-inline scripts (boot theme is external)."""
+    storage_dir = str(tmp_path / "storage")
+    config_dir = str(tmp_path / "config")
+
+    with patch("meshchatnext.meshchat.generate_ssl_certificate"):
+        app_instance = ReticulumMeshChat(
+            identity=mock_rns_minimal,
+            storage_dir=storage_dir,
+            reticulum_config_dir=config_dir,
+        )
+        for path in ("/", "/index.html", "/boot-theme.js"):
+            csp = await _csp_for_path(app_instance, path)
+            script_src = _script_src_directive(csp)
+            assert "'unsafe-inline'" not in script_src, path
+            assert "'unsafe-eval'" not in script_src, path
+            assert "'self'" in script_src
+            assert "blob:" in script_src
+            assert "wasm-unsafe-eval" in script_src
+
+
+@pytest.mark.asyncio
+async def test_rnode_flasher_csp_allows_inline_and_eval(mock_rns_minimal, tmp_path):
+    storage_dir = str(tmp_path / "storage")
+    config_dir = str(tmp_path / "config")
+
+    with patch("meshchatnext.meshchat.generate_ssl_certificate"):
+        app_instance = ReticulumMeshChat(
+            identity=mock_rns_minimal,
+            storage_dir=storage_dir,
+            reticulum_config_dir=config_dir,
+        )
+        csp = await _csp_for_path(app_instance, "/rnode-flasher/index.html")
+        script_src = _script_src_directive(csp)
+        assert "'unsafe-inline'" in script_src
+        assert "'unsafe-eval'" in script_src

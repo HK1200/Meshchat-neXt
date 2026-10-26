@@ -1,0 +1,414 @@
+# SPDX-License-Identifier: 0BSD
+
+import os
+import shutil
+import tempfile
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from meshchatnext.src.backend.voicemail_manager import VoicemailManager
+
+
+@pytest.fixture
+def temp_dir():
+    dir_path = tempfile.mkdtemp()
+    yield dir_path
+    shutil.rmtree(dir_path)
+
+
+@pytest.fixture
+def mock_deps():
+    with (
+        patch("meshchatnext.src.backend.voicemail_manager.shutil.which") as mock_which,
+        patch("meshchatnext.src.backend.voicemail_manager.subprocess.run") as mock_run,
+        patch("meshchatnext.src.backend.voicemail_manager.Pipeline") as mock_pipeline,
+        patch("meshchatnext.src.backend.voicemail_manager.OpusFileSink") as mock_sink,
+        patch(
+            "meshchatnext.src.backend.voicemail_manager.OpusFileSource"
+        ) as mock_source,
+        patch("RNS.log"),
+    ):
+        mock_which.side_effect = lambda x: f"/usr/bin/{x}"
+        yield {
+            "which": mock_which,
+            "run": mock_run,
+            "Pipeline": mock_pipeline,
+            "OpusFileSink": mock_sink,
+            "OpusFileSource": mock_source,
+        }
+
+
+def test_voicemail_manager_init(mock_deps, temp_dir):
+    mock_db = MagicMock()
+    mock_config = MagicMock()
+    mock_tel = MagicMock()
+
+    vm = VoicemailManager(mock_db, mock_config, mock_tel, temp_dir)
+
+    assert vm.storage_dir == os.path.join(temp_dir, "voicemails")
+    assert vm.has_espeak is True
+    assert os.path.exists(vm.greetings_dir)
+    assert os.path.exists(vm.recordings_dir)
+
+
+def test_generate_greeting(mock_deps, temp_dir):
+    mock_db = MagicMock()
+    mock_config = MagicMock()
+    mock_tel = MagicMock()
+
+    # Setup config mocks
+    mock_config.voicemail_tts_speed.get.return_value = 175
+    mock_config.voicemail_tts_pitch.get.return_value = 50
+    mock_config.voicemail_tts_voice.get.return_value = "en"
+    mock_config.voicemail_tts_word_gap.get.return_value = 10
+
+    vm = VoicemailManager(mock_db, mock_config, mock_tel, temp_dir)
+
+    with (
+        patch("os.path.exists", return_value=True),
+        patch("os.remove"),
+        patch(
+            "meshchatnext.src.backend.voicemail_manager.audio_codec.encode_audio_to_ogg_opus",
+            return_value=os.path.join(vm.greetings_dir, "greeting.opus"),
+        ) as mock_encode,
+    ):
+        vm.generate_greeting("Hello world")
+
+    # espeak still runs as a subprocess. Opus encoding is now in-process via audio_codec.
+    assert mock_deps["run"].call_count == 1
+    mock_encode.assert_called_once()
+
+
+def test_start_recording_currently_disabled(mock_deps, temp_dir):
+    mock_db = MagicMock()
+    mock_config = MagicMock()
+    mock_tel_manager = MagicMock()
+    mock_tel = MagicMock()
+    mock_tel_manager.telephone = mock_tel
+    vm = VoicemailManager(mock_db, mock_config, mock_tel_manager, temp_dir)
+
+    mock_caller_identity = MagicMock()
+    # Use actual bytes for hash, which has a .hex() method
+    mock_caller_identity.hash = b"remote_hash_32_bytes_long_012345"
+
+    # Recording requires telephone.active_call to exist
+    # Without it, recording won't start
+    mock_tel.active_call = None
+
+    vm.start_recording(mock_caller_identity)
+
+    # Without active_call, recording should not start
+    assert vm.is_recording is False
+
+
+def test_stop_recording(mock_deps, temp_dir):
+    mock_db = MagicMock()
+    mock_config = MagicMock()
+    mock_tel = MagicMock()
+    vm = VoicemailManager(mock_db, mock_config, mock_tel, temp_dir)
+
+    vm.is_recording = True
+    mock_pipeline_inst = MagicMock()
+    vm.recording_pipeline = mock_pipeline_inst
+    mock_sink = MagicMock()
+    vm.recording_sink = mock_sink
+    vm.recording_filename = "test.opus"
+
+    mock_remote_id = MagicMock()
+    # Use a mock for hash so we can mock its hex() method
+    mock_hash = MagicMock()
+    mock_hash.hex.return_value = "72656d6f7465"
+    mock_remote_id.hash = mock_hash
+    vm.recording_remote_identity = mock_remote_id
+    vm.recording_start_time = 100
+
+    vm.get_name_for_identity_hash = MagicMock(return_value="Test User")
+
+    # Create the recording file so add_voicemail gets called
+    recording_path = os.path.join(vm.recordings_dir, "test.opus")
+    os.makedirs(vm.recordings_dir, exist_ok=True)
+    with open(recording_path, "wb") as f:
+        f.write(b"fake opus data")
+
+    with (
+        patch("time.time", return_value=110),
+        patch.object(vm, "_fix_recording"),
+    ):
+        vm.stop_recording()
+
+    assert vm.is_recording is False
+    mock_pipeline_inst.stop.assert_called()
+    mock_sink.stop.assert_called()
+    mock_db.voicemails.add_voicemail.assert_called()
+
+
+def test_stop_recording_restores_link_source_sink(mock_deps, temp_dir):
+    # Pipeline.__init__ repoints audio_source.sink at the recording sink.
+    # stop_recording must hand it back to the receive mixer or remote audio
+    # is silently dropped for the rest of the call.
+    mock_db = MagicMock()
+    mock_config = MagicMock()
+    mock_tel_manager = MagicMock()
+    vm = VoicemailManager(mock_db, mock_config, mock_tel_manager, temp_dir)
+
+    recording_sink = MagicMock()
+    audio_source = MagicMock()
+    audio_source.sink = recording_sink
+    audio_source.pipeline = MagicMock()
+    mock_tel_manager.telephone.active_call.audio_source = audio_source
+
+    vm.is_recording = True
+    vm.recording_pipeline = MagicMock()
+    vm.recording_sink = recording_sink
+    vm.recording_filename = None
+    vm.recording_start_time = None
+
+    vm.stop_recording()
+
+    assert audio_source.sink is mock_tel_manager.telephone.receive_mixer
+    assert audio_source.pipeline is None
+    assert vm.is_recording is False
+
+
+def test_stop_recording_leaves_repointed_sink_alone(mock_deps, temp_dir):
+    # If audio_source.sink was swapped by someone else after recording
+    # started (for example a web-audio tee), do not stomp it.
+    mock_db = MagicMock()
+    mock_config = MagicMock()
+    mock_tel_manager = MagicMock()
+    vm = VoicemailManager(mock_db, mock_config, mock_tel_manager, temp_dir)
+
+    other_sink = MagicMock()
+    audio_source = MagicMock()
+    audio_source.sink = other_sink
+    mock_tel_manager.telephone.active_call.audio_source = audio_source
+
+    vm.is_recording = True
+    vm.recording_pipeline = MagicMock()
+    vm.recording_sink = MagicMock()
+    vm.recording_filename = None
+    vm.recording_start_time = None
+
+    vm.stop_recording()
+
+    assert audio_source.sink is other_sink
+
+
+def test_stop_greeting_recording_restores_mic_sink(mock_deps, temp_dir):
+    # The greeting pipeline repoints audio_input.sink at the recording sink.
+    # without a restore the mic is dead for the rest of the call.
+    mock_db = MagicMock()
+    mock_config = MagicMock()
+    mock_tel_manager = MagicMock()
+    vm = VoicemailManager(mock_db, mock_config, mock_tel_manager, temp_dir)
+
+    greeting_sink = MagicMock()
+    audio_input = MagicMock()
+    audio_input.sink = greeting_sink
+    audio_input.pipeline = MagicMock()
+    mock_tel_manager.telephone.audio_input = audio_input
+
+    vm.is_greeting_recording = True
+    vm.greeting_recording_pipeline = MagicMock()
+    vm.greeting_recording_sink = greeting_sink
+
+    vm.stop_greeting_recording()
+
+    assert audio_input.sink is mock_tel_manager.telephone.transmit_mixer
+    assert audio_input.pipeline is None
+    assert vm.is_greeting_recording is False
+
+
+def test_start_voicemail_session(mock_deps, temp_dir):
+    mock_db = MagicMock()
+    mock_config = MagicMock()
+    mock_tel_manager = MagicMock()
+    mock_tel = MagicMock()
+    mock_tel_manager.telephone = mock_tel
+
+    vm = VoicemailManager(mock_db, mock_config, mock_tel_manager, temp_dir)
+
+    mock_caller = MagicMock()
+    mock_caller.hash = b"caller"
+
+    # Set call_status to RINGING (4) so answer() gets called
+    mock_tel.call_status = 4
+    mock_tel.answer.return_value = True
+    mock_tel.audio_input = MagicMock()
+
+    # Mocking threading.Thread to run the job synchronously for testing
+    with patch("threading.Thread") as mock_thread, patch("time.sleep"):
+        vm.start_voicemail_session(mock_caller)
+
+        # Verify answer was called
+        mock_tel.answer.assert_called_with(mock_caller)
+        # Verify mic was stopped
+        mock_tel.audio_input.stop.assert_called()
+
+        # Get the job function and run it
+        job_func = mock_thread.call_args[1]["target"]
+
+        # We need to setup more mocks for the job to run without crashing
+        mock_tel.active_call = MagicMock()
+        mock_tel.active_call.audio_source = MagicMock()
+
+        with patch.object(vm, "start_recording") as mock_start_rec:
+            # Run the job
+            job_func()
+            mock_start_rec.assert_called()
+
+
+def test_voicemail_session_sets_active_flag(mock_deps, temp_dir):
+    mock_db = MagicMock()
+    mock_config = MagicMock()
+    mock_tel_manager = MagicMock()
+    mock_tel = MagicMock()
+    mock_tel_manager.telephone = mock_tel
+    mock_tel_manager.is_voicemail_session_active = False
+
+    vm = VoicemailManager(mock_db, mock_config, mock_tel_manager, temp_dir)
+
+    mock_caller = MagicMock()
+    mock_caller.hash = b"caller"
+    mock_tel.call_status = 4
+    mock_tel.answer.return_value = True
+    mock_tel.audio_input = MagicMock()
+
+    with patch("threading.Thread"), patch("time.sleep"):
+        vm.start_voicemail_session(mock_caller)
+        assert mock_tel_manager.is_voicemail_session_active is True
+
+
+def test_handle_incoming_skips_when_lxmf_destination_blocked(mock_deps, temp_dir):
+    mock_db = MagicMock()
+    mock_config = MagicMock()
+    mock_config.voicemail_enabled.get.return_value = True
+    mock_tel_manager = MagicMock()
+    vm = VoicemailManager(mock_db, mock_config, mock_tel_manager, temp_dir)
+
+    caller_hash = "a1" * 16
+    lxmf_dest = "b2" * 16
+    mock_caller = MagicMock()
+    mock_caller.hash = bytes.fromhex(caller_hash)
+    mock_db.misc.is_destination_blocked.side_effect = lambda h: h == lxmf_dest
+    mock_db.announces.get_announces_by_identity_hash.return_value = [
+        {"destination_hash": lxmf_dest, "identity_hash": caller_hash},
+    ]
+
+    with patch("threading.Thread") as mock_thread:
+        vm.handle_incoming_call(mock_caller)
+        mock_thread.assert_not_called()
+
+
+def test_greeting_source_plays_timed(mock_deps, temp_dir):
+    """Greeting must stream at playback speed, not dump frames at once.
+
+    OpusFileSource defaults to timed=False, which pushes every frame into
+    the transmit mixer as fast as it can decode. The caller then hears a
+    burst of compressed audio instead of the greeting.
+    """
+    mock_db = MagicMock()
+    mock_config = MagicMock()
+    mock_tel_manager = MagicMock()
+    mock_tel = MagicMock()
+    mock_tel_manager.telephone = mock_tel
+
+    vm = VoicemailManager(mock_db, mock_config, mock_tel_manager, temp_dir)
+
+    mock_caller = MagicMock()
+    mock_caller.hash = b"caller"
+    mock_tel.call_status = 4
+    mock_tel.answer.return_value = True
+    mock_tel.audio_input = MagicMock()
+    mock_tel.active_call = MagicMock()
+    mock_tel.active_call.audio_source = MagicMock()
+
+    greeting_path = os.path.join(vm.greetings_dir, "greeting.opus")
+    with open(greeting_path, "wb") as f:
+        f.write(b"opus greeting")
+
+    mock_deps["OpusFileSource"].return_value.running = False
+
+    with (
+        patch("threading.Thread") as mock_thread,
+        patch("time.sleep"),
+        patch("meshchatnext.src.backend.voicemail_manager.LXST"),
+    ):
+        vm.start_voicemail_session(mock_caller)
+        job_func = mock_thread.call_args[1]["target"]
+        with patch.object(vm, "start_recording"):
+            job_func()
+
+    mock_deps["OpusFileSource"].assert_called_once_with(
+        greeting_path,
+        target_frame_ms=60,
+        timed=True,
+    )
+
+
+def test_stop_recording_passes_three_args_to_callback(mock_deps, temp_dir):
+    """The notification callback contract is (hash, name, duration).
+
+    IdentityContext wires a lambda taking exactly those three arguments.
+    a one-argument callback used to raise TypeError and the notification
+    never reached the UI.
+    """
+    mock_db = MagicMock()
+    mock_config = MagicMock()
+    mock_tel = MagicMock()
+    vm = VoicemailManager(mock_db, mock_config, mock_tel, temp_dir)
+
+    vm.is_recording = True
+    vm.recording_pipeline = MagicMock()
+    vm.recording_sink = MagicMock()
+    vm.recording_filename = "test.opus"
+    vm.recording_start_time = 100
+    mock_remote_id = MagicMock()
+    mock_remote_id.hash.hex.return_value = "72656d6f7465"
+    vm.recording_remote_identity = mock_remote_id
+    vm.get_name_for_identity_hash = MagicMock(return_value="Test User")
+    vm.on_new_voicemail_callback = MagicMock()
+
+    recording_path = os.path.join(vm.recordings_dir, "test.opus")
+    os.makedirs(vm.recordings_dir, exist_ok=True)
+    with open(recording_path, "wb") as f:
+        f.write(b"fake opus data")
+
+    with patch("time.time", return_value=110), patch.object(vm, "_fix_recording"):
+        vm.stop_recording()
+
+    vm.on_new_voicemail_callback.assert_called_once_with(
+        "72656d6f7465",
+        "Test User",
+        10,
+    )
+
+
+def test_stop_recording_clears_active_flag(mock_deps, temp_dir):
+    mock_db = MagicMock()
+    mock_config = MagicMock()
+    mock_tel_manager = MagicMock()
+    mock_tel = MagicMock()
+    mock_tel_manager.telephone = mock_tel
+    vm = VoicemailManager(mock_db, mock_config, mock_tel_manager, temp_dir)
+
+    vm.is_recording = True
+    vm.recording_pipeline = MagicMock()
+    vm.recording_sink = MagicMock()
+    vm.recording_filename = "test.opus"
+    vm.recording_start_time = 100
+    mock_remote_id = MagicMock()
+    mock_remote_id.hash.hex.return_value = "72656d6f7465"
+    vm.recording_remote_identity = mock_remote_id
+    vm.get_name_for_identity_hash = MagicMock(return_value="Test User")
+
+    recording_path = os.path.join(vm.recordings_dir, "test.opus")
+    os.makedirs(vm.recordings_dir, exist_ok=True)
+    with open(recording_path, "wb") as f:
+        f.write(b"fake opus data")
+
+    with patch("time.time", return_value=110), patch.object(vm, "_fix_recording"):
+        vm.stop_recording()
+
+    assert mock_tel_manager.is_voicemail_session_active is False

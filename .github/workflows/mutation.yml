@@ -1,0 +1,153 @@
+# Optional mutation testing (manual or weekly). Not part of primary CI.
+#
+# Pinned first-party actions (bump tag and SHA together when upgrading):
+#   actions/checkout@v6.0.1            8e8c483db84b4bee98b60c0593521ed34d9990e8
+#   actions/upload-artifact@v7.0.2 cf430e030ddbb5b0abf93d22962f4752f3646cd9
+
+name: Mutation testing
+
+on:
+    workflow_dispatch:
+        inputs:
+            backend:
+                description: Run backend mutmut
+                type: boolean
+                default: true
+            frontend:
+                description: Run frontend MeshMut
+                type: boolean
+                default: true
+            min_score:
+                description: Minimum mutation score percentage (0 to skip gate)
+                type: string
+                default: "50"
+    schedule:
+        - cron: "0 6 * * 0"
+
+permissions:
+    contents: read
+
+concurrency:
+    group: mutation-${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
+env:
+    HARDEN_ENDPOINTS: >
+        github.com:443
+        api.github.com:443
+        codeload.github.com:443
+        uploads.github.com:443
+        *.githubusercontent.com:443
+        *.actions.githubusercontent.com:443
+        *.githubapp.com:443
+        *.blob.core.windows.net:443
+        ghcr.io:443
+        azure.archive.ubuntu.com:80
+        archive.ubuntu.com:80
+        *.ubuntu.com:443
+        packages.microsoft.com:443
+        pypi.org:443
+        upload.pypi.org:443
+        *.pythonhosted.org:443
+        registry.npmjs.org:443
+        nodejs.org:443
+        go.dev:443
+        golang.org:443
+        proxy.golang.org:443
+        sum.golang.org:443
+        sh.rustup.rs:443
+        static.rust-lang.org:443
+        static.crates.io:443
+        index.crates.io:443
+        api.adoptium.net:443
+        dl.google.com:443
+        maven.google.com:443
+        repo.maven.apache.org:443
+        services.gradle.org:443
+        repo.gradle.org:443
+        plugins.gradle.org:443
+        chaquo.com:443
+        auth.docker.io:443
+        registry-1.docker.io:443
+        download.docker.com:443
+        production.cloudfront.docker.com:443
+        mirror.gcr.io:443
+        *.sigstore.dev:443
+        check.trivy.dev:443
+        cgr.dev:443
+        *.cgr.dev:443
+        dl-cdn.alpinelinux.org:443
+        *.alpinelinux.org:443
+        *.r2.cloudflarestorage.com:443
+        *.storage.bunnycdn.com:443
+        cdn.quad4.io:443
+        dl.flathub.org:443
+        flathub.org:443
+        api.securityscorecards.dev:443
+        meshchatx.com:443
+        cdn.playwright.dev:443
+        playwright.download.prss.microsoft.com:443
+        *.prss.microsoft.com:443
+        firefox.settings.services.mozilla.com:443
+        *.mozilla.com:443
+        storage.googleapis.com:443
+        *.stepsecurity.io:443
+    FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    PYTHON_VERSION: "3.14"
+    NODE_VERSION: "24"
+    UV_VERSION: "0.11.15"
+    PNPM_VERSION: "12.7.0"
+
+jobs:
+    mutation:
+        runs-on: ubuntu-latest
+        # Stats collection runs the whole backend suite serially under a
+        # coverage-tracking plugin, which takes well over an hour on its own.
+        timeout-minutes: 360
+        steps:
+            - name: Harden runner
+              uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+              with:
+                  egress-policy: ${{ runner.os == 'Linux' && 'block' || 'audit' }}
+                  allowed-endpoints: ${{ env.HARDEN_ENDPOINTS }}
+            - name: Checkout
+              uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+              with:
+                  persist-credentials: false
+
+            - name: Set up development environment
+              uses: ./.github/actions/setup-dev-environment
+              with:
+                  python-version: ${{ env.PYTHON_VERSION }}
+                  uv-version: ${{ env.UV_VERSION }}
+                  node-version: ${{ env.NODE_VERSION }}
+                  pnpm-version: ${{ env.PNPM_VERSION }}
+
+            - name: Backend mutation (mutmut)
+              if: ${{ github.event_name == 'schedule' || inputs.backend != false }}
+              env:
+                  MUTMUT_TARGET: meshchatnext.src.backend.meshchat_utils*
+                  MUTMUT_MIN_SCORE: ${{ github.event_name == 'schedule' && '50' || github.event.inputs.min_score }}
+              run: bash scripts/ci/mutation-backend.sh
+
+            - name: Frontend mutation (MeshMut sample)
+              if: ${{ github.event_name == 'schedule' || inputs.frontend != false }}
+              env:
+                  MIN_SCORE: ${{ github.event_name == 'schedule' && '50' || github.event.inputs.min_score }}
+              run: |
+                  set -euo pipefail
+                  node scripts/mutation/run.mjs \
+                    --source meshchatnext/src/frontend/js/rnode/Capabilities.js \
+                    --source meshchatnext/src/frontend/js/mapLinkUtils.js \
+                    --max-per-file 30 \
+                    --min-score "${MIN_SCORE}"
+
+            - name: Upload mutation reports
+              if: always()
+              uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+              with:
+                  name: mutation-reports
+                  path: |
+                      reports/mutation/
+                      mutmut-cicd-stats.json
+                  if-no-files-found: ignore

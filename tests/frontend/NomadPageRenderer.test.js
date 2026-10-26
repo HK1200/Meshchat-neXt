@@ -1,0 +1,140 @@
+import { describe, expect, it, beforeEach, afterEach } from "vitest";
+import MicronParser from "../../meshchatnext/src/frontend/js/MicronParser";
+import {
+    escapeNomadPlainText,
+    renderNomadHtmlPage,
+    renderNomadMarkdown,
+    renderNomadPageByPath,
+    resolveNomadPageShellBackground,
+    sanitizeNomadHtmlFragment,
+} from "../../meshchatnext/src/frontend/js/NomadPageRenderer";
+
+describe("NomadPageRenderer", () => {
+    it("renders markdown to safe HTML without script tags", () => {
+        const html = renderNomadMarkdown("# Title\n\n[x](javascript:alert(1))");
+        expect(html).toContain("Title");
+        expect(html.toLowerCase()).not.toContain("<script");
+        expect(html).not.toContain("javascript:");
+    });
+
+    it("normalizes ATX headings when space is missing after hashes", () => {
+        const html = renderNomadMarkdown("#Hello\n\n##There\n\n####Deep");
+        expect(html).toContain("<h1");
+        expect(html).toContain("Hello");
+        expect(html).toContain("<h2");
+        expect(html).toContain("<h4");
+    });
+
+    it("wraps markdown in nomad-markdown container", () => {
+        const html = renderNomadMarkdown("x");
+        expect(html).toContain('class="nomad-markdown"');
+    });
+
+    it("strips external http links from markdown output", () => {
+        const html = renderNomadMarkdown("[a](https://evil.example/)");
+        expect(html).not.toContain("evil.example");
+    });
+
+    it("allows nomad-style href on links after sanitization", () => {
+        const html = renderNomadMarkdown("[local](:page/other.mu)");
+        expect(html).toContain(":page/other.mu");
+    });
+
+    it("sanitizes HTML documents and removes script", () => {
+        const html = renderNomadHtmlPage(
+            "<!DOCTYPE html><html><head><style>body{color:red}</style></head><body><p>Hi</p><script>x</script></body></html>"
+        );
+        expect(html.toLowerCase()).not.toContain("<script");
+        expect(html).toContain("Hi");
+        expect(html).toContain("nomad-html-root");
+        expect(html).toContain(".nomad-html-root");
+        expect(html).toContain("color:red");
+    });
+
+    it("removes iframe and external stylesheet references from HTML", () => {
+        const html = renderNomadHtmlPage(
+            '<html><head><link rel="stylesheet" href="https://evil.example/s.css"/></head><body><iframe src="https://x"></iframe><p>x</p></body></html>'
+        );
+        expect(html.toLowerCase()).not.toContain("iframe");
+        expect(html).not.toContain("evil.example");
+    });
+
+    it("escapes plain text pages", () => {
+        const out = escapeNomadPlainText("<script>bad</script>");
+        expect(out).not.toContain("<script>");
+        expect(out).toContain("&lt;script&gt;");
+    });
+
+    it("renderNomadPageByPath picks format by extension", () => {
+        const dest = "a".repeat(32);
+        const muHtml = renderNomadPageByPath(`${dest}:/page/x.mu`, "Hello mesh", {}, MicronParser);
+        expect(typeof muHtml).toBe("string");
+        expect(muHtml.length).toBeGreaterThan(0);
+        expect(renderNomadPageByPath("/page/a.md", "# T", {}, MicronParser)).toContain("T");
+        expect(renderNomadPageByPath("/page/a.txt", "a<b>", {}, MicronParser)).toContain("&lt;");
+        expect(renderNomadPageByPath("/page/a.html", '<p class="x">z</p>', {}, MicronParser)).toContain("z");
+    });
+
+    it("renderNomadPageByPath respects disabled markdown and html", () => {
+        const mdOff = renderNomadPageByPath("/page/a.md", "# Title", {}, MicronParser, {
+            renderMarkdown: false,
+        });
+        expect(mdOff).not.toContain("<h1");
+        expect(mdOff).toContain("Title");
+
+        const htmlOff = renderNomadPageByPath("/page/a.html", "<p>x</p>", {}, MicronParser, {
+            renderHtml: false,
+        });
+        expect(htmlOff.toLowerCase()).not.toContain("<p>");
+        expect(htmlOff).toContain("&lt;");
+    });
+
+    it("renderNomadPageByPath respects disabled plaintext for .txt", () => {
+        const on = renderNomadPageByPath("/page/a.txt", "line", {}, MicronParser, { renderPlaintext: true });
+        const off = renderNomadPageByPath("/page/a.txt", "line", {}, MicronParser, { renderPlaintext: false });
+        expect(on).toContain("whitespace-pre-wrap");
+        expect(off).toContain("<pre");
+    });
+
+    it("sanitizeNomadHtmlFragment handles arbitrary strings without throwing", () => {
+        expect(() => sanitizeNomadHtmlFragment("<div>ok</div>")).not.toThrow();
+    });
+});
+
+describe("resolveNomadPageShellBackground", () => {
+    let host;
+
+    beforeEach(() => {
+        host = document.createElement("div");
+        document.body.appendChild(host);
+    });
+
+    afterEach(() => {
+        host?.remove();
+    });
+
+    it("returns null when root has no painted background", () => {
+        const root = document.createElement("div");
+        root.className = "nomad-html-root";
+        host.appendChild(root);
+        expect(resolveNomadPageShellBackground(root)).toBeNull();
+    });
+
+    it("reads background-color from the html root", () => {
+        const root = document.createElement("div");
+        root.className = "nomad-html-root";
+        root.style.backgroundColor = "rgb(18, 24, 38)";
+        host.appendChild(root);
+        expect(resolveNomadPageShellBackground(root)).toBe("rgb(18, 24, 38)");
+    });
+
+    it("reads background from a direct child when root is transparent", () => {
+        const root = document.createElement("div");
+        root.className = "nomad-html-root";
+        const inner = document.createElement("div");
+        inner.style.backgroundColor = "rgb(40, 40, 40)";
+        root.appendChild(inner);
+        host.appendChild(root);
+        expect(resolveNomadPageShellBackground(root)).toBe("rgb(40, 40, 40)");
+    });
+});

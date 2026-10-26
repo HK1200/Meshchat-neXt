@@ -1,0 +1,10 @@
+name: Verify workspace clean
+description: Recheck byte-level tree inventory (warn by default, non-blocking)
+runs:
+    using: composite
+    steps:
+        - name: Verify workspace clean
+          shell: bash
+          env:
+              RNS_INVENTORY_OUT: ${{ runner.temp }}/meshchatnext-tree-inventory.txt
+          run: sh scripts/ci/verify-workspace-clean.sh "$RNS_INVENTORY_OUT"

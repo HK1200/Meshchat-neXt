@@ -1,0 +1,35 @@
+name: Published neXt release verification
+on:
+    release:
+        types: [published]
+    workflow_dispatch:
+        inputs:
+            tag:
+                description: Published neXt application release tag
+                required: true
+                type: string
+permissions:
+    contents: read
+jobs:
+    verify:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+              with:
+                  persist-credentials: false
+            - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+              with:
+                  python-version: "3.11"
+            - name: Verify published application assets
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  GH_REPO: ${{ github.repository }}
+                  NEXT_UPDATE_SIGNER_HASH: ${{ vars.NEXT_UPDATE_SIGNER_HASH }}
+                  NEXT_APK_CERTIFICATE_SHA256: ${{ vars.NEXT_APK_CERTIFICATE_SHA256 }}
+                  RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}
+              run: |
+                  set -euo pipefail
+                  python -m pip install 'rns==1.5.7' 'packaging>=24'
+                  gh release download "$RELEASE_TAG" --dir release-check --pattern '*.apk' --pattern latest.rsm --pattern latest.json
+                  apksigner="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)"
+                  python scripts/ci/verify-next-release.py release-check --tag "$RELEASE_TAG" --apksigner "$apksigner" --signer-hash "$NEXT_UPDATE_SIGNER_HASH" --certificate-sha256 "$NEXT_APK_CERTIFICATE_SHA256"

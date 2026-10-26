@@ -1,0 +1,9 @@
+# Test-only, pure Python dependencies. Never added to production requirements.
+pytest==7.4.4
+hypothesis==6.98.10
+sortedcontainers==2.4.0
+iniconfig==2.0.0
+packaging==23.2
+pluggy==1.3.0
+attrs==23.2.0
+exceptiongroup==1.2.0

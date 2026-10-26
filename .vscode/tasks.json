@@ -1,0 +1,47 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "meshchatnext: debug",
+            "type": "shell",
+            "command": "task debug",
+            "isBackground": true,
+            "problemMatcher": {
+                "owner": "meshchatnext-dev",
+                "pattern": {
+                    "regexp": "^$"
+                },
+                "background": {
+                    "activeOnStart": true,
+                    "beginsPattern": "\\[dev\\] (Waiting for backend|debugpy)",
+                    "endsPattern": "Local:\\s+https?://127\\.0\\.0\\.1:5173"
+                }
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            }
+        },
+        {
+            "label": "meshchatnext: dev",
+            "type": "shell",
+            "command": "task dev",
+            "isBackground": true,
+            "problemMatcher": {
+                "owner": "meshchatnext-dev",
+                "pattern": {
+                    "regexp": "^$"
+                },
+                "background": {
+                    "activeOnStart": true,
+                    "beginsPattern": "\\[dev\\] Waiting for backend",
+                    "endsPattern": "Local:\\s+https?://127\\.0\\.0\\.1:5173"
+                }
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            }
+        }
+    ]
+}

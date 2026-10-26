@@ -1,0 +1,210 @@
+# SPDX-License-Identifier: 0BSD
+
+import asyncio
+import logging
+import os
+import time
+
+import RNS
+
+from .path_utils import path_response_window
+
+logger = logging.getLogger(__name__)
+
+
+class RNProbeHandler:
+    DEFAULT_PROBE_SIZE = 16
+    DEFAULT_TIMEOUT = 12
+    MAX_PROBES = 50
+    MAX_WAIT_S = 120.0
+    MAX_TIMEOUT_S = 600.0
+    _PACKET_OVERHEAD_BYTES = 96
+
+    def __init__(self, reticulum_instance, identity):
+        self.reticulum = reticulum_instance
+        self.identity = identity
+
+    def _max_payload_bytes(self) -> int:
+        mtu = int(RNS.Reticulum.MTU)
+        return max(1, mtu - self._PACKET_OVERHEAD_BYTES)
+
+    def _validate_probe_params(
+        self,
+        size: int,
+        timeout: float | None,
+        wait: float,
+        probes: int,
+    ) -> None:
+        if probes < 1 or probes > self.MAX_PROBES:
+            msg = f"probes must be between 1 and {self.MAX_PROBES}"
+            raise ValueError(msg)
+        if wait < 0 or wait > self.MAX_WAIT_S:
+            msg = f"wait must be between 0 and {self.MAX_WAIT_S} seconds"
+            raise ValueError(msg)
+        max_payload = self._max_payload_bytes()
+        if size < 1 or size > max_payload:
+            msg = f"size must be between 1 and {max_payload} bytes for this MTU"
+            raise ValueError(msg)
+        if timeout is not None:
+            if timeout <= 0 or timeout > self.MAX_TIMEOUT_S:
+                msg = (
+                    f"timeout must be positive and at most {self.MAX_TIMEOUT_S} seconds"
+                )
+                raise ValueError(msg)
+
+    async def probe_destination(
+        self,
+        destination_hash: bytes,
+        full_name: str,
+        size: int = DEFAULT_PROBE_SIZE,
+        timeout: float | None = None,
+        wait: float = 0,
+        probes: int = 1,
+    ):
+        self._validate_probe_params(size, timeout, wait, probes)
+
+        try:
+            app_name, aspects = RNS.Destination.app_and_aspects_from_name(full_name)
+        except Exception as e:
+            msg = f"Invalid destination name: {e}"
+            raise ValueError(msg) from e
+
+        if not RNS.Transport.has_path(destination_hash):
+            RNS.Transport.request_path(destination_hash)
+
+        timeout_after = time.time() + (
+            timeout
+            if timeout is not None
+            else await asyncio.to_thread(
+                path_response_window, destination_hash, self.reticulum
+            )
+        )
+        while (
+            not RNS.Transport.has_path(destination_hash) and time.time() < timeout_after
+        ):
+            await asyncio.sleep(0.1)
+
+        if not RNS.Transport.has_path(destination_hash):
+            msg = "Path request timed out"
+            raise TimeoutError(msg)
+
+        server_identity = RNS.Identity.recall(destination_hash)
+        request_destination = RNS.Destination(
+            server_identity,
+            RNS.Destination.OUT,
+            RNS.Destination.SINGLE,
+            app_name,
+            *aspects,
+        )
+
+        results = []
+        sent = 0
+
+        while probes > 0:
+            if sent > 0:
+                await asyncio.sleep(wait)
+
+            try:
+                probe = RNS.Packet(request_destination, os.urandom(size))
+            except OSError as e:
+                raise ValueError(f"Failed to build probe packet: {e!s}") from e
+            try:
+                probe.pack()
+            except OSError as e:
+                raw = probe.raw or b""
+                msg = f"Probe packet size of {len(raw)} bytes exceeds MTU of {RNS.Reticulum.MTU} bytes"
+                raise ValueError(msg) from e
+
+            receipt = probe.send()
+            sent += 1
+
+            next_hop = await asyncio.to_thread(
+                self.reticulum.get_next_hop, destination_hash
+            )
+            via_str = f" via {RNS.prettyhexrep(next_hop)}" if next_hop else ""
+            if_name = await asyncio.to_thread(
+                self.reticulum.get_next_hop_if_name, destination_hash
+            )
+            if_str = f" on {if_name}" if if_name and if_name != "None" else ""
+
+            timeout_after = time.time() + (
+                timeout
+                or self.DEFAULT_TIMEOUT
+                + await asyncio.to_thread(
+                    path_response_window, destination_hash, self.reticulum
+                )
+            )
+            while (
+                receipt.status == RNS.PacketReceipt.SENT and time.time() < timeout_after
+            ):
+                await asyncio.sleep(0.1)
+
+            result: dict = {
+                "probe_number": sent,
+                "size": size,
+                "destination": RNS.prettyhexrep(destination_hash),
+                "via": via_str,
+                "interface": if_str,
+                "status": "timeout",
+            }
+
+            if time.time() > timeout_after:
+                result["status"] = "timeout"
+            elif receipt.status == RNS.PacketReceipt.DELIVERED:
+                hops = RNS.Transport.hops_to(destination_hash)
+                rtt = receipt.get_rtt()
+
+                if rtt >= 1:
+                    rtt_str = f"{round(rtt, 3)} seconds"
+                else:
+                    rtt_str = f"{round(rtt * 1000, 3)} milliseconds"
+
+                reception_stats = {}
+                if self.reticulum.is_connected_to_shared_instance:
+                    reception_rssi = await asyncio.to_thread(
+                        self.reticulum.get_packet_rssi,
+                        receipt.proof_packet.packet_hash,
+                    )
+                    reception_snr = await asyncio.to_thread(
+                        self.reticulum.get_packet_snr,
+                        receipt.proof_packet.packet_hash,
+                    )
+                    reception_q = await asyncio.to_thread(
+                        self.reticulum.get_packet_q,
+                        receipt.proof_packet.packet_hash,
+                    )
+
+                    if reception_rssi is not None:
+                        reception_stats["rssi"] = reception_rssi
+                    if reception_snr is not None:
+                        reception_stats["snr"] = reception_snr
+                    if reception_q is not None:
+                        reception_stats["quality"] = reception_q
+                elif receipt.proof_packet:
+                    if receipt.proof_packet.rssi is not None:
+                        reception_stats["rssi"] = receipt.proof_packet.rssi
+                    if receipt.proof_packet.snr is not None:
+                        reception_stats["snr"] = receipt.proof_packet.snr
+
+                result.update(
+                    {
+                        "status": "delivered",
+                        "hops": hops,
+                        "rtt": rtt,
+                        "rtt_string": rtt_str,
+                        "reception_stats": reception_stats,
+                    },
+                )
+            else:
+                result["status"] = "failed"
+
+            results.append(result)
+            probes -= 1
+
+        return {
+            "results": results,
+            "sent": sent,
+            "delivered": sum(1 for r in results if r["status"] == "delivered"),
+            "timeouts": sum(1 for r in results if r["status"] == "timeout"),
+            "failed": sum(1 for r in results if r["status"] == "failed"),
+        }

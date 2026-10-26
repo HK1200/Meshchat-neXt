@@ -1,0 +1,991 @@
+import { mount } from "@vue/test-utils";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
+// Mock vis-network
+vi.mock("vis-network", () => {
+    return {
+        Network: vi.fn().mockImplementation(function () {
+            return {
+                on: vi.fn(),
+                off: vi.fn(),
+                destroy: vi.fn(),
+                setOptions: vi.fn(),
+                setData: vi.fn(),
+                getPositions: vi.fn(),
+                storePositions: vi.fn(),
+                fit: vi.fn(),
+                focus: vi.fn(),
+            };
+        }),
+    };
+});
+
+// Mock vis-data
+vi.mock("vis-data", () => {
+    class MockDataSet {
+        constructor(data = []) {
+            this._data = new Map(data.map((item) => [item.id, item]));
+        }
+        add(data) {
+            const arr = Array.isArray(data) ? data : [data];
+            arr.forEach((item) => this._data.set(item.id, item));
+        }
+        update(data) {
+            const arr = Array.isArray(data) ? data : [data];
+            arr.forEach((item) => this._data.set(item.id, item));
+        }
+        remove(ids) {
+            const arr = Array.isArray(ids) ? ids : [ids];
+            arr.forEach((id) => this._data.delete(id));
+        }
+        get(id) {
+            if (id === undefined) return Array.from(this._data.values());
+            return this._data.get(id) || null;
+        }
+        getIds() {
+            return Array.from(this._data.keys());
+        }
+        get length() {
+            return this._data.size;
+        }
+    }
+    return { DataSet: MockDataSet };
+});
+
+// Mock canvas for createIconImage
+HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue({
+    createLinearGradient: vi.fn().mockReturnValue({
+        addColorStop: vi.fn(),
+    }),
+    beginPath: vi.fn(),
+    arc: vi.fn(),
+    fill: vi.fn(),
+    stroke: vi.fn(),
+    drawImage: vi.fn(),
+});
+
+globalThis.__MESHCHATNEXT_TEST_VISUALISER_WASM_BUNDLED__ = false;
+
+import NetworkVisualiser from "@/components/network-visualiser/NetworkVisualiser.vue";
+
+describe("NetworkVisualiser.vue", () => {
+    let axiosMock;
+
+    beforeEach(() => {
+        localStorage.clear();
+        axiosMock = {
+            get: vi.fn().mockImplementation((url) => {
+                if (url.includes("/api/v1/config")) {
+                    return Promise.resolve({
+                        data: { config: { display_name: "Test Node", identity_hash: "deadbeef" } },
+                    });
+                }
+                if (url.includes("/api/v1/interface-stats")) {
+                    return Promise.resolve({
+                        data: {
+                            interface_stats: {
+                                interfaces: [{ name: "eth0", status: true, bitrate: 1000, txb: 100, rxb: 200 }],
+                            },
+                        },
+                    });
+                }
+                if (url.includes("/api/v1/lxmf/conversations")) {
+                    return Promise.resolve({ data: { conversations: [] } });
+                }
+                if (url.includes("/api/v1/path-table")) {
+                    return Promise.resolve({
+                        data: { path_table: [{ hash: "node1", interface: "eth0", hops: 1 }], total_count: 1 },
+                    });
+                }
+                if (url.includes("/api/v1/announces")) {
+                    return Promise.resolve({
+                        data: {
+                            announces: [
+                                {
+                                    destination_hash: "node1",
+                                    aspect: "lxmf.delivery",
+                                    display_name: "Remote Node",
+                                    updated_at: new Date().toISOString(),
+                                },
+                            ],
+                            total_count: 1,
+                        },
+                    });
+                }
+                return Promise.resolve({ data: {} });
+            }),
+            post: vi.fn().mockImplementation((url) => {
+                if (url.includes("/api/v1/path-table")) {
+                    return Promise.resolve({
+                        data: { path_table: [{ hash: "node1", interface: "eth0", hops: 1 }], total_count: 1 },
+                    });
+                }
+                if (url.includes("/api/v1/announces/query")) {
+                    return Promise.resolve({
+                        data: {
+                            announces: [
+                                {
+                                    destination_hash: "node1",
+                                    aspect: "lxmf.delivery",
+                                    display_name: "Remote Node",
+                                    updated_at: new Date().toISOString(),
+                                },
+                            ],
+                            total_count: 1,
+                        },
+                    });
+                }
+                return Promise.resolve({ data: {} });
+            }),
+            isCancel: vi.fn().mockReturnValue(false),
+        };
+        window.api = axiosMock;
+        globalThis.__MESHCHATNEXT_TEST_VISUALISER_WASM_BUNDLED__ = false;
+
+        // Mock URL.createObjectURL and URL.revokeObjectURL
+        global.URL.createObjectURL = vi.fn().mockReturnValue("blob:mock-url");
+        global.URL.revokeObjectURL = vi.fn();
+    });
+
+    afterEach(() => {
+        delete window.api;
+        globalThis.__MESHCHATNEXT_TEST_VISUALISER_WASM_BUNDLED__ = false;
+        vi.clearAllMocks();
+    });
+
+    const mountVisualiser = () => {
+        return mount(NetworkVisualiser, {
+            global: {
+                mocks: {
+                    $t: (msg) => {
+                        const translations = {
+                            "visualiser.reticulum_mesh": "Reticulum Mesh",
+                            "visualiser.total_nodes": "Nodes",
+                            "visualiser.total_edges": "Links",
+                            "visualiser.nodes": "Nodes",
+                            "visualiser.links": "Links",
+                            "visualiser.engine_wasm": "WASM",
+                            "visualiser.engine_webgl": "WebGL",
+                            "visualiser.engine_fallback": "JS fallback",
+                            "visualiser.engine_checking": "Checking",
+                        };
+                        return translations[msg] || msg;
+                    },
+                },
+                stubs: {
+                    Toggle: {
+                        template:
+                            '<input type="checkbox" :checked="modelValue" @change="$emit(\'update:modelValue\', $event.target.checked)" />',
+                        props: ["modelValue"],
+                    },
+                    MaterialDesignIcon: true,
+                },
+            },
+        });
+    };
+
+    it("renders the component and loads initial data", async () => {
+        const wrapper = mountVisualiser();
+        await wrapper.vm.$nextTick();
+
+        // Wait for all async data loading to finish
+        // We might need several nextTicks or a wait
+        await new Promise((resolve) => setTimeout(resolve, 100));
+
+        expect(wrapper.text()).toContain("Reticulum Mesh");
+        expect(wrapper.text()).toContain("Nodes");
+        expect(wrapper.text()).toContain("Links");
+    });
+
+    it("toggles control panel when the header strip is clicked", async () => {
+        const wrapper = mountVisualiser();
+        await new Promise((resolve) => setTimeout(resolve, 100));
+
+        const before = wrapper.vm.isShowingControls;
+        const headerRow = wrapper
+            .findAll("div")
+            .find((d) => d.text().includes("Reticulum Mesh") && d.classes().includes("cursor-pointer"));
+        expect(headerRow).toBeDefined();
+        await headerRow.trigger("click");
+        expect(wrapper.vm.isShowingControls).toBe(!before);
+    });
+
+    it("shows loading overlay with batch indication during update", async () => {
+        const wrapper = mountVisualiser();
+        wrapper.vm.isLoading = true;
+        wrapper.vm.totalNodesToLoad = 100;
+        wrapper.vm.loadedNodesCount = 50;
+        wrapper.vm.currentBatch = 2;
+        wrapper.vm.totalBatches = 4;
+        wrapper.vm.loadingStatus = "Processing Batch 2 / 4...";
+
+        await wrapper.vm.$nextTick();
+
+        const overlay = wrapper.find(".absolute.inset-0.z-20");
+        expect(overlay.exists()).toBe(true);
+        expect(overlay.text()).toContain("Batch 2 / 4");
+        expect(overlay.text()).toContain("50%");
+    });
+
+    it("cancel button on loading overlay stops the in-flight update", async () => {
+        const wrapper = mountVisualiser();
+        await new Promise((resolve) => setTimeout(resolve, 100));
+
+        wrapper.vm.isLoading = true;
+        wrapper.vm.isUpdating = true;
+        wrapper.vm.totalNodesToLoad = 100;
+        wrapper.vm.loadedNodesCount = 50;
+        wrapper.vm.loadingStatus = "Processing Batch 2 / 4...";
+        await wrapper.vm.$nextTick();
+
+        const overlay = wrapper.find(".absolute.inset-0.z-20");
+        const cancelBtn = overlay.find("button");
+        await cancelBtn.trigger("click");
+
+        expect(wrapper.vm.isLoading).toBe(false);
+        expect(wrapper.vm.isUpdating).toBe(false);
+        expect(wrapper.vm.abortController.signal.aborted).toBe(true);
+        expect(wrapper.vm.totalNodesToLoad).toBe(0);
+        expect(wrapper.vm.loadedNodesCount).toBe(0);
+        expect(wrapper.vm.currentBatch).toBe(0);
+    });
+
+    it("stopLoading freezes vis-network physics instead of leaving it paused mid-settle", async () => {
+        const wrapper = mountVisualiser();
+        await new Promise((resolve) => setTimeout(resolve, 100));
+
+        const stopSimulation = vi.fn();
+        const setOptions = vi.fn();
+        wrapper.vm.network = { stopSimulation, setOptions };
+        wrapper.vm.isLoading = true;
+        wrapper.vm.isUpdating = true;
+
+        wrapper.vm.stopLoading();
+
+        expect(stopSimulation).toHaveBeenCalledTimes(1);
+        expect(setOptions).toHaveBeenCalledWith(expect.objectContaining({ physics: { enabled: false } }));
+    });
+
+    it("the next update after stopLoading gets a fresh abort signal and completes", async () => {
+        const wrapper = mountVisualiser();
+        // Let the initial load settle so manualUpdate cannot early-return.
+        await vi.waitFor(() => expect(wrapper.vm.isUpdating).toBe(false), { timeout: 5000 });
+
+        wrapper.vm.stopLoading();
+        const abortedSignal = wrapper.vm.abortController.signal;
+        expect(abortedSignal.aborted).toBe(true);
+
+        await wrapper.vm.manualUpdate();
+
+        expect(wrapper.vm.abortController.signal).not.toBe(abortedSignal);
+        expect(wrapper.vm.abortController.signal.aborted).toBe(false);
+        expect(wrapper.vm.isLoading).toBe(false);
+        expect(wrapper.vm.isUpdating).toBe(false);
+    });
+
+    it("a stale update finally block does not clear flags of a newer run", async () => {
+        const wrapper = mountVisualiser();
+        // Wait for the initial load to settle so updateSeq starts clean.
+        await vi.waitFor(() => expect(wrapper.vm.isUpdating).toBe(false), { timeout: 5000 });
+
+        const updateSpy = vi.spyOn(wrapper.vm, "update");
+        let resolveStale, resolveNew;
+        updateSpy.mockReturnValueOnce(new Promise((r) => (resolveStale = r)));
+
+        wrapper.vm.manualUpdate(); // stale run
+        expect(wrapper.vm.isLoading).toBe(true);
+
+        wrapper.vm.stopLoading(); // bumps _updateSeq and resets flags
+        expect(wrapper.vm.isLoading).toBe(false);
+
+        updateSpy.mockReturnValueOnce(new Promise((r) => (resolveNew = r)));
+        wrapper.vm.manualUpdate(); // newer run
+        expect(wrapper.vm.isLoading).toBe(true);
+
+        resolveStale(); // stale run exits. Its finally must not touch flags
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(wrapper.vm.isLoading).toBe(true);
+        expect(wrapper.vm.isUpdating).toBe(true);
+
+        resolveNew(); // new run finishes and clears its own flags
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(wrapper.vm.isLoading).toBe(false);
+        expect(wrapper.vm.isUpdating).toBe(false);
+        vi.restoreAllMocks();
+    });
+
+    it("filters nodes based on search query", async () => {
+        const wrapper = mountVisualiser();
+        // Initial load is real: initVisNetwork -> manualUpdate -> update.
+        // Poll until the graph exists instead of a fixed sleep.
+        await vi.waitFor(() => expect(wrapper.vm.nodes.length).toBeGreaterThan(0), { timeout: 5000 });
+
+        const searchInput = wrapper.find('input[type="text"]');
+        await searchInput.setValue("Remote Node");
+
+        // searchQuery watcher debounces processVisualization
+        await vi.waitFor(() => expect(wrapper.vm.nodes.length).toBeGreaterThan(0), { timeout: 5000 });
+        await wrapper.vm.$nextTick();
+
+        // The number of nodes in the DataSet should match the search
+        // In our mock initial data, we have 'me', 'eth0', and 'node1' (Remote Node)
+        // If we search for 'Remote Node', 'me' and 'eth0' might be filtered out depending on their labels
+        expect(wrapper.vm.nodes.length).toBeGreaterThan(0);
+    });
+
+    it("fuzzing: handles large and messy network data without crashing", async () => {
+        const wrapper = mountVisualiser();
+        // Wait for the real initial load chain to settle.
+        await vi.waitFor(() => expect(wrapper.vm.isUpdating).toBe(false), { timeout: 5000 });
+
+        // Generate messy path table
+        const nodeCount = 500;
+        const pathTable = Array.from({ length: nodeCount }, (_, i) => ({
+            hash: `hash_${i}_${Math.random().toString(36).substring(7)}`,
+            interface: i % 2 === 0 ? "eth0" : "wlan0",
+            hops: Math.floor(Math.random() * 10),
+        }));
+
+        // Generate messy announces
+        const announces = {};
+        pathTable.forEach((entry, i) => {
+            announces[entry.hash] = {
+                destination_hash: entry.hash,
+                aspect: i % 2 === 0 ? "lxmf.delivery" : "nomadnetwork.node",
+                display_name: i % 5 === 0 ? null : `Node ${i} ${"!@#$%^&*()".charAt(i % 10)}`,
+                custom_display_name: i % 7 === 0 ? "Custom Name" : undefined,
+                updated_at: i % 10 === 0 ? "invalid-date" : new Date().toISOString(),
+                identity_hash: `id_${i}`,
+            };
+        });
+
+        wrapper.vm.pathTable = pathTable;
+        wrapper.vm.announces = announces;
+
+        // Trigger processVisualization
+        // We set a smaller chunkSize in the test or just let it run
+        // We can mock createIconImage to be faster
+        wrapper.vm.createIconImage = vi.fn().mockResolvedValue("mock-icon");
+
+        await wrapper.vm.processVisualization();
+
+        // A background update may re-run processVisualization. Poll past it.
+        await vi.waitFor(() => expect(wrapper.vm.nodes.length).toBeGreaterThan(0), { timeout: 5000 });
+        // No crash happened and no background update is still running.
+        await vi.waitFor(() => expect(wrapper.vm.isLoading).toBe(false), { timeout: 5000 });
+    });
+
+    it("fuzzing: handles missing announce data gracefully", async () => {
+        const wrapper = mountVisualiser();
+        // Wait for the real initial load chain to settle.
+        await vi.waitFor(() => expect(wrapper.vm.isUpdating).toBe(false), { timeout: 5000 });
+
+        // Set interfaces so eth0 exists
+        wrapper.vm.interfaces = [{ name: "eth0", status: true }];
+
+        // Path table with hashes that don't exist in announces
+        wrapper.vm.pathTable = [
+            { hash: "ghost1", interface: "eth0", hops: 1 },
+            { hash: "ghost2", interface: "eth0", hops: 2 },
+        ];
+        wrapper.vm.announces = {}; // Empty announces
+
+        await wrapper.vm.processVisualization();
+
+        // Should only have 'me' and 'eth0' nodes
+        expect(wrapper.vm.nodes.getIds()).toContain("me");
+        expect(wrapper.vm.nodes.getIds()).toContain("eth0");
+        expect(wrapper.vm.nodes.getIds()).not.toContain("ghost1");
+    });
+
+    it("fuzzing: handles circular or malformed links", async () => {
+        const wrapper = mountVisualiser();
+        // Wait for the real initial load chain to settle.
+        await vi.waitFor(() => expect(wrapper.vm.isUpdating).toBe(false), { timeout: 5000 });
+
+        wrapper.vm.interfaces = [{ name: "eth0", status: true }];
+        wrapper.vm.announces = {
+            node1: {
+                destination_hash: "node1",
+                aspect: "lxmf.delivery",
+                display_name: "Node 1",
+                updated_at: new Date().toISOString(),
+            },
+        };
+
+        // Malformed path table entries
+        wrapper.vm.pathTable = [
+            { hash: "node1", interface: "node1", hops: 1 }, // Circular link
+            { hash: "node1", interface: null, hops: 1 }, // Missing interface
+            { hash: null, interface: "eth0", hops: 1 }, // Missing hash
+        ];
+
+        await wrapper.vm.processVisualization();
+
+        // Should still render 'me' and 'eth0'
+        expect(wrapper.vm.nodes.getIds()).toContain("me");
+        expect(wrapper.vm.nodes.getIds()).toContain("eth0");
+    });
+
+    it("performance: measures time to process 1000 nodes", async () => {
+        const wrapper = mountVisualiser();
+        // Wait for the real initial load chain to settle.
+        await vi.waitFor(() => expect(wrapper.vm.isUpdating).toBe(false), { timeout: 5000 });
+
+        const nodeCount = 1000;
+
+        const pathTable = Array.from({ length: nodeCount }, (_, i) => ({
+            hash: `hash_${i}`,
+            interface: "eth0",
+            hops: 1,
+        }));
+
+        const announces = {};
+        pathTable.forEach((entry, i) => {
+            announces[entry.hash] = {
+                destination_hash: entry.hash,
+                aspect: "lxmf.delivery",
+                display_name: `Node ${i}`,
+                updated_at: new Date().toISOString(),
+            };
+        });
+
+        wrapper.vm.pathTable = pathTable;
+        wrapper.vm.announces = announces;
+        wrapper.vm.createIconImage = vi.fn().mockResolvedValue("mock-icon");
+
+        const start = performance.now();
+        await wrapper.vm.processVisualization();
+        const end = performance.now();
+
+        console.log(`Processed ${nodeCount} nodes in visualizer in ${(end - start).toFixed(2)}ms`);
+        expect(end - start).toBeLessThan(5000); // 5 seconds is generous for 1000 nodes with batching
+    });
+
+    it("memory: tracks icon cache growth", async () => {
+        const wrapper = mountVisualiser();
+
+        // Mock createIconImage to skip the Image loading part which times out in JSDOM
+        const originalCreateIconImage = wrapper.vm.createIconImage;
+        wrapper.vm.createIconImage = vi.fn().mockImplementation(async (iconName, fg, bg, size) => {
+            const cacheKey = `${iconName}-${fg}-${bg}-${size}`;
+            // Use blob: prefix so it gets cleared on unmount
+            const mockBlobUrl = `blob:image/png/${iconName}`;
+            wrapper.vm.iconCache[cacheKey] = mockBlobUrl;
+            return mockBlobUrl;
+        });
+
+        const getMemory = () => process.memoryUsage().heapUsed / (1024 * 1024);
+        const initialMem = getMemory();
+
+        // Generate many unique icons to fill cache
+        for (let i = 0; i < 1000; i++) {
+            await wrapper.vm.createIconImage(`icon-${i}`, "#ff0000", "#000000", 64);
+        }
+
+        const afterIconMem = getMemory();
+        expect(Object.keys(wrapper.vm.iconCache).length).toBe(1000);
+        console.log(`Memory growth after 1000 unique icons in cache: ${(afterIconMem - initialMem).toFixed(2)}MB`);
+
+        // Save reference to check if it's cleared after unmount
+        const cacheRef = wrapper.vm.iconCache;
+        wrapper.unmount();
+
+        // After unmount, the cache should be empty or the reference should be cleared
+        expect(Object.keys(cacheRef).length).toBe(0);
+    });
+
+    it("does not add offline interfaces when showDisabledInterfaces is false", async () => {
+        vi.spyOn(NetworkVisualiser.methods, "init").mockImplementation(() => {});
+        const wrapper = mountVisualiser();
+        wrapper.vm.network = {
+            getPositions: vi.fn().mockReturnValue({}),
+            setOptions: vi.fn(),
+            on: vi.fn(),
+            destroy: vi.fn(),
+        };
+        wrapper.vm.config = { display_name: "Me", identity_hash: "abc" };
+        wrapper.vm.interfaces = [
+            { name: "eth_up", status: true, bitrate: 1000, txb: 0, rxb: 0 },
+            { name: "eth_down", status: false, bitrate: 0, txb: 0, rxb: 0 },
+        ];
+        wrapper.vm.showDisabledInterfaces = false;
+        await wrapper.vm.processVisualization();
+        expect(wrapper.vm.nodes.getIds()).toContain("eth_up");
+        expect(wrapper.vm.nodes.getIds()).not.toContain("eth_down");
+    });
+
+    it("creates visible edges between local node, interfaces, and peers", async () => {
+        vi.spyOn(NetworkVisualiser.methods, "init").mockImplementation(() => {});
+        const wrapper = mountVisualiser();
+        wrapper.vm.network = {
+            getPositions: vi.fn().mockReturnValue({}),
+            setOptions: vi.fn(),
+            redraw: vi.fn(),
+            on: vi.fn(),
+            destroy: vi.fn(),
+            getScale: vi.fn().mockReturnValue(1),
+        };
+        wrapper.vm.config = { display_name: "Me", identity_hash: "abc" };
+        wrapper.vm.interfaces = [{ name: "eth0", status: true, bitrate: 1000, txb: 0, rxb: 0 }];
+        wrapper.vm.pathTable = [
+            { hash: "node1", interface: "eth0", hops: 1 },
+            { hash: "node2", interface: "eth0", hops: 3 },
+        ];
+        wrapper.vm.announces = {
+            node1: {
+                destination_hash: "node1",
+                aspect: "lxmf.delivery",
+                display_name: "Remote",
+                updated_at: new Date().toISOString(),
+            },
+            node2: {
+                destination_hash: "node2",
+                aspect: "lxmf.delivery",
+                display_name: "Far",
+                updated_at: new Date().toISOString(),
+            },
+        };
+
+        await wrapper.vm.processVisualization();
+
+        expect(wrapper.vm.edges.getIds()).toContain("me~eth0");
+        expect(wrapper.vm.edges.getIds()).toContain("eth0~node1");
+        expect(wrapper.vm.edges.getIds()).toContain("eth0~node2");
+        for (const edge of wrapper.vm.edges.get()) {
+            expect(edge.hidden).not.toBe(true);
+            expect(edge.arrows).toBeFalsy();
+            expect(edge.dashes).toBeFalsy();
+        }
+        const ifaceEdge = wrapper.vm.edges.get("me~eth0");
+        expect(ifaceEdge.color.color).toBe("#10b981");
+        expect(ifaceEdge.width).toBeGreaterThanOrEqual(3);
+        const directPeerEdge = wrapper.vm.edges.get("eth0~node1");
+        expect(directPeerEdge.color.color).toBe("#10b981");
+        expect(directPeerEdge.width).toBeGreaterThanOrEqual(2);
+        const multiHopEdge = wrapper.vm.edges.get("eth0~node2");
+        expect(multiHopEdge.color.color).toBe("#3b82f6");
+        expect(multiHopEdge.width).toBeLessThan(directPeerEdge.width);
+        expect(wrapper.vm.network.redraw).toHaveBeenCalled();
+    });
+
+    it("creates interface nodes and edges from path table when interface-stats is empty", async () => {
+        vi.spyOn(NetworkVisualiser.methods, "init").mockImplementation(() => {});
+        const wrapper = mountVisualiser();
+        wrapper.vm.network = {
+            getPositions: vi.fn().mockReturnValue({}),
+            setOptions: vi.fn(),
+            redraw: vi.fn(),
+            on: vi.fn(),
+            destroy: vi.fn(),
+            getScale: vi.fn().mockReturnValue(1),
+        };
+        wrapper.vm.config = { display_name: "Me", identity_hash: "abc" };
+        wrapper.vm.interfaces = [];
+        const iface = "BackboneInterface[0rbit Iceland/93.95.227.8:49952]";
+        wrapper.vm.pathTable = [{ hash: "node1", interface: iface, hops: 2 }];
+        wrapper.vm.announces = {
+            node1: {
+                destination_hash: "node1",
+                aspect: "lxmf.delivery",
+                display_name: "Remote",
+                updated_at: new Date().toISOString(),
+            },
+        };
+
+        await wrapper.vm.processVisualization();
+
+        expect(wrapper.vm.nodes.getIds()).toContain(iface);
+        expect(wrapper.vm.edges.getIds()).toContain(`me~${iface}`);
+        expect(wrapper.vm.edges.getIds()).toContain(`${iface}~node1`);
+    });
+
+    it("keeps node positions from getPositions on subsequent layout passes", async () => {
+        vi.spyOn(NetworkVisualiser.methods, "init").mockImplementation(() => {});
+        const wrapper = mountVisualiser();
+        const getPositions = vi
+            .fn()
+            .mockReturnValueOnce({})
+            .mockReturnValue({
+                me: { x: 0, y: 0 },
+                eth0: { x: 301, y: 404 },
+            });
+        wrapper.vm.network = {
+            getPositions,
+            setOptions: vi.fn(),
+            redraw: vi.fn(),
+            on: vi.fn(),
+            destroy: vi.fn(),
+        };
+        wrapper.vm.config = { display_name: "Me", identity_hash: "abc" };
+        wrapper.vm.interfaces = [{ name: "eth0", status: true, bitrate: 1000, txb: 0, rxb: 0 }];
+        await wrapper.vm.processVisualization();
+        await wrapper.vm.processVisualization();
+        const n = wrapper.vm.nodes.get("eth0");
+        expect(n.x).toBe(301);
+        expect(n.y).toBe(404);
+        expect(getPositions.mock.calls.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it("display counts prefer webglEngine graph totals", async () => {
+        vi.spyOn(NetworkVisualiser.methods, "init").mockImplementation(() => {});
+        const wrapper = mountVisualiser();
+        wrapper.vm.rendererMode = "webgl";
+        wrapper.vm.engineMode = "webgl";
+        wrapper.vm.graphNodeCount = 42;
+        wrapper.vm.graphEdgeCount = 17;
+        wrapper.vm.webglEngine = { destroy: vi.fn() };
+        expect(wrapper.vm.displayNodeCount).toBe(42);
+        expect(wrapper.vm.displayEdgeCount).toBe(17);
+        expect(wrapper.vm.hasRenderer).toBe(true);
+    });
+
+    it("runIconQueue updates webglEngine images instead of vis DataSet", async () => {
+        vi.spyOn(NetworkVisualiser.methods, "init").mockImplementation(() => {});
+        const wrapper = mountVisualiser();
+        const updateNodeImages = vi.fn();
+        wrapper.vm.webglEngine = { updateNodeImages, destroy: vi.fn() };
+        wrapper.vm.rendererMode = "webgl";
+        wrapper.vm.engineMode = "webgl";
+        wrapper.vm.currentLOD = "high";
+        wrapper.vm.iconCache["account-#ffffff-#000000-64"] = "blob:custom";
+        wrapper.vm.iconQueue = [
+            {
+                nodeId: "peer1",
+                cacheKey: "account-#ffffff-#000000-64",
+                iconName: "account",
+                fg: "#ffffff",
+                bg: "#000000",
+                size: 64,
+                generation: wrapper.vm.iconQueueGeneration,
+            },
+            {
+                nodeId: "peer2",
+                cacheKey: "account-#ffffff-#000000-64",
+                iconName: "account",
+                fg: "#ffffff",
+                bg: "#000000",
+                size: 64,
+                generation: wrapper.vm.iconQueueGeneration,
+            },
+        ];
+        await wrapper.vm.runIconQueue();
+        expect(updateNodeImages).toHaveBeenCalledWith([
+            { id: "peer1", image: "blob:custom" },
+            { id: "peer2", image: "blob:custom" },
+        ]);
+    });
+
+    it("processVisualization on webgl path calls setGraph and schedules icons", async () => {
+        vi.spyOn(NetworkVisualiser.methods, "init").mockImplementation(() => {});
+        const wrapper = mountVisualiser();
+        const setGraph = vi.fn();
+        const getCounts = vi.fn().mockReturnValue({ nodes: 3, edges: 2 });
+        const getPositions = vi.fn().mockReturnValue({ me: { x: 0, y: 0 } });
+        const scheduleSpy = vi.spyOn(wrapper.vm, "scheduleIconQueue");
+        wrapper.vm.webglEngine = {
+            setGraph,
+            getCounts,
+            getPositions,
+            setLiveLayout: vi.fn(),
+            requestRedraw: vi.fn(),
+            destroy: vi.fn(),
+        };
+        wrapper.vm.rendererMode = "webgl";
+        wrapper.vm.engineMode = "webgl";
+        wrapper.vm.config = { display_name: "Me", identity_hash: "abc" };
+        wrapper.vm.interfaces = [{ name: "eth0", status: true, bitrate: 1000, txb: 0, rxb: 0 }];
+        wrapper.vm.pathTable = [];
+        wrapper.vm.announces = {};
+        await wrapper.vm.processVisualization();
+        expect(setGraph).toHaveBeenCalled();
+        expect(wrapper.vm.graphNodeCount).toBe(3);
+        expect(wrapper.vm.graphEdgeCount).toBe(2);
+        expect(scheduleSpy).toHaveBeenCalled();
+    });
+
+    it("onAutoReload uses silent update without loading overlay", async () => {
+        vi.spyOn(NetworkVisualiser.methods, "init").mockImplementation(() => {});
+        const wrapper = mountVisualiser();
+        wrapper.vm.autoReload = true;
+        wrapper.vm.graphNodeCount = 5;
+        wrapper.vm.rendererMode = "webgl";
+        const updateSpy = vi.spyOn(wrapper.vm, "update").mockResolvedValue();
+
+        await wrapper.vm.onAutoReload();
+
+        expect(updateSpy).toHaveBeenCalledWith({ silent: true });
+        expect(wrapper.vm.isLoading).toBe(false);
+        expect(wrapper.vm.isUpdating).toBe(false);
+    });
+
+    it("silent update paints once and never sets isLoading", async () => {
+        vi.spyOn(NetworkVisualiser.methods, "init").mockImplementation(() => {});
+        const wrapper = mountVisualiser();
+        wrapper.vm.graphNodeCount = 4;
+        wrapper.vm.rendererMode = "webgl";
+        wrapper.vm.config = { display_name: "Me", identity_hash: "deadbeef" };
+        const processSpy = vi.spyOn(wrapper.vm, "processVisualization").mockResolvedValue();
+        vi.spyOn(wrapper.vm, "getConfig").mockResolvedValue();
+        vi.spyOn(wrapper.vm, "getInterfaceStats").mockResolvedValue();
+        vi.spyOn(wrapper.vm, "getConversations").mockResolvedValue();
+        vi.spyOn(wrapper.vm, "getDiscoveredInterfaces").mockResolvedValue();
+        vi.spyOn(wrapper.vm, "getPathTableBatch").mockResolvedValue();
+        vi.spyOn(wrapper.vm, "ensureAnnouncesForPathHashes").mockResolvedValue();
+        vi.spyOn(wrapper.vm, "persistVisualiserCache").mockResolvedValue();
+
+        await wrapper.vm.update({ silent: true });
+
+        expect(wrapper.vm.isLoading).toBe(false);
+        expect(processSpy).toHaveBeenCalledTimes(1);
+        expect(processSpy).toHaveBeenCalledWith({ silent: true });
+    });
+
+    it("onViewModeChange flat to planet is render-only, no rebuild", async () => {
+        vi.spyOn(NetworkVisualiser.methods, "init").mockImplementation(() => {});
+        const wrapper = mountVisualiser();
+        const proc = vi.spyOn(wrapper.vm, "processVisualization").mockResolvedValue();
+        wrapper.vm.onViewModeChange("planet");
+        expect(proc).not.toHaveBeenCalled();
+        expect(wrapper.vm.viewMode).toBe("planet");
+        wrapper.vm.onViewModeChange("flat");
+        expect(wrapper.vm.viewMode).toBe("flat");
+        expect(proc).not.toHaveBeenCalled();
+        wrapper.unmount();
+    });
+
+    it("switches Flat → Radial → Flat without losing positions or enabling radial physics", async () => {
+        vi.spyOn(NetworkVisualiser.methods, "init").mockImplementation(() => {});
+        const wrapper = mountVisualiser();
+        const flat = { me: { x: 0, y: 0 }, eth0: { x: 210, y: 0 }, node1: { x: 420, y: 80 } };
+        wrapper.vm.network = {
+            getPositions: vi.fn(() => flat),
+            setOptions: vi.fn(),
+            redraw: vi.fn(),
+            fit: vi.fn(),
+            destroy: vi.fn(),
+        };
+        wrapper.vm.config = { display_name: "Me", identity_hash: "abc" };
+        wrapper.vm.interfaces = [{ name: "eth0", status: true }];
+        wrapper.vm.pathTable = [{ hash: "node1", interface: "eth0", hops: 1 }];
+        wrapper.vm.announces = { node1: { destination_hash: "node1", aspect: "lxmf.delivery", display_name: "Peer" } };
+        await wrapper.vm.processVisualization();
+        await wrapper.vm.onViewModeChange("radial");
+        const peer = wrapper.vm.nodes.get("node1");
+        expect(Math.hypot(peer.x, peer.y)).toBeCloseTo(560);
+        expect(peer.fixed).toBe(true);
+        expect(wrapper.vm.cachedPositions.node1).toEqual(flat.node1);
+        expect(wrapper.vm.network.setOptions).toHaveBeenLastCalledWith(
+            expect.objectContaining({ physics: { enabled: false } })
+        );
+        wrapper.vm.network.getPositions.mockReturnValue({ node1: { x: peer.x, y: peer.y } });
+        await wrapper.vm.onViewModeChange("flat");
+        expect(wrapper.vm.nodes.get("node1")).toMatchObject({ ...flat.node1, fixed: false });
+        expect(wrapper.vm.network.setOptions).toHaveBeenLastCalledWith(
+            expect.objectContaining({ physics: { enabled: true } })
+        );
+        wrapper.unmount();
+    });
+
+    it("renders discovered interface nodes in JS fallback mode", async () => {
+        vi.spyOn(NetworkVisualiser.methods, "init").mockImplementation(() => {});
+        const wrapper = mountVisualiser();
+        wrapper.vm.network = {
+            getPositions: vi.fn().mockReturnValue({}),
+            setOptions: vi.fn(),
+            redraw: vi.fn(),
+            on: vi.fn(),
+            destroy: vi.fn(),
+        };
+        wrapper.vm.config = { display_name: "Me", identity_hash: "abc" };
+        wrapper.vm.interfaces = [{ name: "eth0", status: true, bitrate: 1000, txb: 0, rxb: 0 }];
+        wrapper.vm.pathTable = [];
+        wrapper.vm.announces = {};
+        wrapper.vm.showDiscoveredInterfaces = true;
+        wrapper.vm.discoveredInterfaces = [
+            {
+                name: "Peer Relay",
+                discovery_hash: "d1",
+                reachable_on: "10.9.0.1",
+                port: 4242,
+                hops: 1,
+                type: "TCPInterface",
+            },
+        ];
+        wrapper.vm.discoveredActive = [{ target_host: "10.9.0.1", target_port: 4242 }];
+
+        await wrapper.vm.processVisualization();
+
+        const node = wrapper.vm.nodes.get("discovered~d1");
+        expect(node).toBeTruthy();
+        expect(node.group).toBe("discovered");
+        expect(node.image).toContain("interface_connected");
+        // WASM parity: discovered nodes scatter on the 560-800 band.
+        const r = Math.hypot(node.x, node.y);
+        expect(r).toBeGreaterThanOrEqual(560);
+        expect(r).toBeLessThanOrEqual(800);
+        const edge = wrapper.vm.edges.get("me~discovered~d1");
+        expect(edge).toBeTruthy();
+        expect(edge.width).toBe(1);
+        wrapper.unmount();
+    });
+
+    it("does not render discovered nodes when showDiscoveredInterfaces is off", async () => {
+        vi.spyOn(NetworkVisualiser.methods, "init").mockImplementation(() => {});
+        const wrapper = mountVisualiser();
+        wrapper.vm.network = {
+            getPositions: vi.fn().mockReturnValue({}),
+            setOptions: vi.fn(),
+            redraw: vi.fn(),
+            on: vi.fn(),
+            destroy: vi.fn(),
+        };
+        wrapper.vm.config = { display_name: "Me", identity_hash: "abc" };
+        wrapper.vm.interfaces = [];
+        wrapper.vm.pathTable = [];
+        wrapper.vm.announces = {};
+        wrapper.vm.showDiscoveredInterfaces = false;
+        wrapper.vm.discoveredInterfaces = [{ name: "Peer", discovery_hash: "d1", hops: 1 }];
+
+        await wrapper.vm.processVisualization();
+
+        expect(wrapper.vm.nodes.get("discovered~d1")).toBeNull();
+        wrapper.unmount();
+    });
+
+    it("applies hop_max to discovered nodes in JS fallback mode", async () => {
+        vi.spyOn(NetworkVisualiser.methods, "init").mockImplementation(() => {});
+        const wrapper = mountVisualiser();
+        wrapper.vm.network = {
+            getPositions: vi.fn().mockReturnValue({}),
+            setOptions: vi.fn(),
+            redraw: vi.fn(),
+            on: vi.fn(),
+            destroy: vi.fn(),
+        };
+        wrapper.vm.config = { display_name: "Me", identity_hash: "abc" };
+        wrapper.vm.interfaces = [];
+        wrapper.vm.pathTable = [];
+        wrapper.vm.announces = {};
+        wrapper.vm.showDiscoveredInterfaces = true;
+        wrapper.vm.discoveredInterfaces = [
+            { name: "Near", discovery_hash: "dn", hops: 1 },
+            { name: "Far", discovery_hash: "df", hops: 7 },
+            { name: "NoHops", discovery_hash: "du" },
+        ];
+        wrapper.vm.hopMaxFilter = 2;
+
+        await wrapper.vm.processVisualization();
+
+        expect(wrapper.vm.nodes.get("discovered~dn")).toBeTruthy();
+        // null hops bypass hop_max, matching the WASM builder.
+        expect(wrapper.vm.nodes.get("discovered~du")).toBeTruthy();
+        expect(wrapper.vm.nodes.get("discovered~df")).toBeNull();
+        expect(wrapper.vm.edges.get("me~discovered~df")).toBeNull();
+        wrapper.unmount();
+    });
+
+    it("matches discovered nodes by reachable_on or transport_id in JS fallback mode", async () => {
+        vi.spyOn(NetworkVisualiser.methods, "init").mockImplementation(() => {});
+        const wrapper = mountVisualiser();
+        wrapper.vm.network = {
+            getPositions: vi.fn().mockReturnValue({}),
+            setOptions: vi.fn(),
+            redraw: vi.fn(),
+            on: vi.fn(),
+            destroy: vi.fn(),
+        };
+        wrapper.vm.config = { display_name: "Me", identity_hash: "abc" };
+        wrapper.vm.interfaces = [];
+        wrapper.vm.pathTable = [];
+        wrapper.vm.announces = {};
+        wrapper.vm.showDiscoveredInterfaces = true;
+        wrapper.vm.discoveredInterfaces = [
+            { name: "Alpha", discovery_hash: "da", reachable_on: "10.20.0.9", hops: 1 },
+            { name: "Beta", discovery_hash: "db", transport_id: "ff10.20.0cc", hops: 1 },
+            { name: "Gamma", discovery_hash: "dc", hops: 1 },
+        ];
+        wrapper.vm.searchQuery = "10.20.0";
+        await vi.waitFor(() => expect(wrapper.vm.nodes.get("discovered~da")).toBeTruthy(), { timeout: 5000 });
+        expect(wrapper.vm.nodes.get("discovered~db")).toBeTruthy();
+        expect(wrapper.vm.nodes.get("discovered~dc")).toBeNull();
+        wrapper.unmount();
+    });
+
+    it("does not emit me~iface edges when me is filtered out by search", async () => {
+        vi.spyOn(NetworkVisualiser.methods, "init").mockImplementation(() => {});
+        const wrapper = mountVisualiser();
+        wrapper.vm.network = {
+            getPositions: vi.fn().mockReturnValue({}),
+            setOptions: vi.fn(),
+            redraw: vi.fn(),
+            on: vi.fn(),
+            destroy: vi.fn(),
+        };
+        wrapper.vm.config = { display_name: "Home Node", identity_hash: "zzz" };
+        wrapper.vm.interfaces = [{ name: "eth0", status: true, bitrate: 0, txb: 0, rxb: 0 }];
+        wrapper.vm.pathTable = [];
+        wrapper.vm.announces = {};
+        wrapper.vm.showDiscoveredInterfaces = true;
+        wrapper.vm.discoveredInterfaces = [{ name: "eth0-peer", discovery_hash: "d9", hops: 1 }];
+        wrapper.vm.searchQuery = "eth0";
+        await vi.waitFor(() => expect(wrapper.vm.nodes.get("eth0")).toBeTruthy(), { timeout: 5000 });
+
+        expect(wrapper.vm.nodes.get("me")).toBeNull();
+        expect(wrapper.vm.nodes.get("eth0")).toBeTruthy();
+        expect(wrapper.vm.nodes.get("discovered~d9")).toBeTruthy();
+        expect(wrapper.vm.edges.get("me~eth0")).toBeNull();
+        expect(wrapper.vm.edges.get("me~discovered~d9")).toBeNull();
+        wrapper.unmount();
+    });
+
+    it("spreads interface nodes on a circle instead of stacking them", async () => {
+        vi.spyOn(NetworkVisualiser.methods, "init").mockImplementation(() => {});
+        const wrapper = mountVisualiser();
+        wrapper.vm.network = {
+            getPositions: vi.fn().mockReturnValue({}),
+            setOptions: vi.fn(),
+            redraw: vi.fn(),
+            on: vi.fn(),
+            destroy: vi.fn(),
+        };
+        wrapper.vm.config = { display_name: "Me", identity_hash: "abc" };
+        wrapper.vm.interfaces = [
+            { name: "eth0", status: true, bitrate: 0, txb: 0, rxb: 0 },
+            { name: "wlan0", status: true, bitrate: 0, txb: 0, rxb: 0 },
+            { name: "tun0", status: true, bitrate: 0, txb: 0, rxb: 0 },
+        ];
+        wrapper.vm.pathTable = [];
+        wrapper.vm.announces = {};
+
+        await wrapper.vm.processVisualization();
+
+        const spots = ["eth0", "wlan0", "tun0"].map((id) => wrapper.vm.nodes.get(id));
+        for (const n of spots) {
+            expect(n).toBeTruthy();
+            expect(Math.hypot(n.x, n.y)).toBeCloseTo(210, 1);
+        }
+        const unique = new Set(spots.map((n) => `${Math.round(n.x)},${Math.round(n.y)}`));
+        expect(unique.size).toBe(3);
+        wrapper.unmount();
+    });
+
+    it("clears identity-scoped graph state on identity switch", async () => {
+        vi.spyOn(NetworkVisualiser.methods, "init").mockImplementation(() => {});
+        const wrapper = mountVisualiser();
+        wrapper.vm.update = vi.fn().mockResolvedValue();
+        wrapper.vm.cachedPositions = { oldpeer: { x: 9, y: 8 } };
+        wrapper.vm.pathTable = [{ hash: "oldpeer" }];
+        wrapper.vm.announces = { oldpeer: { destination_hash: "oldpeer" } };
+        wrapper.vm.config = { identity_hash: "aaaa" };
+        wrapper.vm.webglEngine = { setGraph: vi.fn(), destroy: vi.fn() };
+        wrapper.vm.onIdentitySwitched();
+        expect(wrapper.vm.cachedPositions).toEqual({});
+        expect(wrapper.vm.pathTable).toEqual([]);
+        expect(wrapper.vm.announces).toEqual({});
+        expect(wrapper.vm.config).toBeNull();
+        expect(wrapper.vm.webglEngine.setGraph).toHaveBeenCalledWith([], []);
+        expect(wrapper.vm.update).toHaveBeenCalledWith({ silent: false });
+        wrapper.unmount();
+    });
+});

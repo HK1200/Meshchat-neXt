@@ -1,0 +1,1783 @@
+# SPDX-License-Identifier: 0BSD
+
+"""Reticulum Relay Chat hub hosting.
+
+Provides RRCHubServer, a self-contained RRC hub that listens on a
+Reticulum destination and relays messages between connected clients, and
+RRCServerManager, which lets a node host several independent hubs and
+manage their public rooms. The wire behaviour mirrors the reference rrcd hub so
+standard RRC clients (including the Meshchat neXt client) can connect.
+"""
+
+import contextlib
+import os
+import threading
+import time
+from collections import deque
+
+import RNS
+
+from meshchatnext.src.backend import constants, traffic_stats
+from meshchatnext.src.backend.rrc import protocol as proto
+from meshchatnext.src.backend.rrc.hub_commands import HubCommandHandler
+from meshchatnext.src.backend.rrc.hub_policy import HubPolicy
+from meshchatnext.src.backend.rrc.identity_util import parse_identity_hash
+from meshchatnext.src.backend.rrc.room_key_crypto import (
+    normalize_room_key,
+    room_keys_equal,
+)
+from meshchatnext.src.backend.rrc.room_registry import RoomRegistry
+from meshchatnext.src.backend.rrc.rooms_toml import INVITE_DEFAULT_TTL_S, RoomsTomlStore
+from meshchatnext.src.path_utils import atomic_write_bytes
+
+SERVER_DIR_NAME = "rrc_server"
+MESSAGE_LOG_CAP = 5000
+EVENT_LOG_CAP = 200
+RATE_EVENT_MIN_INTERVAL_S = 30.0
+DEFAULT_MAX_SESSIONS = 512
+# Links that never complete HELLO are reaped after this window.
+PRE_WELCOME_TIMEOUT_S = 90.0
+DEFAULT_MAX_SESSIONS_PER_PEER = 3
+MIN_SESSIONS_PER_PEER = 2
+STORE_FILENAME = "hubs"
+HUB_CONFIG_FILENAME = "hub.toml"
+ROOMS_FILENAME = "rooms.toml"
+HUB_CONFIG_VERSION = 3
+DEFAULT_ANNOUNCE_INTERVAL_SECONDS = constants.DEFAULT_ANNOUNCE_INTERVAL_SECONDS
+LEGACY_DEFAULT_ANNOUNCE_INTERVAL_SECONDS = (
+    constants.LEGACY_DEFAULT_ANNOUNCE_INTERVAL_SECONDS
+)
+
+# Announce interval that was the default when each config version was
+# written. Entries with no config_version predate versioning and shipped
+# the 900 default.
+_ANNOUNCE_DEFAULT_BY_CONFIG_VERSION = {
+    2: 3600,
+}
+MIN_ANNOUNCE_INTERVAL_SECONDS = constants.MIN_ANNOUNCE_INTERVAL_SECONDS
+MAX_ANNOUNCE_INTERVAL_SECONDS = constants.MAX_ANNOUNCE_INTERVAL_SECONDS
+
+# Bounds for the per-client message rate a hub advertises in WELCOME and
+# enforces on inbound chat envelopes.
+MIN_RATE_LIMIT_MSGS_PER_MINUTE = 1
+MAX_RATE_LIMIT_MSGS_PER_MINUTE = 10000
+
+
+def normalize_announce_interval_seconds(
+    value,
+    default=DEFAULT_ANNOUNCE_INTERVAL_SECONDS,
+):
+    """Clamp announce interval to a supported range, or 0 to disable periodic announces."""
+    if value is None:
+        return int(default)
+    try:
+        seconds = int(value)
+    except (TypeError, ValueError):
+        return int(default)
+    if seconds <= 0:
+        return 0
+    return max(
+        MIN_ANNOUNCE_INTERVAL_SECONDS,
+        min(MAX_ANNOUNCE_INTERVAL_SECONDS, seconds),
+    )
+
+
+def normalize_rate_limit_msgs_per_minute(
+    value,
+    default=proto.DEFAULT_RATE_PER_MINUTE,
+):
+    """Clamp the per-client message rate the hub advertises and enforces."""
+    if value is None:
+        return int(default)
+    try:
+        per_min = int(value)
+    except (TypeError, ValueError):
+        return int(default)
+    return max(
+        MIN_RATE_LIMIT_MSGS_PER_MINUTE,
+        min(MAX_RATE_LIMIT_MSGS_PER_MINUTE, per_min),
+    )
+
+
+def _persisted_hub_interval(entry):
+    """Return the announce interval stored in a hub entry, or None when absent.
+
+    A stored value equal to the default that was in effect when the
+    entry was written migrates to the current default, so existing hubs
+    inherit the slower cadence. Any other value is an explicit choice
+    and is kept as-is.
+    """
+    value = entry.get("announce_interval_seconds")
+    try:
+        version = int(entry.get("config_version") or 0)
+    except (TypeError, ValueError):
+        version = 0
+    if version >= HUB_CONFIG_VERSION:
+        return value
+    default_at_write = _ANNOUNCE_DEFAULT_BY_CONFIG_VERSION.get(
+        version,
+        LEGACY_DEFAULT_ANNOUNCE_INTERVAL_SECONDS,
+    )
+    if value == default_at_write:
+        return DEFAULT_ANNOUNCE_INTERVAL_SECONDS
+    return value
+
+
+class _LoopbackEndpoint:
+    """In-process link bridging a local client hub to a hosted hub server.
+
+    Reticulum does not loop packets back to destinations hosted within the same
+    instance, so connecting to a locally hosted hub goes through this direct
+    bridge instead of the mesh. It exposes just enough of the
+    RNS.Link surface for both sides to treat it like a link.
+    """
+
+    def __init__(self, client_hub, server):
+        self.status = RNS.Link.ACTIVE
+        self._client = client_hub
+        self._server = server
+        self._closed = False
+
+    def get_remote_identity(self):
+        return self._client.manager.identity
+
+    def from_client(self, payload):
+        if not self._closed:
+            self._server._on_packet(self, payload)
+
+    def from_server(self, payload):
+        if not self._closed:
+            self._client._on_packet(payload)
+
+    def teardown(self):
+        if self._closed:
+            return
+        self._closed = True
+        self.status = RNS.Link.CLOSED
+        with contextlib.suppress(Exception):
+            self._server._detach_loopback(self)
+        with contextlib.suppress(Exception):
+            self._client._on_closed(self)
+
+
+class _Session:
+    """Per-link client session state."""
+
+    def __init__(self):
+        self.welcomed = False
+        self.peer = None
+        self.created = time.monotonic()
+        self.nick = None
+        self.rooms = set()
+        self.tokens = float(proto.DEFAULT_RATE_PER_MINUTE)
+        self.last_refill = time.monotonic()
+        # Lazily filled from the hosting hub control rate on first use so
+        # tests and per-hub overrides take effect.
+        self.ctrl_tokens = None
+        self.ctrl_last_refill = time.monotonic()
+        self.last_rate_event_ts = 0.0
+
+
+class RRCHubServer:
+    """A single hosted RRC hub with its own Reticulum identity and rooms."""
+
+    def __init__(
+        self,
+        manager,
+        identity,
+        name=None,
+        greeting=None,
+        announce=True,
+        announce_interval_seconds=DEFAULT_ANNOUNCE_INTERVAL_SECONDS,
+        rate_limit_msgs_per_minute=None,
+        enabled=True,
+    ):
+        self.manager = manager
+        self.identity = identity
+        self.hub_id = identity.hash.hex()
+        self.name = name or ("Hub " + identity.hash.hex()[:8])
+        self.greeting = greeting
+        self.announce = announce
+        self.announce_interval_seconds = normalize_announce_interval_seconds(
+            announce_interval_seconds,
+        )
+        self.enabled = enabled
+
+        self.max_nick_bytes = proto.DEFAULT_MAX_NICK_BYTES
+        self.max_room_name_bytes = proto.DEFAULT_MAX_ROOM_BYTES
+        self.max_msg_body_bytes = proto.DEFAULT_MAX_MSG_BYTES
+        self.max_rooms_per_session = proto.DEFAULT_MAX_ROOMS
+        self.rate_limit_msgs_per_minute = normalize_rate_limit_msgs_per_minute(
+            rate_limit_msgs_per_minute,
+        )
+        self.control_rate_per_minute = proto.DEFAULT_CONTROL_RATE_PER_MINUTE
+        self.max_sessions = DEFAULT_MAX_SESSIONS
+        self.max_sessions_per_peer = DEFAULT_MAX_SESSIONS_PER_PEER
+
+        self.destination = None
+        self.running = False
+        self._started_at = None
+        self._announce_timer = None
+
+        self._lock = threading.RLock()
+        self._sessions = {}
+        self._room_members = {}
+        self._hub_dir = None
+        self.replay_log = ""
+        self.policy = HubPolicy()
+        self.rooms = RoomRegistry(self, None)
+        self._commands = HubCommandHandler()
+        self._message_log = deque(maxlen=MESSAGE_LOG_CAP)
+        self._events = deque(maxlen=EVENT_LOG_CAP)
+        self._stats = {
+            "links_total": 0,
+            "links_closed": 0,
+            "messages_relayed": 0,
+            "rate_limited_drops": 0,
+            "control_drops": 0,
+            "session_cap_drops": 0,
+            "peer_cap_drops": 0,
+            "banned_disconnects": 0,
+            "kicks": 0,
+            "bans": 0,
+        }
+
+    @property
+    def dest_hash(self):
+        if self.destination is not None:
+            return self.destination.hash
+        return None
+
+    def _log(self, msg, level=None):
+        if level is None:
+            level = RNS.LOG_INFO
+        RNS.log("[RRC hub " + self.name + "] " + msg, level)
+
+    def start(self):
+        with self._lock:
+            if self.running:
+                return
+            app_name, aspects = RNS.Destination.app_and_aspects_from_name(
+                proto.DEFAULT_DEST_NAME,
+            )
+            self.destination = RNS.Destination(
+                self.identity,
+                RNS.Destination.IN,
+                RNS.Destination.SINGLE,
+                app_name,
+                *aspects,
+            )
+            self.destination.set_link_established_callback(self._on_link)
+            self.running = True
+            self._started_at = time.time()
+        if self.announce:
+            self.announce_now()
+        self._sync_announce_timer()
+        self._log("hub started at " + self.dest_hash.hex())
+
+    def announce_now(self):
+        if self.destination is None:
+            return
+        with contextlib.suppress(Exception):
+            self.destination.announce(
+                app_data=proto.encode({"proto": "rrc", "v": 1, "hub": self.name}),
+            )
+
+    def _cancel_announce_timer(self):
+        timer = self._announce_timer
+        self._announce_timer = None
+        if timer is not None:
+            with contextlib.suppress(Exception):
+                timer.cancel()
+
+    def _sync_announce_timer(self):
+        self._cancel_announce_timer()
+        if not self.running or not self.announce:
+            return
+        interval = normalize_announce_interval_seconds(
+            self.announce_interval_seconds,
+            default=0,
+        )
+        if interval <= 0:
+            return
+        timer = threading.Timer(interval, self._announce_timer_fire)
+        timer.daemon = True
+        self._announce_timer = timer
+        timer.start()
+
+    def _announce_timer_fire(self):
+        self._announce_timer = None
+        if not self.running or not self.announce:
+            return
+        with contextlib.suppress(Exception):
+            self.announce_now()
+        self._sync_announce_timer()
+
+    def set_announce_settings(self, announce=None, announce_interval_seconds=None):
+        if announce is not None:
+            self.announce = bool(announce)
+        if announce_interval_seconds is not None:
+            self.announce_interval_seconds = normalize_announce_interval_seconds(
+                announce_interval_seconds,
+            )
+        self._sync_announce_timer()
+
+    def stop(self):
+        self._cancel_announce_timer()
+        with self._lock:
+            links = list(self._sessions.keys())
+            self._sessions.clear()
+            self._room_members.clear()
+            dest = self.destination
+            self.destination = None
+            self.running = False
+            self._started_at = None
+        for link in links:
+            with contextlib.suppress(Exception):
+                link.teardown()
+        if dest is not None:
+            with contextlib.suppress(Exception):
+                RNS.Transport.deregister_destination(dest)
+
+    def _norm_room(self, room):
+        r = proto.normalize_room(room)
+        if len(r.encode("utf-8", errors="replace")) > self.max_room_name_bytes:
+            msg = "room name too long"
+            raise ValueError(msg)
+        return r
+
+    def _on_link(self, link):
+        with self._lock:
+            self._stats["links_total"] += 1
+            over_cap = len(self._sessions) >= max(1, int(self.max_sessions))
+            if over_cap:
+                self._stats["session_cap_drops"] += 1
+                self._record_event("session_cap_drop")
+            else:
+                self._sessions[link] = _Session()
+        if over_cap:
+            with contextlib.suppress(Exception):
+                if hasattr(link, "teardown"):
+                    link.teardown()
+            return
+        link.set_packet_callback(lambda data, pkt: self._on_packet(link, data))
+        link.set_link_closed_callback(self._on_close)
+        link.set_remote_identified_callback(self._on_remote_identified)
+
+    def configure_storage(self, hub_dir, trusted=None, banned=None):
+        """Attach per-hub storage (hub.toml, rooms.toml) under hub_dir."""
+        self._hub_dir = hub_dir
+        os.makedirs(hub_dir, exist_ok=True)
+        policy_path = os.path.join(hub_dir, HUB_CONFIG_FILENAME)
+        rooms_path = os.path.join(hub_dir, ROOMS_FILENAME)
+        self.policy = HubPolicy(policy_path)
+        if trusted is not None:
+            self.policy.apply_config(trusted_list=trusted)
+        if banned is not None:
+            self.policy.apply_config(banned_list=banned)
+        if trusted is not None or banned is not None:
+            self.policy.save()
+        self.rooms = RoomRegistry(self, RoomsTomlStore(rooms_path))
+
+    def _disconnect_banned(self, peer_hash, outgoing, message):
+        with self._lock:
+            targets = [
+                (lnk, sess)
+                for lnk, sess in self._sessions.items()
+                if isinstance(sess.peer, (bytes, bytearray))
+                and bytes(sess.peer) == bytes(peer_hash)
+            ]
+            if targets:
+                self._bump("banned_disconnects", len(targets))
+                self._record_event(
+                    "banned_disconnect",
+                    peer=peer_hash,
+                    detail=message,
+                )
+        for lnk, _sess in targets:
+            self._queue_error(outgoing, lnk, message)
+            with contextlib.suppress(Exception):
+                if hasattr(lnk, "teardown"):
+                    lnk.teardown()
+
+    def _peer_cap_extras(self, peer_hash):
+        """Return newest excess links for peer_hash. Caller must hold _lock."""
+        if not isinstance(peer_hash, (bytes, bytearray)):
+            return []
+        peer_b = bytes(peer_hash)
+        links = [
+            lnk
+            for lnk, s in self._sessions.items()
+            if not isinstance(lnk, _LoopbackEndpoint)
+            and isinstance(s.peer, (bytes, bytearray))
+            and bytes(s.peer) == peer_b
+        ]
+        cap = max(MIN_SESSIONS_PER_PEER, int(self.max_sessions_per_peer))
+        over = len(links) - cap
+        if over <= 0:
+            return []
+        extras = links[-over:]
+        self._bump("peer_cap_drops", len(extras))
+        self._record_event(
+            "peer_cap_drop",
+            peer=peer_b,
+            detail="dropped " + str(len(extras)) + " over cap " + str(cap),
+        )
+        return extras
+
+    def _on_remote_identified(self, link, identity):
+        if identity is None:
+            return
+        with self._lock:
+            sess = self._sessions.get(link)
+            extras = []
+            if sess is not None:
+                sess.peer = identity.hash
+                # Only enforce the cap for links that are live sessions: a
+                # stale identify on a cap-dropped link must not evict others.
+                extras = self._peer_cap_extras(identity.hash)
+        if identity is not None and self.policy.is_banned(identity.hash):
+            self._log(
+                "Disconnecting banned peer " + identity.hash.hex()[:12],
+                RNS.LOG_WARNING,
+            )
+            outgoing = []
+            self._disconnect_banned(identity.hash, outgoing, "banned")
+            for out_link, payload in outgoing:
+                self._send_payload(out_link, payload)
+            with contextlib.suppress(Exception):
+                link.teardown()
+        for lnk in extras:
+            with contextlib.suppress(Exception):
+                if hasattr(lnk, "teardown"):
+                    lnk.teardown()
+
+    def _on_close(self, link):
+        parted = []
+        reconnect_invites = []
+        with self._lock:
+            sess = self._sessions.pop(link, None)
+            if sess is None:
+                return
+            self._bump("links_closed")
+            peer = sess.peer
+            for room in list(sess.rooms):
+                members = self._room_members.get(room)
+                remaining = []
+                if members is not None:
+                    members.discard(link)
+                    remaining = list(members)
+                    reg = self.rooms.get_state(room)
+                    if not members and (reg is None or not reg.get("registered")):
+                        self._room_members.pop(room, None)
+                        self.rooms.drop_transient_state(room)
+                else:
+                    reg = self.rooms.get_state(room)
+                if remaining and peer is not None:
+                    parted.append((room, peer, sess.nick, remaining))
+                # Unexpected drop (not PART/kick): grant a one-shot reconnect
+                # invite so auto-rejoin works after +i invite was consumed.
+                if (
+                    peer is not None
+                    and isinstance(reg, dict)
+                    and reg.get("invite_only")
+                    and not self.rooms.is_room_banned(room, peer)
+                ):
+                    reconnect_invites.append((room, peer))
+        for room, peer, nick, remaining in parted:
+            env = proto.make_envelope(
+                proto.T_PARTED,
+                src=self.identity.hash,
+                room=room,
+                body=[peer],
+                nick=nick,
+            )
+            payload = proto.encode(env)
+            for member in remaining:
+                self._send_payload(member, payload)
+        for room, peer in reconnect_invites:
+            with contextlib.suppress(Exception):
+                # rooms registry is shared with packet threads. hold the lock.
+                with self._lock:
+                    self.rooms.add_invite(room, peer, ttl_s=INVITE_DEFAULT_TTL_S)
+                    self.rooms.persist(room)
+        self.manager._notify_change(self)
+
+    def _refill_and_take(self, sess, cost=1.0):
+        now = time.monotonic()
+        per_min = float(max(1, int(self.rate_limit_msgs_per_minute)))
+        elapsed = max(0.0, now - sess.last_refill)
+        sess.tokens = min(per_min, sess.tokens + elapsed * (per_min / 60.0))
+        sess.last_refill = now
+        if sess.tokens < cost:
+            return False
+        sess.tokens -= cost
+        return True
+
+    def _refill_ctrl_and_take(self, sess, cost=1.0):
+        now = time.monotonic()
+        per_min = float(max(1, int(self.control_rate_per_minute)))
+        if sess.ctrl_tokens is None:
+            sess.ctrl_tokens = per_min
+            sess.ctrl_last_refill = now
+        elapsed = max(0.0, now - sess.ctrl_last_refill)
+        sess.ctrl_tokens = min(
+            per_min,
+            sess.ctrl_tokens + elapsed * (per_min / 60.0),
+        )
+        sess.ctrl_last_refill = now
+        if sess.ctrl_tokens < cost:
+            return False
+        sess.ctrl_tokens -= cost
+        return True
+
+    def _bump(self, key, n=1):
+        self._stats[key] = self._stats.get(key, 0) + n
+
+    def _record_event(self, ev_type, peer=None, room=None, detail=None):
+        peer_hex = bytes(peer).hex() if isinstance(peer, (bytes, bytearray)) else None
+        self._events.append(
+            {
+                "ts": time.time(),
+                "type": ev_type,
+                "peer": peer_hex,
+                "room": room,
+                "detail": detail,
+            },
+        )
+
+    def _note_rate_limited(self, sess):
+        # Throttle the event log so a flood cannot flush useful history.
+        now = time.monotonic()
+        if now - sess.last_rate_event_ts >= RATE_EVENT_MIN_INTERVAL_S:
+            sess.last_rate_event_ts = now
+            self._record_event("rate_limited", peer=sess.peer)
+
+    def _send_payload(self, link, payload):
+        if isinstance(link, _LoopbackEndpoint):
+            link.from_server(payload)
+            return
+        peer = self._peer_label_for(link)
+        traffic_stats.get_meter().record(
+            traffic_stats.COMPONENT_RRC, tx=len(payload), peer=peer
+        )
+        with contextlib.suppress(Exception):
+            RNS.Packet(link, payload).send()
+
+    def _peer_label_for(self, link):
+        with self._lock:
+            sess = self._sessions.get(link)
+        peer = getattr(sess, "peer", None) if sess is not None else None
+        if isinstance(peer, (bytes, bytearray)):
+            return peer.hex()
+        return str(peer) if peer else None
+
+    def _attach_loopback(self, link, client_identity):
+        with self._lock:
+            sess = _Session()
+            sess.peer = client_identity.hash if client_identity is not None else None
+            self._sessions[link] = sess
+            self._bump("links_total")
+            extras = self._peer_cap_extras(sess.peer)
+        for lnk in extras:
+            with contextlib.suppress(Exception):
+                if hasattr(lnk, "teardown"):
+                    lnk.teardown()
+        self.manager._notify_change(self)
+
+    def _detach_loopback(self, link):
+        self._on_close(link)
+
+    def _on_packet(self, link, data):
+        if not isinstance(link, _LoopbackEndpoint):
+            traffic_stats.get_meter().record(
+                traffic_stats.COMPONENT_RRC,
+                rx=len(data),
+                peer=self._peer_label_for(link),
+            )
+        try:
+            env = proto.decode(data)
+        except Exception:
+            return
+        if not isinstance(env, dict):
+            return
+        with self._lock:
+            sess = self._sessions.get(link)
+            if sess is None:
+                return
+            extras = []
+            # Un-welcomed sessions have a finite lifetime: a peer that links
+            # up but never sends HELLO would otherwise pin a slot forever.
+            now = time.monotonic()
+            stale = [
+                lnk
+                for lnk, se in self._sessions.items()
+                if not se.welcomed and now - se.created > PRE_WELCOME_TIMEOUT_S
+            ]
+            for lnk in stale:
+                se = self._sessions.pop(lnk, None)
+                if se is not None:
+                    extras.append(lnk)
+                    self._stats["pre_welcome_timeouts"] = (
+                        self._stats.get("pre_welcome_timeouts", 0) + 1
+                    )
+            if sess.peer is None:
+                ri = link.get_remote_identity()
+                if ri is None:
+                    return
+                sess.peer = ri.hash
+                # The identified callback may never fire for this link, so
+                # enforce the per-peer session cap on first packet too.
+                extras.extend(self._peer_cap_extras(ri.hash))
+            outgoing = []
+            if link not in extras:
+                if self.replay_log:
+                    self._record_replay(env)
+                # A malformed envelope can raise inside a handler. contain
+                # it so one bad packet cannot kill the hub session loop.
+                try:
+                    self._route(link, sess, env, outgoing)
+                except Exception as e:
+                    self._log("packet route failed: " + str(e), RNS.LOG_DEBUG)
+        for lnk in extras:
+            with contextlib.suppress(Exception):
+                if hasattr(lnk, "teardown"):
+                    lnk.teardown()
+        for out_link, payload in outgoing:
+            self._send_payload(out_link, payload)
+
+    def _record_replay(self, env):
+        import json as _json
+
+        try:
+            src = env.get(proto.K_SRC)
+            row = {
+                "t": env.get(proto.K_T),
+                "room": env.get(proto.K_ROOM),
+                "src": src.hex() if isinstance(src, (bytes, bytearray)) else src,
+                "body": env.get(proto.K_BODY)
+                if isinstance(env.get(proto.K_BODY), str)
+                else None,
+            }
+            with open(self.replay_log, "a", encoding="utf-8") as f:
+                f.write(_json.dumps(row) + "\n")
+        except Exception:
+            pass
+
+    def _route(self, link, sess, env, outgoing):
+        t = env.get(proto.K_T)
+        if t == proto.T_PONG:
+            return
+        if t == proto.T_PING:
+            outgoing.append(
+                (
+                    link,
+                    proto.encode(
+                        proto.make_envelope(
+                            proto.T_PONG,
+                            src=self.identity.hash,
+                            body=env.get(proto.K_BODY),
+                        ),
+                    ),
+                ),
+            )
+            return
+        if t not in (proto.T_MSG, proto.T_ACTION, proto.T_NOTICE):
+            # HELLO/JOIN/PART and unknown types share a slower control bucket
+            # so join/part churn cannot flood the hub for free.
+            if not self._refill_ctrl_and_take(sess):
+                self._bump("control_drops")
+                self._note_rate_limited(sess)
+                self._queue_error(
+                    outgoing,
+                    link,
+                    "rate limited",
+                    room=env.get(proto.K_ROOM),
+                )
+                return
+        if not sess.welcomed:
+            if t == proto.T_HELLO:
+                self._handle_hello(link, sess, env, outgoing)
+            return
+        if t in (proto.T_MSG, proto.T_ACTION, proto.T_NOTICE):
+            if not self._refill_and_take(sess):
+                self._bump("rate_limited_drops")
+                self._note_rate_limited(sess)
+                self._queue_error(
+                    outgoing,
+                    link,
+                    "rate limited",
+                    room=env.get(proto.K_ROOM),
+                )
+                return
+        if t == proto.T_HELLO:
+            self._handle_hello(link, sess, env, outgoing)
+        elif t == proto.T_JOIN:
+            self._handle_join(link, sess, env, outgoing)
+        elif t == proto.T_PART:
+            self._handle_part(link, sess, env, outgoing)
+        elif t == proto.T_SYNC:
+            self._handle_sync(link, sess, env, outgoing)
+        elif t in (proto.T_MSG, proto.T_ACTION, proto.T_NOTICE):
+            self._handle_message(link, sess, env, outgoing)
+
+    def _handle_hello(self, link, sess, env, outgoing):
+        nick = proto.normalize_nick(env.get(proto.K_NICK), self.max_nick_bytes)
+        if nick is not None:
+            sess.nick = nick
+        sess.welcomed = True
+        caps = {proto.CAP_ACTION: True}
+        limits = {
+            proto.L_MAX_NICK_BYTES: self.max_nick_bytes,
+            proto.L_MAX_ROOM_NAME_BYTES: self.max_room_name_bytes,
+            proto.L_MAX_MSG_BODY_BYTES: self.max_msg_body_bytes,
+            proto.L_MAX_ROOMS_PER_SESSION: self.max_rooms_per_session,
+            proto.L_RATE_LIMIT_MSGS_PER_MINUTE: self.rate_limit_msgs_per_minute,
+        }
+        body = {
+            proto.B_WELCOME_HUB: self.name,
+            proto.B_WELCOME_VER: proto.HELLO_CLIENT_VERSION,
+            proto.B_WELCOME_CAPS: caps,
+            proto.B_WELCOME_LIMITS: limits,
+        }
+        outgoing.append(
+            (
+                link,
+                proto.encode(
+                    proto.make_envelope(
+                        proto.T_WELCOME,
+                        src=self.identity.hash,
+                        body=body,
+                    ),
+                ),
+            ),
+        )
+        if self.greeting:
+            outgoing.append(
+                (
+                    link,
+                    proto.encode(
+                        proto.make_envelope(
+                            proto.T_NOTICE,
+                            src=self.identity.hash,
+                            body=self.greeting,
+                        ),
+                    ),
+                ),
+            )
+
+    def _room_member_hashes(self, room):
+        hashes = []
+        for member in self._room_members.get(room, set()):
+            s = self._sessions.get(member)
+            if s is not None and isinstance(s.peer, (bytes, bytearray)):
+                hashes.append(bytes(s.peer))
+        return hashes
+
+    def _handle_join(self, link, sess, env, outgoing):
+        room = env.get(proto.K_ROOM)
+        if not isinstance(room, str) or not room:
+            self._queue_error(outgoing, link, "JOIN requires room name")
+            return
+        try:
+            r = self._norm_room(room)
+        except ValueError as e:
+            self._queue_error(outgoing, link, str(e))
+            return
+        if r not in sess.rooms and len(sess.rooms) >= self.max_rooms_per_session:
+            self._queue_error(outgoing, link, "too many rooms")
+            return
+
+        peer = sess.peer if isinstance(sess.peer, (bytes, bytearray)) else None
+        join_body = env.get(proto.K_BODY)
+        # Missing identity must deny ACL paths. Skipping checks would bypass +k/+i.
+        if peer is None:
+            self._queue_error(outgoing, link, "not identified")
+            return
+        if self.rooms.is_room_banned(r, peer):
+            self._queue_error(outgoing, link, "banned from room", room=r)
+            return
+
+        # Do not promote founder/ops until +i/+k checks pass. Otherwise the
+        # first JOIN into a keyed room with no founder bypasses the key.
+        st = self.rooms.ensure_state(r)
+        if bool(st.get("invite_only")):
+            if not self.rooms.is_room_op(r, peer) and not self.rooms.is_invited(
+                r,
+                peer,
+            ):
+                self._queue_error(outgoing, link, "invite-only (+i)", room=r)
+                return
+
+        key = st.get("key")
+        if isinstance(key, str) and key:
+            if not self.rooms.is_room_op(r, peer) and not self.rooms.is_invited(
+                r,
+                peer,
+            ):
+                if not room_keys_equal(
+                    join_body if isinstance(join_body, str) else None,
+                    key,
+                ):
+                    self._queue_error(outgoing, link, "bad key (+k)", room=r)
+                    return
+
+        if not self._room_members.get(r):
+            self.rooms.ensure_state(r, founder=peer)
+
+        members = self._room_members.setdefault(r, set())
+        already = link in members
+        existing = [m for m in members if m != link]
+        # One-shot invite: consume after a successful ACL pass so PART+reJOIN
+        # cannot reuse the same invite forever while TTL is live. Skip consume
+        # on re-JOIN so a fresh invite issued while present is not burned.
+        if not already and self.rooms.consume_invite(r, peer):
+            self.rooms.persist(r)
+        members.add(link)
+        sess.rooms.add(r)
+        if not already:
+            self._record_event("join", peer=sess.peer, room=r)
+
+        if existing and not already:
+            fanout = proto.encode(
+                proto.make_envelope(
+                    proto.T_JOINED,
+                    src=self.identity.hash,
+                    room=r,
+                    body=[sess.peer] if sess.peer is not None else None,
+                    nick=sess.nick,
+                ),
+            )
+            for member in existing:
+                outgoing.append((member, fanout))
+
+        outgoing.append(
+            (
+                link,
+                proto.encode(
+                    proto.make_envelope(
+                        proto.T_JOINED,
+                        src=self.identity.hash,
+                        room=r,
+                        body=self._room_member_hashes(r),
+                    ),
+                ),
+            ),
+        )
+
+        st = self.rooms.ensure_state(r)
+        topic = st.get("topic")
+        reg_txt = "registered" if st.get("registered") else "unregistered"
+        modes = self.rooms.get_mode_string(r)
+        self._queue_notice(
+            outgoing,
+            link,
+            r,
+            "room "
+            + r
+            + ": "
+            + reg_txt
+            + "; topic="
+            + (topic or "(none)")
+            + "; modes="
+            + modes,
+        )
+        self.rooms.touch_room(r)
+        self.manager._notify_change(self)
+
+    def _handle_part(self, link, sess, env, outgoing):
+        room = env.get(proto.K_ROOM)
+        if not isinstance(room, str) or not room:
+            self._queue_error(outgoing, link, "PART requires room name")
+            return
+        try:
+            r = self._norm_room(room)
+        except ValueError as e:
+            self._queue_error(outgoing, link, str(e))
+            return
+
+        if r not in sess.rooms:
+            self._queue_error(outgoing, link, "not in room", room=r)
+            return
+
+        self._force_leave_room(
+            link,
+            sess,
+            r,
+            outgoing,
+            ack_parted=True,
+        )
+        self._record_event("part", peer=sess.peer, room=r)
+
+    def _force_leave_room(
+        self,
+        link,
+        sess,
+        room,
+        outgoing,
+        *,
+        error_text=None,
+        ack_parted=False,
+    ):
+        """Remove a link from a room and fan out PARTED to remaining members."""
+        r = room
+        sess.rooms.discard(r)
+        members = self._room_members.get(r)
+        remaining = []
+        if members is not None:
+            members.discard(link)
+            remaining = list(members)
+            reg = self.rooms.get_state(r)
+            if not members and (reg is None or not reg.get("registered")):
+                self._room_members.pop(r, None)
+                self.rooms.drop_transient_state(r)
+
+        if remaining and sess.peer is not None:
+            fanout = proto.encode(
+                proto.make_envelope(
+                    proto.T_PARTED,
+                    src=self.identity.hash,
+                    room=r,
+                    body=[sess.peer],
+                    nick=sess.nick,
+                ),
+            )
+            for member in remaining:
+                outgoing.append((member, fanout))
+
+        if error_text:
+            self._queue_error(outgoing, link, error_text, room=r)
+        elif ack_parted:
+            outgoing.append(
+                (
+                    link,
+                    proto.encode(
+                        proto.make_envelope(
+                            proto.T_PARTED,
+                            src=self.identity.hash,
+                            room=r,
+                            body=[sess.peer] if sess.peer is not None else None,
+                        ),
+                    ),
+                ),
+            )
+        self.manager._notify_change(self)
+
+    def _handle_message(self, link, sess, env, outgoing):
+        t = env.get(proto.K_T)
+        room = env.get(proto.K_ROOM)
+        body = env.get(proto.K_BODY)
+
+        if t in (proto.T_MSG, proto.T_NOTICE) and isinstance(body, str):
+            if body.strip().startswith("/"):
+                if self._commands.handle(self, link, sess, room, body, outgoing):
+                    return
+                self._queue_error(outgoing, link, "unrecognized command", room=room)
+                return
+
+        if not isinstance(room, str) or not room:
+            self._queue_error(outgoing, link, "message requires room name")
+            return
+        if (
+            isinstance(body, str)
+            and len(body.encode("utf-8", errors="replace")) > self.max_msg_body_bytes
+        ):
+            self._queue_error(outgoing, link, "message too large")
+            return
+        try:
+            r = self._norm_room(room)
+        except ValueError as e:
+            self._queue_error(outgoing, link, str(e))
+            return
+
+        peer = sess.peer if isinstance(sess.peer, (bytes, bytearray)) else None
+
+        if r not in sess.rooms:
+            st_check = self.rooms.get_state(r)
+            if st_check is None and not self._room_members.get(r):
+                self._queue_error(outgoing, link, "no such room", room=r)
+                return
+            if st_check is not None and bool(st_check.get("no_outside_msgs")):
+                self._queue_error(outgoing, link, "no outside messages (+n)", room=r)
+                return
+
+        if peer is not None and self.rooms.is_room_banned(r, peer):
+            self._queue_error(outgoing, link, "banned from room", room=r)
+            return
+
+        if self.rooms.is_room_moderated(r) and not self.rooms.is_room_voiced(r, peer):
+            self._queue_error(outgoing, link, "room is moderated (+m)", room=r)
+            return
+
+        members = self._room_members.get(r)
+        if not members:
+            self._queue_error(outgoing, link, "no such room", room=r)
+            return
+
+        env[proto.K_SRC] = (
+            bytes(sess.peer) if isinstance(sess.peer, (bytes, bytearray)) else sess.peer
+        )
+        env[proto.K_ROOM] = r
+        incoming_nick = proto.normalize_nick(env.get(proto.K_NICK), self.max_nick_bytes)
+        if incoming_nick is not None:
+            sess.nick = incoming_nick
+            env[proto.K_NICK] = incoming_nick
+        elif sess.nick:
+            env[proto.K_NICK] = sess.nick
+        else:
+            env.pop(proto.K_NICK, None)
+
+        payload = proto.encode(env)
+        self._record_message_log(r, sess, env)
+        for member in list(members):
+            outgoing.append((member, payload))
+        if t in (proto.T_MSG, proto.T_ACTION) and link not in members:
+            # A sender outside the room never receives the fanout echo, so
+            # without a direct receipt its client would show a delivered
+            # message as failed once the echo wait expires.
+            mid = env.get(proto.K_ID)
+            if isinstance(mid, (bytes, bytearray)):
+                outgoing.append(
+                    (
+                        link,
+                        proto.encode(
+                            proto.make_envelope(
+                                proto.T_SEEN,
+                                src=self.identity.hash,
+                                room=r,
+                                body=[bytes(mid)],
+                            ),
+                        ),
+                    ),
+                )
+        self._bump("messages_relayed")
+
+    def _record_message_log(self, room, sess, env):
+        t = env.get(proto.K_T)
+        if t not in (proto.T_MSG, proto.T_ACTION):
+            return
+        body = env.get(proto.K_BODY)
+        if not isinstance(body, str) or not body.strip():
+            return
+        if body.strip().startswith("/"):
+            return
+        peer = sess.peer
+        if not isinstance(peer, (bytes, bytearray)):
+            return
+        nick = sess.nick if isinstance(sess.nick, str) else None
+        if nick is None:
+            incoming = proto.normalize_nick(env.get(proto.K_NICK), self.max_nick_bytes)
+            if incoming is not None:
+                nick = incoming
+        text = body
+        if len(text.encode("utf-8", errors="replace")) > 500:
+            text = text[:500] + "..."
+        mid = env.get(proto.K_ID)
+        with self._lock:
+            self._message_log.append(
+                {
+                    "ts": proto.now_ms(),
+                    "room": room,
+                    "peer": bytes(peer).hex(),
+                    "nick": nick,
+                    "kind": "action" if t == proto.T_ACTION else "msg",
+                    "text": text,
+                    "mid": bytes(mid) if isinstance(mid, (bytes, bytearray)) else None,
+                },
+            )
+
+    def _handle_sync(self, link, sess, env, outgoing):
+        """Answer which of the requester's own envelope ids were relayed.
+
+        Only mids recorded under the requesting peer confirm: answering
+        for any logged mid would turn the hub into an oracle for message
+        ids it relayed for other people.
+        """
+        peer = sess.peer
+        if not isinstance(peer, (bytes, bytearray)):
+            return
+        body = env.get(proto.K_BODY)
+        if not isinstance(body, list):
+            return
+        room = env.get(proto.K_ROOM)
+        r = None
+        if isinstance(room, str) and room.strip():
+            try:
+                r = self._norm_room(room)
+            except ValueError:
+                return
+        want = set()
+        for raw in body:
+            if isinstance(raw, (bytes, bytearray)):
+                want.add(bytes(raw))
+            if len(want) >= proto.SYNC_MAX_MIDS:
+                break
+        if not want:
+            return
+        ph = bytes(peer).hex()
+        found = []
+        with self._lock:
+            for entry in self._message_log:
+                if entry.get("peer") != ph:
+                    continue
+                if r is not None and entry.get("room") != r:
+                    continue
+                mid = entry.get("mid")
+                if isinstance(mid, (bytes, bytearray)) and bytes(mid) in want:
+                    found.append(bytes(mid))
+        if not found:
+            return
+        outgoing.append(
+            (
+                link,
+                proto.encode(
+                    proto.make_envelope(
+                        proto.T_SEEN,
+                        src=self.identity.hash,
+                        room=r,
+                        body=found,
+                    ),
+                ),
+            ),
+        )
+
+    def _flush_outgoing(self, outgoing):
+        for out_link, payload in outgoing:
+            self._send_payload(out_link, payload)
+
+    def _queue_notice(self, outgoing, link, room, text):
+        outgoing.append(
+            (
+                link,
+                proto.encode(
+                    proto.make_envelope(
+                        proto.T_NOTICE,
+                        src=self.identity.hash,
+                        room=room,
+                        body=text,
+                    ),
+                ),
+            ),
+        )
+
+    def _queue_error(self, outgoing, link, text, room=None):
+        outgoing.append(
+            (
+                link,
+                proto.encode(
+                    proto.make_envelope(
+                        proto.T_ERROR,
+                        src=self.identity.hash,
+                        room=room,
+                        body=text,
+                    ),
+                ),
+            ),
+        )
+
+    def register_room(
+        self,
+        name,
+        topic=None,
+        private=False,
+        moderated=False,
+        invite_only=False,
+        topic_ops_only=False,
+        no_outside_msgs=False,
+        key=None,
+        founder=None,
+    ):
+        r = self._norm_room(name)
+        with self._lock:
+            self.rooms.register_room(
+                r,
+                topic=topic,
+                private=private,
+                moderated=moderated,
+                invite_only=invite_only,
+                topic_ops_only=topic_ops_only,
+                no_outside_msgs=no_outside_msgs,
+                key=key,
+                founder=founder,
+            )
+            self._room_members.setdefault(r, set())
+        return r
+
+    def unregister_room(self, name):
+        r = proto.normalize_room(name)
+        with self._lock:
+            self.rooms.unregister_room(r)
+            members = self._room_members.get(r)
+            if members is not None and not members:
+                self._room_members.pop(r, None)
+        return r
+
+    def set_room_key(self, name, key):
+        """Set or clear the +k room key. Empty/None clears the key."""
+        r = proto.normalize_room(name)
+        with self._lock:
+            st = self.rooms.ensure_state(r)
+            if key is None or (isinstance(key, str) and not key.strip()):
+                st["key"] = None
+            elif isinstance(key, str):
+                st["key"] = normalize_room_key(key)
+            else:
+                msg = "room key must be a string or null"
+                raise TypeError(msg)
+            if st.get("registered"):
+                self.rooms.persist(r)
+            outgoing = []
+            self.rooms.broadcast_mode(r, outgoing)
+        self._flush_outgoing(outgoing)
+        return r
+
+    def client_count(self):
+        with self._lock:
+            return sum(1 for s in self._sessions.values() if s.welcomed)
+
+    def members_dict(self, room=None):
+        """Return connected clients, optionally filtered to a single room."""
+        with self._lock:
+            out = []
+            if room is not None:
+                r = self._norm_room(room)
+                links = list(self._room_members.get(r, set()))
+                seen = set()
+                for link in links:
+                    sess = self._sessions.get(link)
+                    if sess is None or not sess.welcomed:
+                        continue
+                    peer = sess.peer
+                    if not isinstance(peer, (bytes, bytearray)):
+                        continue
+                    ph = bytes(peer)
+                    if ph in seen:
+                        continue
+                    seen.add(ph)
+                    out.append(self._member_entry(sess, ph))
+            else:
+                for sess in self._sessions.values():
+                    if not sess.welcomed:
+                        continue
+                    peer = sess.peer
+                    if not isinstance(peer, (bytes, bytearray)):
+                        continue
+                    out.append(self._member_entry(sess, bytes(peer)))
+            out.sort(key=lambda m: m["name"].lower())
+            return out
+
+    def _member_entry(self, sess, peer_hash):
+        nick = sess.nick if isinstance(sess.nick, str) and sess.nick else None
+        return {
+            "hash": peer_hash.hex(),
+            "name": nick or peer_hash.hex()[:12],
+            "nick": nick,
+            "rooms": sorted(sess.rooms),
+        }
+
+    def rooms_activity(self):
+        with self._lock:
+            rooms_cfg = {}
+            names = set(self.rooms._registry.keys()) | set(self._room_members.keys())
+            for name in names:
+                cfg = self.rooms.room_config_for_api(name)
+                cfg["members"] = len(self._room_members.get(name, set()))
+                cfg["message_count"] = 0
+                cfg["last_activity_ts"] = None
+                rooms_cfg[name] = cfg
+            recent = []
+            for entry in reversed(self._message_log):
+                r = entry.get("room")
+                if r in rooms_cfg:
+                    rooms_cfg[r]["message_count"] += 1
+                    ts = entry.get("ts")
+                    if ts is not None and (
+                        rooms_cfg[r]["last_activity_ts"] is None
+                        or ts > rooms_cfg[r]["last_activity_ts"]
+                    ):
+                        rooms_cfg[r]["last_activity_ts"] = ts
+                if len(recent) < 80:
+                    recent.append(dict(entry))
+            rooms = [rooms_cfg[n] for n in sorted(rooms_cfg.keys())]
+            return {"rooms": rooms, "recent": list(reversed(recent))}
+
+    def stats_dict(self):
+        """Return counters and a newest-first event log for observability."""
+        with self._lock:
+            stats = dict(self._stats)
+            stats["sessions"] = len(self._sessions)
+            stats["welcomed"] = sum(1 for s in self._sessions.values() if s.welcomed)
+            stats["uptime_s"] = (
+                int(time.time() - self._started_at) if self._started_at else 0
+            )
+            events = [dict(e) for e in reversed(self._events)]
+        return {"stats": stats, "events": events}
+
+    def messages_for_peer(self, peer_hex, room=None, limit=200):
+        peer = parse_identity_hash(peer_hex)
+        if peer is None:
+            msg = "invalid peer hash"
+            raise ValueError(msg)
+        ph = peer.hex()
+        limit = max(1, min(int(limit) if limit is not None else 200, 500))
+        room_n = None
+        if isinstance(room, str) and room.strip():
+            room_n = self._norm_room(room)
+        out = []
+        with self._lock:
+            for entry in reversed(self._message_log):
+                if entry.get("peer") != ph:
+                    continue
+                if room_n is not None and entry.get("room") != room_n:
+                    continue
+                out.append(dict(entry))
+                if len(out) >= limit:
+                    break
+        out.reverse()
+        return out
+
+    def admin_kick_from_room(self, peer_hex, room):
+        peer = parse_identity_hash(peer_hex)
+        if peer is None:
+            msg = "invalid peer hash"
+            raise ValueError(msg)
+        r = self._norm_room(room)
+        outgoing = []
+        target_link = None
+        tsess = None
+        with self._lock:
+            for link, sess in self._sessions.items():
+                if (
+                    isinstance(sess.peer, (bytes, bytearray))
+                    and bytes(sess.peer) == peer
+                    and r in sess.rooms
+                ):
+                    target_link = link
+                    tsess = sess
+                    break
+        if target_link is None:
+            msg = "peer not in room"
+            raise ValueError(msg)
+        self._force_leave_room(
+            target_link,
+            tsess,
+            r,
+            outgoing,
+            error_text="kicked from " + r,
+        )
+        with self._lock:
+            self._bump("kicks")
+            self._record_event("kick", peer=peer, room=r)
+        self._flush_outgoing(outgoing)
+        return True
+
+    def admin_hub_ban(self, peer_hex):
+        peer = parse_identity_hash(peer_hex)
+        if peer is None:
+            msg = "invalid peer hash"
+            raise ValueError(msg)
+        outgoing = []
+        self.policy.add_ban(peer)
+        self.policy.save()
+        with self._lock:
+            self._bump("bans")
+            self._record_event("ban", peer=peer)
+        self._disconnect_banned(peer, outgoing, "banned (kline)")
+        self._flush_outgoing(outgoing)
+        return True
+
+    def admin_room_ban(self, peer_hex, room):
+        peer = parse_identity_hash(peer_hex)
+        if peer is None:
+            msg = "invalid peer hash"
+            raise ValueError(msg)
+        r = self._norm_room(room)
+        outgoing = []
+        with self._lock:
+            st = self.rooms.ensure_state(r)
+            bans = st.setdefault("bans", set())
+            bans.add(peer)
+            self._bump("bans")
+            self._record_event("room_ban", peer=peer, room=r)
+            self.rooms.touch_room(r)
+            self.rooms.persist(r)
+            for member in list(self._room_members.get(r, set())):
+                ms = self._sessions.get(member)
+                if ms is not None and isinstance(ms.peer, (bytes, bytearray)):
+                    if bytes(ms.peer) == peer:
+                        self._force_leave_room(
+                            member,
+                            ms,
+                            r,
+                            outgoing,
+                            error_text="banned from " + r,
+                        )
+        self._flush_outgoing(outgoing)
+        return True
+
+    def to_dict(self):
+        """Return a JSON-serializable summary of this hub."""
+        with self._lock:
+            rooms = []
+            names = set(self.rooms._registry.keys()) | set(self._room_members.keys())
+            for name in sorted(names):
+                cfg = self.rooms.room_config_for_api(name)
+                cfg["members"] = len(self._room_members.get(name, set()))
+                rooms.append(cfg)
+            policy = self.policy.to_dict()
+            uptime_seconds = 0
+            if self.running and self._started_at is not None:
+                uptime_seconds = max(0, int(time.time() - self._started_at))
+            return {
+                "id": self.hub_id,
+                "name": self.name,
+                "dest_hash": self.dest_hash.hex() if self.dest_hash else None,
+                "enabled": self.enabled,
+                "running": self.running,
+                "uptime_seconds": uptime_seconds,
+                "announce": self.announce,
+                "announce_interval_seconds": self.announce_interval_seconds,
+                "rate_limit_msgs_per_minute": self.rate_limit_msgs_per_minute,
+                "greeting": self.greeting,
+                "clients": sum(1 for s in self._sessions.values() if s.welcomed),
+                "trusted_identities": policy["trusted_identities"],
+                "banned_identities": policy["banned_identities"],
+                "rooms": rooms,
+            }
+
+    def config_entry(self):
+        with self._lock:
+            rooms = []
+            for name in sorted(self.rooms._registry.keys()):
+                st = self.rooms._registry[name]
+                rooms.append(
+                    {
+                        "name": name,
+                        "topic": st.get("topic"),
+                        "private": bool(st.get("private")),
+                        "moderated": bool(st.get("moderated")),
+                        "invite_only": bool(st.get("invite_only")),
+                        "topic_ops_only": bool(st.get("topic_ops_only")),
+                        "no_outside_msgs": bool(st.get("no_outside_msgs")),
+                        "key": st.get("key"),
+                    },
+                )
+            policy = self.policy.to_dict()
+        return {
+            "id": self.hub_id,
+            "name": self.name,
+            "config_version": HUB_CONFIG_VERSION,
+            "enabled": self.enabled,
+            "announce": self.announce,
+            "announce_interval_seconds": self.announce_interval_seconds,
+            "rate_limit_msgs_per_minute": self.rate_limit_msgs_per_minute,
+            "greeting": self.greeting,
+            "trusted_identities": policy["trusted_identities"],
+            "banned_identities": policy["banned_identities"],
+            "rooms": rooms,
+        }
+
+
+class RRCServerManager:
+    """Hosts and persists multiple RRC hubs for a single node."""
+
+    def __init__(self, storage_dir, on_change=None, owner_identity=None):
+        self.storage_dir = storage_dir
+        self._on_change = on_change
+        self.owner_identity = (
+            bytes(owner_identity)
+            if isinstance(owner_identity, (bytes, bytearray))
+            else None
+        )
+        self.hubs = []
+        self._lock = threading.RLock()
+        self._loaded = False
+        self._save_lock = threading.Lock()
+
+    def _owner_trusted_hex_list(self):
+        if self.owner_identity is None:
+            return None
+        return [bytes(self.owner_identity).hex()]
+
+    def set_change_callback(self, cb):
+        self._on_change = cb
+
+    def _notify_change(self, hub=None):
+        with contextlib.suppress(Exception):
+            if self._on_change is not None:
+                self._on_change(hub)
+
+    def _server_dir(self):
+        return os.path.join(self.storage_dir, SERVER_DIR_NAME)
+
+    def _store_path(self):
+        return os.path.join(self._server_dir(), STORE_FILENAME)
+
+    def _identity_path(self, hub_id):
+        return os.path.join(self._server_dir(), hub_id + ".identity")
+
+    def _hub_dir(self, hub_id):
+        return os.path.join(self._server_dir(), hub_id)
+
+    def find_hub(self, hub_id):
+        with self._lock:
+            for hub in self.hubs:
+                if hub.hub_id == hub_id:
+                    return hub
+        return None
+
+    def create_hub(
+        self,
+        name=None,
+        greeting=None,
+        announce=True,
+        announce_interval_seconds=DEFAULT_ANNOUNCE_INTERVAL_SECONDS,
+        rate_limit_msgs_per_minute=None,
+        enabled=True,
+    ):
+        identity = RNS.Identity()
+        os.makedirs(self._server_dir(), exist_ok=True)
+        identity.to_file(self._identity_path(identity.hash.hex()))
+        hub = RRCHubServer(
+            self,
+            identity,
+            name=name,
+            greeting=greeting,
+            announce=announce,
+            announce_interval_seconds=announce_interval_seconds,
+            rate_limit_msgs_per_minute=rate_limit_msgs_per_minute,
+            enabled=enabled,
+        )
+        trusted = self._owner_trusted_hex_list()
+        hub.configure_storage(
+            self._hub_dir(hub.hub_id),
+            trusted=trusted,
+            banned=[],
+        )
+        with self._lock:
+            self.hubs.append(hub)
+        if enabled:
+            with contextlib.suppress(Exception):
+                hub.start()
+        self.save()
+        self._notify_change(hub)
+        return hub
+
+    def delete_hub(self, hub_id):
+        hub = self.find_hub(hub_id)
+        if hub is None:
+            return False
+        with contextlib.suppress(Exception):
+            hub.stop()
+        with self._lock:
+            if hub in self.hubs:
+                self.hubs.remove(hub)
+        with contextlib.suppress(Exception):
+            path = self._identity_path(hub_id)
+            if os.path.isfile(path):
+                os.unlink(path)
+        with contextlib.suppress(Exception):
+            import shutil
+
+            hub_dir = self._hub_dir(hub_id)
+            if os.path.isdir(hub_dir):
+                shutil.rmtree(hub_dir)
+        self.save()
+        self._notify_change()
+        return True
+
+    def start_hub(self, hub_id):
+        hub = self.find_hub(hub_id)
+        if hub is None:
+            return False
+        hub.enabled = True
+        with contextlib.suppress(Exception):
+            hub.start()
+        self.save()
+        self._notify_change(hub)
+        return True
+
+    def stop_hub(self, hub_id):
+        hub = self.find_hub(hub_id)
+        if hub is None:
+            return False
+        hub.enabled = False
+        with contextlib.suppress(Exception):
+            hub.stop()
+        self.save()
+        self._notify_change(hub)
+        return True
+
+    def update_hub(
+        self,
+        hub_id,
+        name=None,
+        greeting=None,
+        announce=None,
+        announce_interval_seconds=None,
+        rate_limit_msgs_per_minute=None,
+        trusted_identities=None,
+        banned_identities=None,
+    ):
+        hub = self.find_hub(hub_id)
+        if hub is None:
+            return False
+        if name is not None:
+            hub.name = name
+        if greeting is not None:
+            hub.greeting = greeting or None
+        if announce is not None or announce_interval_seconds is not None:
+            hub.set_announce_settings(
+                announce=announce,
+                announce_interval_seconds=announce_interval_seconds,
+            )
+        if rate_limit_msgs_per_minute is not None:
+            hub.rate_limit_msgs_per_minute = normalize_rate_limit_msgs_per_minute(
+                rate_limit_msgs_per_minute,
+                default=hub.rate_limit_msgs_per_minute,
+            )
+        if trusted_identities is not None or banned_identities is not None:
+            hub.policy.apply_config(
+                trusted_list=trusted_identities,
+                banned_list=banned_identities,
+            )
+            hub.policy.save()
+        self.save()
+        self._notify_change(hub)
+        return True
+
+    def create_room(
+        self,
+        hub_id,
+        name,
+        topic=None,
+        private=False,
+        moderated=False,
+        invite_only=False,
+        topic_ops_only=False,
+        no_outside_msgs=False,
+        key=None,
+    ):
+        hub = self.find_hub(hub_id)
+        if hub is None:
+            return False
+        hub.register_room(
+            name,
+            topic=topic,
+            private=private,
+            moderated=moderated,
+            invite_only=invite_only,
+            topic_ops_only=topic_ops_only,
+            no_outside_msgs=no_outside_msgs,
+            key=key,
+        )
+        self.save()
+        self._notify_change(hub)
+        return True
+
+    def delete_room(self, hub_id, name):
+        hub = self.find_hub(hub_id)
+        if hub is None:
+            return False
+        hub.unregister_room(name)
+        self.save()
+        self._notify_change(hub)
+        return True
+
+    def load(self):
+        if self._loaded:
+            return
+        self._loaded = True
+        path = self._store_path()
+        if not os.path.isfile(path):
+            return
+        try:
+            with open(path, "rb") as f:
+                obj = proto.decode(f.read())
+        except Exception as e:
+            RNS.log("Failed to load RRC hub servers: " + str(e), RNS.LOG_ERROR)
+            return
+        if not isinstance(obj, dict):
+            return
+        migrated = False
+        for entry in obj.get("hubs", []):
+            if self._load_entry(entry):
+                migrated = True
+        if migrated:
+            self.save()
+
+    def _load_entry(self, entry):
+        if not isinstance(entry, dict):
+            return False
+        hub_id = entry.get("id")
+        if not isinstance(hub_id, str):
+            return False
+        ident_path = self._identity_path(hub_id)
+        if not os.path.isfile(ident_path):
+            return False
+        identity = RNS.Identity.from_file(ident_path)
+        if identity is None:
+            return False
+        interval = _persisted_hub_interval(entry)
+        hub = RRCHubServer(
+            self,
+            identity,
+            name=entry.get("name"),
+            greeting=entry.get("greeting"),
+            announce=bool(entry.get("announce", True)),
+            announce_interval_seconds=(
+                interval if interval is not None else DEFAULT_ANNOUNCE_INTERVAL_SECONDS
+            ),
+            rate_limit_msgs_per_minute=entry.get("rate_limit_msgs_per_minute"),
+            enabled=bool(entry.get("enabled", True)),
+        )
+        hub.configure_storage(
+            self._hub_dir(hub_id),
+            trusted=entry.get("trusted_identities"),
+            banned=entry.get("banned_identities"),
+        )
+        for room in entry.get("rooms", []):
+            if isinstance(room, dict) and isinstance(room.get("name"), str):
+                rname = proto.normalize_room(room["name"])
+                if rname in hub.rooms._registry:
+                    continue
+                with contextlib.suppress(Exception):
+                    hub.register_room(
+                        room["name"],
+                        topic=room.get("topic"),
+                        private=bool(room.get("private")),
+                        moderated=bool(room.get("moderated", False)),
+                        invite_only=bool(room.get("invite_only", False)),
+                        topic_ops_only=bool(room.get("topic_ops_only", False)),
+                        no_outside_msgs=bool(room.get("no_outside_msgs", False)),
+                        key=room.get("key"),
+                    )
+        with self._lock:
+            self.hubs.append(hub)
+        if hub.enabled:
+            with contextlib.suppress(Exception):
+                hub.start()
+        return interval != entry.get("announce_interval_seconds")
+
+    def save(self):
+        path = self._store_path()
+        tmp_path = path + ".tmp"
+        with self._save_lock:
+            try:
+                with self._lock:
+                    entries = [hub.config_entry() for hub in self.hubs]
+                atomic_write_bytes(path, proto.encode({"hubs": entries}))
+            except Exception:
+                with contextlib.suppress(Exception):
+                    os.unlink(tmp_path)
+
+    def to_dict(self):
+        """Return a JSON-serializable summary of all hosted hubs."""
+        with self._lock:
+            hubs = list(self.hubs)
+        return {"hubs": [hub.to_dict() for hub in hubs]}
+
+    def shutdown(self):
+        for hub in list(self.hubs):
+            with contextlib.suppress(Exception):
+                hub.stop()

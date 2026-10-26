@@ -1,0 +1,909 @@
+# SPDX-License-Identifier: 0BSD
+
+
+class ConfigManager:
+    def __init__(self, db):
+        self.db = db
+
+        # all possible config items
+        self.display_name = self.StringConfig(self, "display_name", "Anonymous Peer")
+        self.auto_announce_enabled = self.BoolConfig(
+            self,
+            "auto_announce_enabled",
+            False,
+        )
+        self.auto_announce_interval_seconds = self.IntConfig(
+            self,
+            "auto_announce_interval_seconds",
+            0,
+        )
+        self.last_announced_at = self.IntConfig(self, "last_announced_at", None)
+        self.theme = self.StringConfig(self, "theme", "light")
+        self.theme_preset = self.StringConfig(self, "theme_preset", "void")
+        self.accent_color = self.StringConfig(self, "accent_color", None)
+        self.custom_canvas_color = self.StringConfig(self, "custom_canvas_color", None)
+        self.custom_surface_color = self.StringConfig(
+            self,
+            "custom_surface_color",
+            None,
+        )
+        self.language = self.StringConfig(self, "language", "en")
+        self.auto_resend_failed_messages_when_announce_received = self.BoolConfig(
+            self,
+            "auto_resend_failed_messages_when_announce_received",
+            True,
+        )
+        self.allow_auto_resending_failed_messages_with_attachments = self.BoolConfig(
+            self,
+            "allow_auto_resending_failed_messages_with_attachments",
+            True,
+        )
+        self.auto_send_failed_messages_to_propagation_node = self.BoolConfig(
+            self,
+            "auto_send_failed_messages_to_propagation_node",
+            True,
+        )
+        self.delivery_helptips_enabled = self.BoolConfig(
+            self,
+            "delivery_helptips_enabled",
+            True,
+        )
+        self.show_suggested_community_interfaces = self.BoolConfig(
+            self,
+            "show_suggested_community_interfaces",
+            True,
+        )
+        self.lxmf_delivery_transfer_limit_in_bytes = self.IntConfig(
+            self,
+            "lxmf_delivery_transfer_limit_in_bytes",
+            1000 * 1000 * 10,
+        )  # 10MB
+        self.lxmf_propagation_transfer_limit_in_bytes = self.IntConfig(
+            self,
+            "lxmf_propagation_transfer_limit_in_bytes",
+            1000 * 256,
+        )  # 256KB (LXMF default)
+        self.lxmf_propagation_sync_limit_in_bytes = self.IntConfig(
+            self,
+            "lxmf_propagation_sync_limit_in_bytes",
+            1000 * 10240,
+        )  # 10MB (LXMF default)
+        self.lxmf_preferred_propagation_node_destination_hash = self.StringConfig(
+            self,
+            "lxmf_preferred_propagation_node_destination_hash",
+            None,
+        )
+        self.lxmf_preferred_propagation_node_auto_select = self.BoolConfig(
+            self,
+            "lxmf_preferred_propagation_node_auto_select",
+            False,
+        )
+        self.lxmf_preferred_propagation_node_auto_sync_interval_seconds = (
+            self.IntConfig(
+                self,
+                "lxmf_preferred_propagation_node_auto_sync_interval_seconds",
+                0,
+            )
+        )
+        self.lxmf_preferred_propagation_node_last_synced_at = self.IntConfig(
+            self,
+            "lxmf_preferred_propagation_node_last_synced_at",
+            None,
+        )
+        self.lxmf_address_hash = self.StringConfig(self, "lxmf_address_hash", None)
+        self.lxst_address_hash = self.StringConfig(self, "lxst_address_hash", None)
+        self.lxmf_local_propagation_node_enabled = self.BoolConfig(
+            self,
+            "lxmf_local_propagation_node_enabled",
+            False,
+        )
+        self.lxmf_user_icon_name = self.StringConfig(self, "lxmf_user_icon_name", None)
+        self.lxmf_user_icon_foreground_colour = self.StringConfig(
+            self,
+            "lxmf_user_icon_foreground_colour",
+            None,
+        )
+        self.lxmf_user_icon_background_colour = self.StringConfig(
+            self,
+            "lxmf_user_icon_background_colour",
+            None,
+        )
+        self.lxmf_inbound_stamp_cost = self.IntConfig(
+            self,
+            "lxmf_inbound_stamp_cost",
+            8,
+        )  # for direct delivery messages
+        self.lxmf_propagation_node_stamp_cost = self.IntConfig(
+            self,
+            "lxmf_propagation_node_stamp_cost",
+            16,
+        )  # for propagation node messages
+        self.lxmf_propagation_sequential_validation = self.BoolConfig(
+            self,
+            "lxmf_propagation_sequential_validation",
+            True,
+        )
+        self.lxmf_propagation_static_peers_bypass_sequential = self.BoolConfig(
+            self,
+            "lxmf_propagation_static_peers_bypass_sequential",
+            True,
+        )
+        self.lxmf_propagation_max_inbound_syncs = self.IntConfig(
+            self,
+            "lxmf_propagation_max_inbound_syncs",
+            3,
+        )
+        self.lxmf_inbound_stamp_cost_before_block = self.IntConfig(
+            self,
+            "lxmf_inbound_stamp_cost_before_block",
+            -1,
+        )  # prior stamp cost while block-all is on (-1 means unset)
+        self.lxmf_flood_protection_enabled = self.BoolConfig(
+            self,
+            "lxmf_flood_protection_enabled",
+            False,
+        )
+        self.lxmf_flood_threshold_per_minute = self.IntConfig(
+            self,
+            "lxmf_flood_threshold_per_minute",
+            30,
+        )
+        self.lxmf_flood_max_stamp_cost = self.IntConfig(
+            self,
+            "lxmf_flood_max_stamp_cost",
+            24,
+        )
+        self.lxmf_flood_cooldown_seconds = self.IntConfig(
+            self,
+            "lxmf_flood_cooldown_seconds",
+            300,
+        )
+        self.page_archiver_enabled = self.BoolConfig(
+            self,
+            "page_archiver_enabled",
+            True,
+        )
+        self.page_archiver_max_versions = self.IntConfig(
+            self,
+            "page_archiver_max_versions",
+            5,
+        )
+        self.archives_max_storage_gb = self.IntConfig(
+            self,
+            "archives_max_storage_gb",
+            1,
+        )
+        self.backup_max_count = self.IntConfig(self, "backup_max_count", 5)
+        self.crawler_enabled = self.BoolConfig(self, "crawler_enabled", False)
+        self.crawler_max_retries = self.IntConfig(self, "crawler_max_retries", 3)
+        self.crawler_retry_delay_seconds = self.IntConfig(
+            self,
+            "crawler_retry_delay_seconds",
+            3600,
+        )
+        self.crawler_max_concurrent = self.IntConfig(self, "crawler_max_concurrent", 1)
+        self.crawler_max_hops = self.IntConfig(self, "crawler_max_hops", 4)
+        self.crawler_max_rtt_ms = self.IntConfig(self, "crawler_max_rtt_ms", 2500)
+        self.crawler_max_depth = self.IntConfig(self, "crawler_max_depth", 2)
+        self.crawler_max_pages_per_node = self.IntConfig(
+            self,
+            "crawler_max_pages_per_node",
+            20,
+        )
+        self.crawler_requests_per_day_per_node = self.IntConfig(
+            self,
+            "crawler_requests_per_day_per_node",
+            1,
+        )
+        self.crawler_refresh_days = self.IntConfig(self, "crawler_refresh_days", 30)
+        self.auth_enabled = self.BoolConfig(self, "auth_enabled", False)
+        self.auth_password_hash = self.StringConfig(self, "auth_password_hash", None)
+        self.auth_session_secret = self.StringConfig(self, "auth_session_secret", None)
+        # Bumped whenever credentials change. Session cookies carry the epoch
+        # they were minted under and are rejected once it moves on.
+        self.auth_session_epoch = self.IntConfig(self, "auth_session_epoch", 0)
+        self.oidc_enabled = self.BoolConfig(self, "oidc_enabled", False)
+        self.oidc_issuer_url = self.StringConfig(self, "oidc_issuer_url", None)
+        self.oidc_client_id = self.StringConfig(self, "oidc_client_id", None)
+        self.oidc_client_secret = self.StringConfig(self, "oidc_client_secret", None)
+        self.oidc_display_name = self.StringConfig(self, "oidc_display_name", None)
+        self.oidc_scopes = self.StringConfig(
+            self,
+            "oidc_scopes",
+            "openid profile email",
+        )
+        self.privacy_mode_enabled = self.BoolConfig(self, "privacy_mode_enabled", False)
+        self.multi_session_warning_enabled = self.BoolConfig(
+            self,
+            "multi_session_warning_enabled",
+            True,
+        )
+        self.gitea_base_url = self.StringConfig(
+            self,
+            "gitea_base_url",
+            None,
+        )
+
+        # desktop config
+        self.desktop_open_calls_in_separate_window = self.BoolConfig(
+            self,
+            "desktop_open_calls_in_separate_window",
+            False,
+        )
+        self.desktop_hardware_acceleration_enabled = self.BoolConfig(
+            self,
+            "desktop_hardware_acceleration_enabled",
+            True,
+        )
+
+        # voicemail config
+        self.voicemail_enabled = self.BoolConfig(self, "voicemail_enabled", False)
+        self.voicemail_greeting = self.StringConfig(
+            self,
+            "voicemail_greeting",
+            "Hello, I am not available right now. Please leave a message after the beep.",
+        )
+        self.voicemail_auto_answer_delay_seconds = self.IntConfig(
+            self,
+            "voicemail_auto_answer_delay_seconds",
+            20,
+        )
+        self.voicemail_max_recording_seconds = self.IntConfig(
+            self,
+            "voicemail_max_recording_seconds",
+            60,
+        )
+        self.voicemail_tts_speed = self.IntConfig(self, "voicemail_tts_speed", 130)
+        self.voicemail_tts_pitch = self.IntConfig(self, "voicemail_tts_pitch", 45)
+        self.voicemail_tts_voice = self.StringConfig(
+            self,
+            "voicemail_tts_voice",
+            "en-us+f3",
+        )
+        self.voicemail_tts_word_gap = self.IntConfig(self, "voicemail_tts_word_gap", 5)
+
+        # ringtone config
+        self.custom_ringtone_enabled = self.BoolConfig(
+            self,
+            "custom_ringtone_enabled",
+            False,
+        )
+        self.ringtone_filename = self.StringConfig(self, "ringtone_filename", None)
+        self.ringtone_preferred_id = self.IntConfig(self, "ringtone_preferred_id", 0)
+        self.ringtone_volume = self.IntConfig(self, "ringtone_volume", 100)
+
+        # notification sound config
+        self.notification_sound_enabled = self.BoolConfig(
+            self,
+            "notification_sound_enabled",
+            False,
+        )
+        self.notification_sound_preferred_id = self.IntConfig(
+            self,
+            "notification_sound_preferred_id",
+            0,
+        )
+        self.notification_sound_volume = self.IntConfig(
+            self,
+            "notification_sound_volume",
+            100,
+        )
+
+        # telephony config
+        self.telephone_enabled = self.BoolConfig(
+            self,
+            "telephone_enabled",
+            True,
+        )
+        self.do_not_disturb_enabled = self.BoolConfig(
+            self,
+            "do_not_disturb_enabled",
+            False,
+        )
+        self.telephone_allow_calls_from_contacts_only = self.BoolConfig(
+            self,
+            "telephone_allow_calls_from_contacts_only",
+            True,
+        )
+        self.telephone_announce_enabled = self.BoolConfig(
+            self,
+            "telephone_announce_enabled",
+            False,
+        )
+        self.telephone_audio_profile_id = self.IntConfig(
+            self,
+            "telephone_audio_profile_id",
+            64,  # LXST Profiles.DEFAULT_PROFILE (Medium Quality / Opus)
+        )
+        self.telephone_call_mode_id = self.IntConfig(
+            self,
+            "telephone_call_mode_id",
+            1,  # LXST Profiles.MODE_FULL_DUPLEX
+        )
+        self.telephone_web_audio_enabled = self.BoolConfig(
+            self,
+            "telephone_web_audio_enabled",
+            False,
+        )
+        self.telephone_web_audio_allow_fallback = self.BoolConfig(
+            self,
+            "telephone_web_audio_allow_fallback",
+            True,
+        )
+        self.call_recording_enabled = self.BoolConfig(
+            self,
+            "call_recording_enabled",
+            False,
+        )
+        self.telephone_tone_generator_enabled = self.BoolConfig(
+            self,
+            "telephone_tone_generator_enabled",
+            True,
+        )
+        self.telephone_tone_generator_volume = self.IntConfig(
+            self,
+            "telephone_tone_generator_volume",
+            50,
+        )
+
+        # map config
+        self.map_offline_enabled = self.BoolConfig(self, "map_offline_enabled", True)
+        self.map_offline_path = self.StringConfig(self, "map_offline_path", None)
+        self.map_mbtiles_dir = self.StringConfig(self, "map_mbtiles_dir", None)
+        self.map_tile_cache_enabled = self.BoolConfig(
+            self,
+            "map_tile_cache_enabled",
+            True,
+        )
+        self.map_coordinate_format = self.StringConfig(
+            self, "map_coordinate_format", "wgs84"
+        )
+        self.map_default_lat = self.StringConfig(self, "map_default_lat", "0.0")
+        self.map_default_lon = self.StringConfig(self, "map_default_lon", "0.0")
+        self.map_default_zoom = self.IntConfig(self, "map_default_zoom", 2)
+        self.map_tile_server_url = self.StringConfig(
+            self,
+            "map_tile_server_url",
+            "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+        )
+        self.map_nominatim_api_url = self.StringConfig(
+            self,
+            "map_nominatim_api_url",
+            "https://nominatim.openstreetmap.org",
+        )
+        self.map_overlay_max_bytes = self.IntConfig(
+            self,
+            "map_overlay_max_bytes",
+            8 * 1024 * 1024,
+        )
+        self.map_overlay_max_features = self.IntConfig(
+            self,
+            "map_overlay_max_features",
+            50_000,
+        )
+        self.map_overlay_max_kmz_uncompressed_bytes = self.IntConfig(
+            self,
+            "map_overlay_max_kmz_uncompressed_bytes",
+            16 * 1024 * 1024,
+        )
+        self.map_overlay_max_sources = self.IntConfig(
+            self,
+            "map_overlay_max_sources",
+            64,
+        )
+        self.map_overlay_max_concurrent_jobs = self.IntConfig(
+            self,
+            "map_overlay_max_concurrent_jobs",
+            2,
+        )
+        self.map_overlay_path_timeout_seconds = self.IntConfig(
+            self,
+            "map_overlay_path_timeout_seconds",
+            30,
+        )
+        self.map_overlay_transfer_timeout_seconds = self.IntConfig(
+            self,
+            "map_overlay_transfer_timeout_seconds",
+            120,
+        )
+        self.map_overlay_job_timeout_seconds = self.IntConfig(
+            self,
+            "map_overlay_job_timeout_seconds",
+            300,
+        )
+        self.map_overlay_max_retries = self.IntConfig(
+            self,
+            "map_overlay_max_retries",
+            3,
+        )
+        self.map_overlay_retry_delay_seconds = self.IntConfig(
+            self,
+            "map_overlay_retry_delay_seconds",
+            2,
+        )
+        self.map_data_max_bytes = self.IntConfig(
+            self,
+            "map_data_max_bytes",
+            512 * 1024,
+        )
+        self.map_data_announce_enabled = self.BoolConfig(
+            self,
+            "map_data_announce_enabled",
+            False,
+        )
+        self.map_data_announce_interval = self.IntConfig(
+            self,
+            "map_data_announce_interval",
+            21600,
+        )
+        self.map_data_display_name = self.StringConfig(
+            self,
+            "map_data_display_name",
+            "Maps",
+        )
+
+        # telemetry config
+        self.telemetry_enabled = self.BoolConfig(self, "telemetry_enabled", False)
+
+        # Sideband-compatible plugin loader (master switch defaults off)
+        self.service_plugins_enabled = self.BoolConfig(
+            self,
+            "service_plugins_enabled",
+            False,
+        )
+        self.command_plugins_enabled = self.BoolConfig(
+            self,
+            "command_plugins_enabled",
+            False,
+        )
+        self.command_plugins_path = self.StringConfig(
+            self,
+            "command_plugins_path",
+            None,
+        )
+
+        # translation config
+        self.translation_enabled = self.BoolConfig(
+            self,
+            "translation_enabled",
+            False,
+        )
+        self.translation_default_source_lang = self.StringConfig(
+            self,
+            "translation_default_source_lang",
+            "auto",
+        )
+        self.translation_default_target_lang = self.StringConfig(
+            self,
+            "translation_default_target_lang",
+            None,
+        )
+
+        # location config
+        self.location_source = self.StringConfig(self, "location_source", "disabled")
+        self.location_manual_lat = self.StringConfig(self, "location_manual_lat", "0.0")
+        self.location_manual_lon = self.StringConfig(self, "location_manual_lon", "0.0")
+        self.location_manual_alt = self.StringConfig(self, "location_manual_alt", "0.0")
+
+        # stranger / trust config
+        self.block_attachments_from_strangers = self.BoolConfig(
+            self,
+            "block_attachments_from_strangers",
+            True,
+        )
+        self.block_all_from_strangers = self.BoolConfig(
+            self,
+            "block_all_from_strangers",
+            False,
+        )
+        self.show_unknown_contact_banner = self.BoolConfig(
+            self,
+            "show_unknown_contact_banner",
+            True,
+        )
+        self.warn_on_stranger_links = self.BoolConfig(
+            self,
+            "warn_on_stranger_links",
+            True,
+        )
+
+        # banishment config
+        self.banished_effect_enabled = self.BoolConfig(
+            self,
+            "banished_effect_enabled",
+            True,
+        )
+        self.banished_text = self.StringConfig(
+            self,
+            "banished_text",
+            "BANISHED",
+        )
+        self.banished_color = self.StringConfig(
+            self,
+            "banished_color",
+            "#dc2626",
+        )
+        self.message_font_size = self.IntConfig(self, "message_font_size", 14)
+        self.messages_sidebar_position = self.StringConfig(
+            self,
+            "messages_sidebar_position",
+            "left",
+        )
+        self.app_sidebar_layout = self.StringConfig(
+            self,
+            "app_sidebar_layout",
+            "grouped",
+        )
+        self.messages_multi_pane_enabled = self.BoolConfig(
+            self,
+            "messages_multi_pane_enabled",
+            True,
+        )
+        self.message_icon_size = self.IntConfig(self, "message_icon_size", 28)
+        self.ui_transparency = self.IntConfig(self, "ui_transparency", 0)
+        self.ui_glass_enabled = self.BoolConfig(self, "ui_glass_enabled", True)
+        self.ui_font_family = self.StringConfig(self, "ui_font_family", "system")
+        self.ui_custom_font_name = self.StringConfig(self, "ui_custom_font_name", "")
+        self.ui_custom_font_data = self.StringConfig(self, "ui_custom_font_data", "")
+        self.message_outbound_bubble_color = self.StringConfig(
+            self,
+            "message_outbound_bubble_color",
+            "#4f46e5",
+        )
+        self.message_inbound_bubble_color = self.StringConfig(
+            self,
+            "message_inbound_bubble_color",
+            None,
+        )
+        self.message_failed_bubble_color = self.StringConfig(
+            self,
+            "message_failed_bubble_color",
+            "#ef4444",
+        )
+        self.message_waiting_bubble_color = self.StringConfig(
+            self,
+            "message_waiting_bubble_color",
+            "#e5e7eb",
+        )
+
+        # When False, meshchat does not persist received announces of that type (all True by default).
+        self.announce_store_lxmf_delivery = self.BoolConfig(
+            self,
+            "announce_store_lxmf_delivery",
+            True,
+        )
+        self.announce_store_lxst_telephony = self.BoolConfig(
+            self,
+            "announce_store_lxst_telephony",
+            True,
+        )
+        self.announce_store_nomadnetwork_node = self.BoolConfig(
+            self,
+            "announce_store_nomadnetwork_node",
+            True,
+        )
+        self.announce_store_lxmf_propagation = self.BoolConfig(
+            self,
+            "announce_store_lxmf_propagation",
+            True,
+        )
+        self.announce_store_map_data = self.BoolConfig(
+            self,
+            "announce_store_map_data",
+            False,
+        )
+        # announce caps: max rows stored per aspect (oldest dropped). Default 2500.
+        self.announce_max_stored_lxmf_delivery = self.IntConfig(
+            self,
+            "announce_max_stored_lxmf_delivery",
+            2500,
+        )
+        self.announce_max_stored_nomadnetwork_node = self.IntConfig(
+            self,
+            "announce_max_stored_nomadnetwork_node",
+            2500,
+        )
+        self.announce_max_stored_lxmf_propagation = self.IntConfig(
+            self,
+            "announce_max_stored_lxmf_propagation",
+            2500,
+        )
+        self.announce_max_stored_map_data = self.IntConfig(
+            self,
+            "announce_max_stored_map_data",
+            2500,
+        )
+        # default API page size per aspect when limit query param omitted. Default 2500.
+        self.announce_fetch_limit_lxmf_delivery = self.IntConfig(
+            self,
+            "announce_fetch_limit_lxmf_delivery",
+            2500,
+        )
+        self.announce_fetch_limit_nomadnetwork_node = self.IntConfig(
+            self,
+            "announce_fetch_limit_nomadnetwork_node",
+            2500,
+        )
+        self.announce_fetch_limit_lxmf_propagation = self.IntConfig(
+            self,
+            "announce_fetch_limit_lxmf_propagation",
+            2500,
+        )
+        self.announce_fetch_limit_map_data = self.IntConfig(
+            self,
+            "announce_fetch_limit_map_data",
+            2500,
+        )
+        # lxst.telephony shares LXMF caps in announce_manager aspect mapping
+        self.announce_search_max_fetch = self.IntConfig(
+            self,
+            "announce_search_max_fetch",
+            2000,
+        )
+        self.discovered_interfaces_max_return = self.IntConfig(
+            self,
+            "discovered_interfaces_max_return",
+            500,
+        )
+
+        # blackhole integration config
+        self.blackhole_integration_enabled = self.BoolConfig(
+            self,
+            "blackhole_integration_enabled",
+            True,
+        )
+
+        # csp config so users can set extra CSP sources for local offgrid environments (tile servers, etc.)
+        self.csp_extra_connect_src = self.StringConfig(
+            self,
+            "csp_extra_connect_src",
+            "",
+        )
+        self.csp_extra_img_src = self.StringConfig(self, "csp_extra_img_src", "")
+        self.csp_extra_frame_src = self.StringConfig(self, "csp_extra_frame_src", "")
+        self.csp_extra_script_src = self.StringConfig(self, "csp_extra_script_src", "")
+        self.csp_extra_style_src = self.StringConfig(self, "csp_extra_style_src", "")
+
+        self.nomad_render_markdown_enabled = self.BoolConfig(
+            self,
+            "nomad_render_markdown_enabled",
+            True,
+        )
+        self.nomad_render_html_enabled = self.BoolConfig(
+            self,
+            "nomad_render_html_enabled",
+            True,
+        )
+        self.nomad_render_plaintext_enabled = self.BoolConfig(
+            self,
+            "nomad_render_plaintext_enabled",
+            True,
+        )
+        self.nomad_tabs_enabled = self.BoolConfig(
+            self,
+            "nomad_tabs_enabled",
+            True,
+        )
+        self.nomad_private_tabs_enabled = self.BoolConfig(
+            self,
+            "nomad_private_tabs_enabled",
+            True,
+        )
+        self.nomad_history_enabled = self.BoolConfig(
+            self,
+            "nomad_history_enabled",
+            True,
+        )
+        self.rrc_enabled = self.BoolConfig(self, "rrc_enabled", True)
+        self.rrc_unread_badges_enabled = self.BoolConfig(
+            self,
+            "rrc_unread_badges_enabled",
+            True,
+        )
+        self.nomad_micron_wasm_enabled = self.BoolConfig(
+            self,
+            "nomad_micron_wasm_enabled",
+            True,
+        )
+        self.nomad_micron_default_engine = self.StringConfig(
+            self,
+            "nomad_micron_default_engine",
+            "js",
+        )
+        self.nomad_default_page_path = self.StringConfig(
+            self,
+            "nomad_default_page_path",
+            "/page/index.mu",
+        )
+        self.nomad_image_loading_policy = self.StringConfig(
+            self,
+            "nomad_image_loading_policy",
+            "manual",
+            validate=lambda v: (
+                v.lower()
+                if v.lower() in {"never", "manual", "auto", "always"}
+                else "manual"
+            ),
+        )
+        self.default_bootstrap_only = self.BoolConfig(
+            self,
+            "default_bootstrap_only",
+            False,
+        )
+        self.lxmf_sieve_filters_json = self.StringConfig(
+            self,
+            "lxmf_sieve_filters_json",
+            "[]",
+        )
+        self.message_blocklist_enabled = self.BoolConfig(
+            self,
+            "message_blocklist_enabled",
+            False,
+        )
+        self.message_blocklist_json = self.StringConfig(
+            self,
+            "message_blocklist_json",
+            '{"scope":"non_contacts","match_peer_fields":false,"match_message":true,"entries":[]}',
+        )
+
+        self.local_message_auto_delete_enabled = self.BoolConfig(
+            self,
+            "local_message_auto_delete_enabled",
+            False,
+        )
+        self.local_message_auto_delete_value = self.IntConfig(
+            self,
+            "local_message_auto_delete_value",
+            30,
+        )
+        self.local_message_auto_delete_unit = self.StringConfig(
+            self,
+            "local_message_auto_delete_unit",
+            "days",
+        )
+        self.local_message_auto_delete_last_run_at = self.IntConfig(
+            self,
+            "local_message_auto_delete_last_run_at",
+            None,
+        )
+
+        # Experimental live transport (WebTransport sidecar). CSRF HTTP only.
+        self.live_transport_mode = self.StringConfig(
+            self,
+            "live_transport_mode",
+            "auto",
+        )
+        self.webtransport_sidecar_enabled = self.BoolConfig(
+            self,
+            "webtransport_sidecar_enabled",
+            False,
+        )
+
+        self._migrate_legacy_announce_limit_keys()
+        self._migrate_translator_from_legacy()
+        self._migrate_invalid_telephone_audio_profile()
+        self._migrate_map_data_announce_interval()
+
+    def get(self, key: str, default_value=None) -> str | None:
+        return self.db.config.get(key, default_value)
+
+    def set(self, key: str, value: str | None):
+        self.db.config.set(key, value)
+
+    def _migrate_invalid_telephone_audio_profile(self):
+        """Reset stale profile ids (e.g. legacy default 2) to LXST DEFAULT_PROFILE."""
+        raw = self.db.config.get("telephone_audio_profile_id", default=None)
+        if raw is None:
+            return
+        try:
+            pid = int(raw)
+        except (TypeError, ValueError):
+            self.telephone_audio_profile_id.set(64)
+            return
+        valid = {16, 32, 48, 64, 80, 96, 112, 128}
+        if pid not in valid:
+            self.telephone_audio_profile_id.set(64)
+
+    def _migrate_translator_from_legacy(self):
+        old = self.db.config.get("translator_enabled", default=None)
+        a = self.db.config.get("translator_argos_enabled", default=None)
+        libre = self.db.config.get("translator_libretranslate_enabled", default=None)
+        current = self.db.config.get("translation_enabled", default=None)
+        if current is None and (old is not None or a is not None or libre is not None):
+            enabled = False
+            for key in (
+                "translator_enabled",
+                "translator_argos_enabled",
+                "translator_libretranslate_enabled",
+            ):
+                raw = self.db.config.get(key, default=None)
+                if str(raw).lower() == "true":
+                    enabled = True
+            self.translation_enabled.set(enabled)
+
+    def _migrate_map_data_announce_interval(self):
+        """Bump the old 15 minute map announce default to the 6 hour cadence once."""
+        marker = "map_data_announce_interval_zen_migrated"
+        if self.db.config.get(marker, default=None) is not None:
+            return
+        self.db.config.set(marker, "1")
+        raw = self.db.config.get("map_data_announce_interval", default=None)
+        try:
+            if raw is not None and int(raw) == 900:
+                self.map_data_announce_interval.set(21600)
+        except (TypeError, ValueError):
+            pass
+
+    def _migrate_legacy_announce_limit_keys(self):
+        pairs = [
+            ("announce_limit_lxmf_delivery", "announce_max_stored_lxmf_delivery"),
+            (
+                "announce_limit_nomadnetwork_node",
+                "announce_max_stored_nomadnetwork_node",
+            ),
+            ("announce_limit_lxmf_propagation", "announce_max_stored_lxmf_propagation"),
+        ]
+        for old_key, new_key in pairs:
+            old_val = self.db.config.get(old_key, default=None)
+            new_val = self.db.config.get(new_key, default=None)
+            if old_val is not None and new_val is None:
+                self.db.config.set(new_key, old_val)
+
+    class StringConfig:
+        def __init__(
+            self,
+            manager,
+            key: str,
+            default_value: str | None = None,
+            *,
+            validate=None,
+        ):
+            self.manager = manager
+            self.key = key
+            self.default_value = default_value
+            self.validate = validate
+
+        def get(self, default_value: str | None = None) -> str | None:
+            _default_value = default_value or self.default_value
+            return self.manager.get(self.key, default_value=_default_value)
+
+        def set(self, value: str | None):
+            if value is not None and self.validate is not None:
+                value = self.validate(value)
+            self.manager.set(self.key, value)
+
+    class BoolConfig:
+        def __init__(self, manager, key: str, default_value: bool = False):
+            self.manager = manager
+            self.key = key
+            self.default_value = default_value
+
+        def get(self) -> bool:
+            config_value = self.manager.get(self.key, default_value=None)
+            if config_value is None:
+                return self.default_value
+            return str(config_value).lower() == "true"
+
+        def set(self, value: bool):
+            self.manager.set(self.key, "true" if value else "false")
+
+    class IntConfig:
+        def __init__(self, manager, key: str, default_value: int | None = 0):
+            self.manager = manager
+            self.key = key
+            self.default_value = default_value
+
+        def get(self) -> int | None:
+            config_value = self.manager.get(self.key, default_value=None)
+            if config_value is None:
+                return self.default_value
+            try:
+                return int(config_value)
+            except (ValueError, TypeError):
+                return self.default_value
+
+        def set(self, value: int | None):
+            if value is None:
+                self.manager.db.config.delete(self.key)
+            else:
+                self.manager.db.config.set(self.key, str(value))

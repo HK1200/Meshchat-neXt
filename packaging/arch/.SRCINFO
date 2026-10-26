@@ -1,0 +1,27 @@
+pkgbase = meshchat-next-git
+	pkgdesc = A simple mesh network communications app powered by the Reticulum Network Stack
+	pkgver = 0.1.0
+	pkgrel = 1
+	arch = x86_64
+	arch = aarch64
+	license = 0BSD
+	license = MIT
+	makedepends = git
+	makedepends = nodejs
+	makedepends = pnpm
+	makedepends = python
+	makedepends = python-pip
+	makedepends = python-setuptools
+	makedepends = python-wheel
+	depends = opus
+	depends = opusfile
+	depends = portaudio
+	depends = espeak-ng
+	provides = meshchat-next
+	conflicts = meshchat-next
+	source = meshchat-next-0.1.0.tar.gz
+	source = meshchat-next.desktop
+	sha256sums = SKIP
+	sha256sums = 172b7eb9249c10cdeb9cea7fdbe320f063784fbc48ecc707111955a914fff3d2
+
+pkgname = meshchat-next-git

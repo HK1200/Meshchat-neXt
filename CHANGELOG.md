@@ -1,0 +1,43 @@
+# Meshchat neXt changelog
+
+## 0.1.0 — Initial release
+
+### Communications
+
+- Reticulum LXMF messaging and LXST calls, with supported radio, LAN and internet interfaces.
+- Independent MeshCore Bluetooth/USB companion connections alongside Reticulum/RNode.
+- Clearly labelled conversations, shared contact management and explicit cross-network linking.
+- Separate Reticulum and MeshCore announce lists, plus local/flood MeshCore adverts.
+- MeshCore channels with unread navigation, ordering, hide/show, deletion, replies, notification modes and local message blocking.
+- SIP extension calling with configurable accounts, an editable HOIP server preset, optional secure password storage and automatic reconnection.
+
+### MeshCore radios and media
+
+- Companion radio settings and supported 1–3 byte path hashes.
+- Supported repeater, room-server and sensor discovery, login, status and administration.
+- RX logs, trace tools, supported region discovery and channel scoping.
+- DM acknowledgments, separate heard-repeat counts and captured-path details with location-aware map views.
+- Optional MediaMesh/Radio2 photos and recorded voice clips in DMs and channels, with previews, downloads, retries and cached playback.
+- Identity sharing, encrypted identity backups and supported official-client JSON configuration imports.
+
+### Maps and tactical tools
+
+- Online/offline maps and supported tile storage/import.
+- Team positions, pins, reports, drawings, routes and optional alerts/geofence monitoring.
+- Opt-in, time-limited background position sharing on supported Android devices.
+- Supported TAK data packages and optional verified TLS TAK-server connections.
+
+### Setup and usability
+
+- First-start setup for selected services, existing identities/backups and optional client devices.
+- Expandable help, a searchable interactive field guide and a GitHub-readable FAQ.
+- Consistent network labels, compact phone chat controls and app-aware Android Back navigation.
+- Meshchat neXt branding, N artwork, application namespace and separate app storage.
+
+Radio2 media, node management and TAK compatibility depend on supported firmware and formats. See the [field guide](docs/guide/README.md) for requirements and privacy limitations. Production signing, repository/reporting URLs and release assets are configured before publication.
+
+The firmware assistant is deferred. Prior source-project history is preserved in [SOURCE_HISTORY.md](SOURCE_HISTORY.md); those version numbers do not describe neXt releases.
+
+### Updates
+
+- Enabled automatic signed-update checks using the independent neXt release identity and GitHub feed. Downloads remain user initiated and Android installation requires approval.

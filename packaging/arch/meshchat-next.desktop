@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Meshchat neXt
+Comment=A simple mesh network communications app powered by the Reticulum Network Stack
+Exec=meshchat-next
+Icon=meshchat-next
+Terminal=false
+Type=Application
+Categories=Network;
+StartupWMClass=com.meshchatnext.app
+

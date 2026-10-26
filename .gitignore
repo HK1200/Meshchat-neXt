@@ -1,0 +1,225 @@
+# IDE and editor files
+.idea
+.vscode/*
+!.vscode/launch.json
+!.vscode/tasks.json
+!.vscode/extensions.json
+*.swp
+*.swo
+*~
+
+# Dependencies
+node_modules/
+.pnpm-store/
+vendor/offline/
+
+# Python
+__pycache__/
+fuzz/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+.venv-x64/
+
+# flatpak-builder / snapcraft working trees (large; may contain root-owned cache)
+.flatpak-builder/
+parts/
+prime/
+stage/
+
+# Build files
+/build/
+/dist/
+/meshchatnext/public/
+/electron/build/exe/
+python-dist/
+release-assets/
+release-body.md
+.local/
+maven/
+*.o
+*.a
+*.la
+*.lo
+*.dll
+*.dylib
+
+# Android
+android/keystore/
+*.jks
+*.keystore
+android/.gradle/
+android/local.properties
+android/build/
+android/app/build/
+android/vendor/
+android/chaquopy-recipes/**/build/
+android/chaquopy-recipes/**/dist/
+android/chaquopy-recipes/**/env/
+android/chaquopy-recipes/**/requirements/
+android/chaquopy-recipes/**/fix_wheel/
+android/chaquopy-recipes/**/wrappers/
+android/chaquopy-recipes/**/target/
+android/chaquopy-recipes/**/*.orig
+android/chaquopy-recipes/**/*.rej
+android/app/src/main/python/meshchatnext/
+android/app/src/main/python/RNS/
+android/app/src/main/python/LXMF/
+android/app/src/main/python/LXST/
+android/app/src/main/python/meshchat_wrapper.py.bak
+android/*.iml
+android/.idea/
+*.apk
+*.aab
+
+
+# Local storage and runtime data
+storage/
+testing/
+telemetry_test_lxmf/
+temp-tests/
+*.db
+*.db-wal
+*.db-shm
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+cosign.key
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Docker (local compose overrides)
+docker-compose.override.yml
+meshchat-config/
+
+.coverage
+coverage/
+coverage-electron/
+.pytest_cache/
+htmlcov/
+
+# Mutation testing artifacts
+.mutmut-cache/
+mutants/
+mutmut-stats/
+mutmut-cicd-stats.json
+reports/mutation/
+.stryker-tmp/
+
+test-results/
+playwright-report/
+blob-report/
+.tmp-pw/
+
+# Visual regression baselines (generated per machine via --update-snapshots)
+tests/e2e/__screenshots__/
+
+# Local benchmark / CI artifact downloads
+bench_results.json
+bench_results.txt
+/cache/
+.artifacts/
+
+# Docker runtime smoke (optional local config dir)
+meshchatnext-docker-smoke-config/
+meshchatnext-artifacts-win/
+meshchatnext-artifacts-win-smoke/
+
+meshchat-config/
+
+# micron-parser-go WASM (fetched at build via scripts/fetch-micron-wasm.mjs)
+meshchatnext/src/frontend/public/vendor/micron-parser-go/micron-parser-go.wasm
+meshchatnext/src/frontend/public/vendor/micron-parser-go/wasm_exec.js
+
+# visualiser-wasm (built via scripts/build-visualiser-wasm.mjs / task build:visualiser-wasm)
+meshchatnext/src/frontend/public/vendor/visualiser-wasm/visualiser.wasm
+meshchatnext/src/frontend/public/vendor/visualiser-wasm/wasm_exec.js
+
+# bergamot-translator WASM (copied from node_modules via scripts/copy-bergamot-wasm.mjs)
+meshchatnext/src/frontend/public/vendor/bergamot/
+meshchatnext/src/frontend/public/vendor/geo-wasm/geo.wasm
+meshchatnext/src/frontend/public/vendor/geo-wasm/wasm_exec.js
+
+.gocache/
+.gotmp/
+.vitest-cache/
+
+.hypothesis
+.hypothesis/
+
+MagicMock/
+out/
+
+# Arch Linux packaging artifacts
+/packaging/arch/src/
+/packaging/arch/pkg/
+/packaging/arch/*.pkg.tar.zst
+/packaging/arch/Meshchat neXt/
+/packaging/arch/meshchat-next/
+
+# Flatpak local builder outputs
+/packaging/flatpak/build-dir/
+/packaging/flatpak/repo/
+/packaging/flatpak/.flatpak-builder/
+
+electron/backend-manifest.json
+
+scripts/private/
+
+*.exe
+# Accidental ImageMagick / print dumps (e.g. root-level "re" PostScript)
+*.ps
+*.eps
+# Local identity and rnid-style artifacts
+*.rid
+*.rsg
+*.rsm
+*.rfe
+!/meshchatnext.rsm
+
+# Generated at build time (scripts/bake_build_meta.js)
+meshchatnext/src/_build_meta_baked.py
+
+# Agentic test artifacts
+tests/agentic/out/
+tests/agentic/.playwright-mcp/
+tests/agentic/crawl-*.png
+tests/agentic/tests/
+microvm/state/
+# UI metrics baseline is machine-specific (tests/ui/metrics-check.mjs)
+tests/ui/baseline.json
+
+# Local toolchain downloads (TinyGo, etc.)
+.tools/
+
+# Local dependency links must never be shipped.
+/android/vendor
+/node_modules
+
+# Generated backend coverage report (retained in review evidence).
+/coverage.xml

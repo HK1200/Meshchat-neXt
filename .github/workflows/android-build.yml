@@ -1,0 +1,432 @@
+# Android APK build (debug + optional release) for master, PRs, and manual runs.
+# Tagged APKs attached to GitHub Releases are built in build-release.yml (android-apk-tag.yml).
+#
+# Pinned first-party actions (bump tag and SHA together when upgrading):
+#   actions/checkout@v6.0.1            8e8c483db84b4bee98b60c0593521ed34d9990e8
+#   actions/setup-python@v6.2.0        a309ff8b426b58ec0e2a45f0f869d46889d02405
+#   actions/setup-java@v6.1.0 b843ebf9b913146b38da2eaa7aeddf76074ae1ad
+#   actions/upload-artifact@v7.0.2 cf430e030ddbb5b0abf93d22962f4752f3646cd9
+#   actions/download-artifact@v8.0.2 9000827ccba6bdab643e8b6fd33ac0654aef8333
+#   actions/cache@v6.1.0 55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+
+name: Android build
+
+on:
+    pull_request:
+        branches:
+            - main
+        paths-ignore:
+            - "docs/**"
+            - ".agents/**"
+            - ".cursor/**"
+            - "**/*.md"
+    push:
+        branches:
+            - main
+        paths-ignore:
+            - "docs/**"
+            - ".agents/**"
+            - ".cursor/**"
+            - "**/*.md"
+    workflow_dispatch:
+        inputs:
+            build_release:
+                description: Build signed/optimized release APK artifacts
+                required: true
+                type: boolean
+                default: true
+            run_tests:
+                description: Run Android unit tests
+                required: true
+                type: boolean
+                default: true
+
+permissions:
+    contents: read
+
+concurrency:
+    group: android-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+    cancel-in-progress: true
+
+env:
+    HARDEN_ENDPOINTS: >
+        github.com:443
+        api.github.com:443
+        codeload.github.com:443
+        uploads.github.com:443
+        *.githubusercontent.com:443
+        *.actions.githubusercontent.com:443
+        *.githubapp.com:443
+        *.blob.core.windows.net:443
+        ghcr.io:443
+        azure.archive.ubuntu.com:80
+        archive.ubuntu.com:80
+        *.ubuntu.com:443
+        packages.microsoft.com:443
+        pypi.org:443
+        upload.pypi.org:443
+        *.pythonhosted.org:443
+        registry.npmjs.org:443
+        nodejs.org:443
+        go.dev:443
+        golang.org:443
+        proxy.golang.org:443
+        sum.golang.org:443
+        sh.rustup.rs:443
+        static.rust-lang.org:443
+        static.crates.io:443
+        index.crates.io:443
+        api.adoptium.net:443
+        downloads.xiph.org:443
+        ftp.osuosl.org:443
+        dl.google.com:443
+        maven.google.com:443
+        repo.maven.apache.org:443
+        services.gradle.org:443
+        repo.gradle.org:443
+        plugins.gradle.org:443
+        jitpack.io:443
+        chaquo.com:443
+        auth.docker.io:443
+        registry-1.docker.io:443
+        download.docker.com:443
+        production.cloudfront.docker.com:443
+        mirror.gcr.io:443
+        *.sigstore.dev:443
+        check.trivy.dev:443
+        cgr.dev:443
+        *.cgr.dev:443
+        dl-cdn.alpinelinux.org:443
+        *.alpinelinux.org:443
+        *.r2.cloudflarestorage.com:443
+        *.storage.bunnycdn.com:443
+        cdn.quad4.io:443
+        dl.flathub.org:443
+        flathub.org:443
+        api.securityscorecards.dev:443
+        meshchatx.com:443
+        cdn.playwright.dev:443
+        playwright.download.prss.microsoft.com:443
+        *.prss.microsoft.com:443
+        firefox.settings.services.mozilla.com:443
+        *.mozilla.com:443
+        storage.googleapis.com:443
+        *.stepsecurity.io:443
+    FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    NODE_OPTIONS: --max-old-space-size=8192
+    NODE_VERSION: "24"
+    PNPM_VERSION: "12.7.0"
+    PYTHON_VERSION: "3.11"
+    JAVA_VERSION: "17"
+    CHAQUOPY_REF: "9f563f45108a873d7feb363e1f754c0173f1114e"
+
+jobs:
+    frontend:
+        name: Build frontend artifact
+        uses: ./.github/workflows/frontend-build.yml
+        permissions:
+            contents: read
+        with:
+            artifact_name: meshchatnext-frontend-android-${{ github.run_id }}-${{ github.run_attempt }}
+            retention_days: 1
+            # Android wheels run on Python 3.11. Using the same here avoids
+            # spurious version drift in the docs-bundling step.
+            python_version: "3.11"
+
+    android:
+        name: Android test/build
+        runs-on: ubuntu-latest
+        needs: frontend
+        timeout-minutes: 90
+        permissions:
+            contents: read
+        defaults:
+            run:
+                shell: bash
+        env:
+            FRONTEND_ARTIFACT_NAME: ${{ needs.frontend.outputs.artifact_name }}
+        steps:
+            - name: Harden runner
+              uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+              with:
+                  egress-policy: ${{ runner.os == 'Linux' && 'block' || 'audit' }}
+                  allowed-endpoints: ${{ env.HARDEN_ENDPOINTS }}
+            - name: Checkout
+              uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+              with:
+                  fetch-depth: 0
+                  persist-credentials: false
+
+            - name: Resolve tag release track
+              id: track
+              if: github.ref_type == 'tag'
+              env:
+                  DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+              run: |
+                  set -euo pipefail
+                  default_branch="${DEFAULT_BRANCH}"
+                  git fetch --no-tags origin "${default_branch}"
+                  sha="$(git rev-parse HEAD)"
+                  if git merge-base --is-ancestor "${sha}" "FETCH_HEAD"; then
+                    track=master
+                  else
+                    track=none
+                  fi
+                  echo "track=${track}" >> "${GITHUB_OUTPUT}"
+                  echo "Resolved tag ${GITHUB_REF_NAME} -> track=${track}"
+
+            - name: Detect Android release signing secrets
+              id: android_signing
+              env:
+                  KS_B64: ${{ secrets.ANDROID_SIGNING_KEYSTORE_BASE64 }}
+                  KS_PASS: ${{ secrets.ANDROID_SIGNING_KEYSTORE_PASSWORD }}
+                  KS_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
+              run: |
+                  set -euo pipefail
+                  if [[ -n "${KS_B64}" && -n "${KS_PASS}" && -n "${KS_ALIAS}" ]]; then
+                    echo "ready=true" >> "${GITHUB_OUTPUT}"
+                  else
+                    echo "ready=false" >> "${GITHUB_OUTPUT}"
+                  fi
+
+            - name: Require signing secrets for master tag builds
+              if: ${{ github.ref_type == 'tag' && steps.track.outputs.track == 'master' && steps.android_signing.outputs.ready != 'true' }}
+              run: |
+                  echo "::error::Tagged master builds need release signing. Set secrets ANDROID_SIGNING_KEYSTORE_BASE64, ANDROID_SIGNING_KEYSTORE_PASSWORD, and ANDROID_SIGNING_KEY_ALIAS (see workflow header)."
+                  exit 1
+
+            - name: Set up Java
+              uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad
+              with:
+                  distribution: temurin
+                  java-version: ${{ env.JAVA_VERSION }}
+                  cache: gradle
+                  cache-dependency-path: |
+                      android/build.gradle
+                      android/settings.gradle
+                      android/app/build.gradle
+
+            - name: Set up Python
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+              with:
+                  python-version: ${{ env.PYTHON_VERSION }}
+
+            - name: Download frontend artifact
+              uses: ./.github/actions/fetch-frontend-artifact
+              with:
+                  artifact-name: ${{ env.FRONTEND_ARTIFACT_NAME }}
+
+            - name: Install Android wheel build dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y build-essential cmake pkg-config patchelf
+
+            - name: Cache Cargo registry
+              uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+              with:
+                  path: |
+                      ~/.cargo/registry
+                      ~/.cargo/git
+                  key: android-cargo-${{ hashFiles('uv.lock') }}-${{ env.CHAQUOPY_REF }}
+                  restore-keys: |
+                      android-cargo-
+
+            - name: Cache Chaquopy wheel workdir
+              uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+              with:
+                  path: .local/chaquopy-build-wheel
+                  key: chaquopy-work-${{ hashFiles('uv.lock', 'android/**/*.gradle', 'scripts/build-android-wheels-local.sh') }}-${{ env.CHAQUOPY_REF }}
+
+            - name: Install Rust toolchain
+              run: |
+                  curl -sSfL https://sh.rustup.rs -o rustup-init.sh
+                  chmod +x rustup-init.sh
+                  ./rustup-init.sh -y --profile minimal --default-toolchain stable
+                  echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+            - name: Install Android NDK for Chaquopy native wheels
+              run: |
+                  set -euo pipefail
+                  SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+                  SDKMANAGER="${SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager"
+                  if [[ ! -x "${SDKMANAGER}" ]]; then
+                      echo "Expected preinstalled sdkmanager at ${SDKMANAGER}" >&2
+                      exit 1
+                  fi
+                  NDK_VERSION="27.3.13750724"
+                  yes_n() { for _ in $(seq 1 "$1"); do echo y; done; }
+                  if [[ ! -d "${SDK_ROOT}/ndk/${NDK_VERSION}" ]]; then
+                      yes_n 200 | "${SDKMANAGER}" --sdk_root="${SDK_ROOT}" --licenses >/dev/null
+                      yes_n 50 | "${SDKMANAGER}" --sdk_root="${SDK_ROOT}" "ndk;${NDK_VERSION}" >/dev/null
+                  fi
+                  {
+                      echo "ANDROID_HOME=${SDK_ROOT}"
+                      echo "ANDROID_SDK_ROOT=${SDK_ROOT}"
+                  } >> "${GITHUB_ENV}"
+
+            - name: Provision missing Android Opus libraries
+              run: |
+                  python3 scripts/android/provision-opus.py
+                  python3 scripts/android/provision-ogg.py
+                  python3 scripts/android/provision-opusfile.py
+                  for abi in arm64-v8a x86_64 armeabi-v7a; do
+                      python3 scripts/android/build-sip.py --abi "$abi"
+                  done
+
+            - name: Build Android wheels
+              run: bash scripts/build-android-wheels-local.sh --python-minor "${PYTHON_VERSION}" --chaquopy-ref "${CHAQUOPY_REF}" --abis arm64-v8a,x86_64,armeabi-v7a
+
+            - name: Build Meshchat neXt wheel for repository bundle
+              run: |
+                  set -euo pipefail
+                  bash scripts/ci/github-install-uv.sh
+                  rm -rf build/lib build/bdist.* meshchat_next.egg-info
+                  python3 scripts/ci/check-public-packaging.py
+                  uvx --from "build==1.3.0" pyproject-build --wheel -o dist .
+
+            - name: Verify required Android wheels are present
+              run: |
+                  set -euo pipefail
+                  required=(
+                      "cborx-0.2.5-*-cp311-cp311-android_24_arm64_v8a.whl"
+                      "cborx-0.2.5-*-cp311-cp311-android_24_x86_64.whl"
+                      "cborx-0.2.5-*-cp311-cp311-android_24_armeabi_v7a.whl"
+                      "aiohttp-3.14.5-*-cp311-cp311-android_24_arm64_v8a.whl"
+                      "aiohttp-3.14.5-*-cp311-cp311-android_24_x86_64.whl"
+                      "aiohttp-3.14.5-*-cp311-cp311-android_24_armeabi_v7a.whl"
+                      "aioquic-1.3.0-*-cp311-cp311-android_24_arm64_v8a.whl"
+                      "aioquic-1.3.0-*-cp311-cp311-android_24_x86_64.whl"
+                      "aioquic-1.3.0-*-cp311-cp311-android_24_armeabi_v7a.whl"
+                      "pylsqpack-0.3.24-*-cp311-cp311-android_24_arm64_v8a.whl"
+                      "pylsqpack-0.3.24-*-cp311-cp311-android_24_x86_64.whl"
+                      "pylsqpack-0.3.24-*-cp311-cp311-android_24_armeabi_v7a.whl"
+                      "cryptography-50.0.2-*-cp311-cp311-android_24_arm64_v8a.whl"
+                      "cryptography-50.0.2-*-cp311-cp311-android_24_x86_64.whl"
+                      "cryptography-50.0.2-*-cp311-cp311-android_24_armeabi_v7a.whl"
+                      "miniaudio-1.71-*-cp311-cp311-android_24_arm64_v8a.whl"
+                      "miniaudio-1.71-*-cp311-cp311-android_24_x86_64.whl"
+                      "miniaudio-1.71-*-cp311-cp311-android_24_armeabi_v7a.whl"
+                      "pycodec2-*-cp311-cp311-android_24_arm64_v8a.whl"
+                      "pycodec2-*-cp311-cp311-android_24_x86_64.whl"
+                      "pycodec2-*-cp311-cp311-android_24_armeabi_v7a.whl"
+                      "chaquopy_libcodec2-*-android_24_arm64_v8a.whl"
+                      "chaquopy_libcodec2-*-android_24_x86_64.whl"
+                      "chaquopy_libcodec2-*-android_24_armeabi_v7a.whl"
+                      "lxst-*-py3-none-any.whl"
+                      "bleak-*-py3-none-any.whl"
+                      "httpx-0.28.1-py3-none-any.whl"
+                      "httpcore-*-py3-none-any.whl"
+                      "h2-*-py3-none-any.whl"
+                      "h11-*-py3-none-any.whl"
+                      "anyio-*-py3-none-any.whl"
+                      "hpack-*-py3-none-any.whl"
+                      "hyperframe-*-py3-none-any.whl"
+                      "pyopenssl-26.4.0-py3-none-any.whl"
+                      "service_identity-26.1.0-py3-none-any.whl"
+                      "attrs-26.1.0-py3-none-any.whl"
+                  )
+                  missing=0
+                  for pattern in "${required[@]}"; do
+                      if ! compgen -G "android/vendor/${pattern}" >/dev/null; then
+                          echo "::error::Missing wheel matching android/vendor/${pattern}"
+                          missing=1
+                      fi
+                  done
+                  if [[ "${missing}" -ne 0 ]]; then
+                      echo "Built wheels:"
+                      ls -la android/vendor/ || true
+                      exit 1
+                  fi
+                  echo "All required Android wheels present:"
+                  ls -1 android/vendor/
+                  for wheel in android/vendor/pycodec2-*-android_24_*.whl; do
+                      if ! unzip -l "${wheel}" | grep -q 'pycodec2/libcodec2\.so'; then
+                          echo "::error::${wheel} is missing bundled pycodec2/libcodec2.so"
+                          exit 1
+                      fi
+                  done
+                  echo "pycodec2 wheels bundle libcodec2.so"
+
+            - name: Run unit tests
+              if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_tests }}
+              working-directory: android
+              run: |
+                  chmod +x gradlew
+                  ./gradlew --no-daemon :app:testDebugUnitTest
+
+            - name: Run Android Lint
+              if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_tests }}
+              working-directory: android
+              run: |
+                  chmod +x gradlew
+                  ./gradlew --no-daemon :app:lintDebug
+
+            - name: Build debug APK
+              if: ${{ github.ref_type != 'tag' || steps.track.outputs.track != 'master' }}
+              working-directory: android
+              run: |
+                  chmod +x gradlew
+                  ./gradlew --no-daemon :app:assembleDebug
+
+            - name: Build release APK
+              if: ${{ (github.ref_type == 'tag' && steps.track.outputs.track == 'master') || (github.ref_type != 'tag' && (github.event_name != 'workflow_dispatch' || inputs.build_release)) }}
+              working-directory: android
+              run: |
+                  chmod +x gradlew
+                  ./gradlew --no-daemon :app:assembleRelease
+
+            - name: Verify release dex keeps reflection classes
+              if: ${{ (github.ref_type == 'tag' && steps.track.outputs.track == 'master') || (github.ref_type != 'tag' && (github.event_name != 'workflow_dispatch' || inputs.build_release)) }}
+              working-directory: android
+              run: |
+                  bash ../scripts/android/verify-release-dex.sh app/build/outputs/apk/release/*.apk
+
+            - name: Sign release APKs
+              if: ${{ github.ref_type == 'tag' && steps.track.outputs.track == 'master' && steps.android_signing.outputs.ready == 'true' }}
+              env:
+                  KS_B64: ${{ secrets.ANDROID_SIGNING_KEYSTORE_BASE64 }}
+                  SIGNING_KEYSTORE_PATH: ${{ runner.temp }}/meshchatnext-release.jks
+                  SIGNING_KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
+                  SIGNING_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEYSTORE_PASSWORD }}
+                  SIGNING_KEY_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}
+              run: |
+                  set -euo pipefail
+                  printf '%s' "${KS_B64}" | base64 -d > "${SIGNING_KEYSTORE_PATH}"
+                  export SIGNING_KEYSTORE_PATH SIGNING_KEY_ALIAS SIGNING_KEYSTORE_PASSWORD
+                  export SIGNING_KEY_PASSWORD="${SIGNING_KEY_PASSWORD:-${SIGNING_KEYSTORE_PASSWORD}}"
+                  bash scripts/sign-android-apks.sh
+
+            - name: Upload wheels
+              uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+              with:
+                  name: android-wheels-${{ github.ref_name }}-${{ github.run_id }}
+                  path: android/vendor/*.whl
+                  if-no-files-found: error
+
+            - name: Upload debug APK
+              if: ${{ github.ref_type != 'tag' || steps.track.outputs.track != 'master' }}
+              uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+              with:
+                  name: meshchatnext-android-debug-${{ github.ref_name }}-${{ github.run_id }}
+                  path: android/app/build/outputs/apk/debug/*.apk
+                  if-no-files-found: error
+
+            - name: Upload test reports
+              if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_tests }}
+              uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+              with:
+                  name: meshchatnext-android-tests-${{ github.ref_name }}-${{ github.run_id }}
+                  path: |
+                      android/app/build/reports/tests/
+                      android/app/build/test-results/
+                      android/app/build/reports/lint-results-debug.html
+                      android/app/build/reports/lint-results-debug.xml
+                  if-no-files-found: warn
+
+            - name: Upload release APK
+              if: ${{ (github.ref_type == 'tag' && steps.track.outputs.track == 'master') || (github.ref_type != 'tag' && (github.event_name != 'workflow_dispatch' || inputs.build_release)) }}
+              uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+              with:
+                  name: meshchatnext-android-release-${{ github.ref_name }}-${{ github.run_id }}
+                  path: android/app/build/outputs/apk/release/*.apk
+                  if-no-files-found: error

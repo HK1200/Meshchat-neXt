@@ -1,0 +1,1382 @@
+# SPDX-License-Identifier: 0BSD
+
+import json
+import logging
+import os
+import re
+import shutil
+import tempfile
+import time
+import zipfile
+from contextlib import suppress
+from datetime import UTC, datetime
+
+from meshchatnext.src.env_utils import env_int
+
+from .access_attempts import AccessAttemptsDAO
+from .announces import AnnounceDAO
+from .config import ConfigDAO
+from .contacts import ContactsDAO
+from .crash_history import CrashHistoryDAO
+from .debug_logs import DebugLogsDAO
+from .gifs import UserGifsDAO
+from .map_drawings import MapDrawingsDAO
+from .map_overlays import MapOverlaysDAO
+from .map_published import MapPublishedDAO
+from .messages import MessageDAO
+from .misc import MiscDAO
+from .notification_sounds import NotificationSoundDAO
+from .provider import DatabaseProvider
+from .ringtones import RingtoneDAO
+from .rrc_room_keys import RrcRoomKeysDAO
+from .schema import (
+    DatabaseSchema,
+    DatabaseTooNewError,
+    PostMigrationVerificationError,
+    PreMigrationBackupError,
+)
+from .sticker_packs import UserStickerPacksDAO
+from .stickers import UserStickersDAO
+from .telemetry import TelemetryDAO
+from .telephone import TelephoneDAO
+from .voicemails import VoicemailDAO
+
+BACKUP_BASELINE_FILENAME = "backup-baseline.json"
+BACKUP_MANIFEST_NAME = "backup-manifest.json"
+INTEGRITY_MANIFEST_NAME = "integrity-manifest.json"
+BACKUP_SKIP_DIR_NAMES = frozenset({"database-backups", "snapshots", "sqlite-tmp"})
+BACKUP_SKIP_DIR_PREFIXES = (".meshchatnext-",)
+PRE_MIGRATE_BACKUP_PREFIX = "backup-pre-migrate-"
+MIN_SIZE_RATIO = 0.2
+MIN_WIPE_MESSAGE_COUNT = 5
+MESSAGE_DROP_RATIO = 0.5
+MIN_SIZE_COMPARE_BYTES = 100_000
+_MIN_ZIP_DATE_TIME = (1980, 1, 1, 0, 0, 0)
+_EPOCH_1980 = 315532800.0
+_CONTENT_ANOMALY_PREFIX = "Database content anomaly:"
+
+
+def _zip_file_date_time(file_path: str) -> tuple:
+    try:
+        mtime = os.path.getmtime(file_path)
+    except OSError:
+        return _MIN_ZIP_DATE_TIME
+    if mtime < _EPOCH_1980:
+        return _MIN_ZIP_DATE_TIME
+    return time.localtime(mtime)[:6]
+
+
+def _zip_write_file(
+    zf: zipfile.ZipFile,
+    file_path: str,
+    arcname: str | None = None,
+) -> None:
+    name = arcname if arcname is not None else os.path.basename(file_path)
+    # O_NOFOLLOW closes the walk-to-open race: a file swapped for a symlink
+    # between listing and read fails here instead of leaking outside data
+    # into the backup.
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
+    fd = os.open(file_path, flags)
+    zinfo = zipfile.ZipInfo(filename=name)
+    zinfo.date_time = _zip_file_date_time(file_path)
+    zinfo.compress_type = zipfile.ZIP_DEFLATED
+    with os.fdopen(fd, "rb") as src, zf.open(zinfo, mode="w") as dst:
+        shutil.copyfileobj(src, dst, length=1024 * 1024)
+
+
+_log = logging.getLogger("meshchatnext.database")
+
+
+def merge_health_issues(existing, incoming):
+    """Merge health issue lists without duplicating content-anomaly snapshots.
+
+    Quick then full open checks can produce two anomaly strings that differ
+    only in live byte counts (WAL growth). Keep the first anomaly.
+    """
+    merged: list[str] = []
+    have_anomaly = False
+    for issue in list(existing or []) + list(incoming or []):
+        if not issue or not isinstance(issue, str):
+            continue
+        if issue in merged:
+            continue
+        if issue.startswith(_CONTENT_ANOMALY_PREFIX):
+            if have_anomaly:
+                continue
+            have_anomaly = True
+        merged.append(issue)
+    return merged
+
+
+class DatabaseRestoreError(RuntimeError):
+    pass
+
+
+_PRAGMA_READ_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\Z")
+
+_ALLOWED_WAL_CHECKPOINT_MODES = frozenset({"PASSIVE", "FULL", "RESTART", "TRUNCATE"})
+
+
+def _sanitize_pragma_read_name(name: str | None) -> str | None:
+    """Allow only simple SQLite pragma tokens for dynamic PRAGMA name reads."""
+    if not name or not isinstance(name, str):
+        return None
+    token = name.strip()
+    if not token or not _PRAGMA_READ_NAME_RE.match(token):
+        return None
+    return token
+
+
+def _sanitize_wal_checkpoint_mode(mode: str) -> str:
+    if not isinstance(mode, str):
+        msg = "WAL checkpoint mode must be a string"
+        raise ValueError(msg)
+    m = mode.strip().upper()
+    if m not in _ALLOWED_WAL_CHECKPOINT_MODES:
+        msg = f"Invalid WAL checkpoint mode: {mode!r}"
+        raise ValueError(msg)
+    return m
+
+
+def _pre_migrate_backup_keep() -> int:
+    keep = env_int("MESHCHAT_PRE_MIGRATE_BACKUP_KEEP", 5)
+    return max(0, keep if keep is not None else 5)
+
+
+class Database:
+    def __init__(self, db_path):
+        self.provider = DatabaseProvider.get_instance(db_path)
+        self.schema = DatabaseSchema(self.provider)
+        self.config = ConfigDAO(self.provider)
+        self.messages = MessageDAO(self.provider)
+        self.announces = AnnounceDAO(self.provider)
+        self.misc = MiscDAO(self.provider)
+        self.telephone = TelephoneDAO(self.provider)
+        self.telemetry = TelemetryDAO(self.provider)
+        self.voicemails = VoicemailDAO(self.provider)
+        self.ringtones = RingtoneDAO(self.provider)
+        self.notification_sounds = NotificationSoundDAO(self.provider)
+        self.contacts = ContactsDAO(self.provider)
+        self.map_drawings = MapDrawingsDAO(self.provider)
+        self.map_overlays = MapOverlaysDAO(self.provider)
+        self.map_published = MapPublishedDAO(self.provider)
+        self.stickers = UserStickersDAO(self.provider)
+        self.sticker_packs = UserStickerPacksDAO(self.provider)
+        self.gifs = UserGifsDAO(self.provider)
+        self.debug_logs = DebugLogsDAO(self.provider)
+        self.access_attempts = AccessAttemptsDAO(self.provider)
+        self.crash_history = CrashHistoryDAO(self.provider)
+        self.rrc_room_keys = RrcRoomKeysDAO(self.provider)
+        self._sqlite_memory_relaxed = False
+        # Runs at construction so restore_database's own staging/aside dirs
+        # are never mistaken for leftovers mid-restore.
+        self._repair_interrupted_restore()
+
+    def initialize(self):
+        self._tune_sqlite_pragmas()
+        self.schema._create_initial_tables()
+        current_version = self.schema.get_current_version()
+        target_version = DatabaseSchema.LATEST_VERSION
+        backup_path: str | None = None
+        started = time.monotonic()
+        from_version = current_version
+
+        if current_version > target_version:
+            msg = (
+                f"Database version {current_version} is newer than this Meshchat neXt build "
+                f"supports ({target_version}). Restore a backup or upgrade the application."
+            )
+            raise DatabaseTooNewError(msg)
+
+        try:
+            if 0 < current_version < target_version:
+                from meshchatnext.src.env_utils import env_bool
+
+                if not env_bool("MESHCHAT_SKIP_PRE_MIGRATE_BACKUP", False):
+                    try:
+                        result = self._backup_pre_migration(
+                            current_version,
+                            target_version,
+                        )
+                        backup_path = result.get("path")
+                    except Exception as exc:
+                        msg = (
+                            "Pre-migration backup failed. Aborting schema upgrade. "
+                            "Fix disk space or permissions, or set "
+                            "MESHCHAT_SKIP_PRE_MIGRATE_BACKUP=1: "
+                            f"{exc}"
+                        )
+                        raise PreMigrationBackupError(msg) from exc
+            self.schema.migrate(
+                current_version,
+                target_version,
+                update_version=False,
+            )
+            self._verify_after_migration()
+            self.schema._update_database_version_to(target_version)
+            keep = _pre_migrate_backup_keep()
+            if keep > 0:
+                self._prune_pre_migrate_backups(
+                    self._identity_storage_dir(),
+                    keep=keep,
+                    preserve_path=backup_path,
+                )
+        except Exception as exc:
+            duration_ms = int((time.monotonic() - started) * 1000)
+            _log.info(
+                "schema_migration from=%s to=%s backup=%s duration_ms=%s status=failed error=%s",
+                from_version,
+                target_version,
+                backup_path or "",
+                duration_ms,
+                type(exc).__name__,
+            )
+            raise
+        else:
+            duration_ms = int((time.monotonic() - started) * 1000)
+            if from_version < target_version:
+                _log.info(
+                    "schema_migration from=%s to=%s backup=%s duration_ms=%s status=ok",
+                    from_version,
+                    target_version,
+                    backup_path or "",
+                    duration_ms,
+                )
+
+    def _verify_after_migration(self) -> None:
+        rows = self.provider.quick_check()
+        if rows:
+            first = rows[0]
+            val = next(iter(first.values())) if isinstance(first, dict) else first[0]
+            if val != "ok":
+                msg = f"Post-migration quick_check failed: {val!s}"
+                raise PostMigrationVerificationError(msg)
+        self.provider.fetchone("SELECT 1")
+
+    @staticmethod
+    def _prune_pre_migrate_backups(
+        storage_path: str,
+        *,
+        keep: int,
+        preserve_path: str | None = None,
+    ) -> None:
+        if keep <= 0:
+            return
+        backup_dir = os.path.join(storage_path, "database-backups")
+        if not os.path.isdir(backup_dir):
+            return
+        preserve_abs = os.path.abspath(preserve_path) if preserve_path else None
+        entries: list[tuple[str, float]] = []
+        for name in os.listdir(backup_dir):
+            if not name.startswith(PRE_MIGRATE_BACKUP_PREFIX) or not name.endswith(
+                ".zip",
+            ):
+                continue
+            full = os.path.join(backup_dir, name)
+            entries.append((full, os.stat(full).st_mtime))
+        entries.sort(key=lambda item: item[1])
+        idx = 0
+        while len(entries) > keep and idx < len(entries):
+            path, _mtime = entries[idx]
+            if preserve_abs and os.path.abspath(path) == preserve_abs:
+                idx += 1
+                continue
+            with suppress(OSError):
+                os.remove(path)
+            entries.pop(idx)
+
+    def _repair_interrupted_restore(self) -> None:
+        """Recover when a restore was killed between the aside and staged moves.
+
+        A hard kill in the middle of restore_database can leave the live
+        database file moved into a .meshchatnext-aside-* dir with nothing at the
+        real path. Booting then creates an empty database and silently drops
+        all history. Move the aside files back when the live file is absent.
+        Staging leftovers are copies of a zip that still exists, so they are
+        removed. Aside dirs that still hold a db while a live one exists are
+        kept as a manual rollback artifact.
+        """
+        try:
+            target_dir = self._identity_storage_dir()
+        except ValueError:
+            return
+        db_path = self.provider.db_path
+        if not db_path or db_path == ":memory:":
+            return
+        main_name = os.path.basename(db_path)
+        try:
+            names = os.listdir(target_dir)
+        except OSError:
+            return
+        asides_with_db: list[str] = []
+        for name in names:
+            if not name.startswith(".meshchatnext-"):
+                continue
+            full = os.path.join(target_dir, name)
+            if not os.path.isdir(full):
+                continue
+            if name.startswith(".meshchatnext-aside-"):
+                for suffix in ("", "-wal", "-shm"):
+                    aside_file = os.path.join(full, main_name + suffix)
+                    live_file = db_path + suffix
+                    if os.path.isfile(aside_file) and not os.path.exists(live_file):
+                        try:
+                            os.replace(aside_file, live_file)
+                            _log.warning(
+                                "Restored %s from interrupted restore aside %s",
+                                live_file,
+                                name,
+                            )
+                        except OSError as exc:
+                            _log.warning(
+                                "Failed to restore %s from aside %s: %s",
+                                live_file,
+                                name,
+                                exc,
+                            )
+                try:
+                    if not os.listdir(full):
+                        os.rmdir(full)
+                        continue
+                except OSError:
+                    pass
+                if os.path.isfile(os.path.join(full, main_name)):
+                    asides_with_db.append(full)
+            elif name.startswith(".meshchatnext-extras-aside-"):
+                with suppress(Exception):
+                    Database._restore_extras_aside(full, target_dir)
+                shutil.rmtree(full, ignore_errors=True)
+            elif name.startswith(".meshchatnext-restore-"):
+                shutil.rmtree(full, ignore_errors=True)
+        # Keep only the newest aside holding a db as a manual rollback
+        # artifact. Older ones are an unbounded disk leak.
+        if len(asides_with_db) > 1:
+            asides_with_db.sort(key=os.path.getmtime, reverse=True)
+            for stale in asides_with_db[1:]:
+                _log.warning("Removing stale interrupted-restore aside %s", stale)
+                shutil.rmtree(stale, ignore_errors=True)
+
+    def execute_sql(self, query, params=None):
+        return self.provider.execute(query, params)
+
+    def _ensure_sqlite_temp_dir(self):
+        """Prefer a storage-local temp dir so Landlock can open spill files."""
+        try:
+            db_dir = self._identity_storage_dir()
+        except Exception:
+            return None
+        if not db_dir:
+            return None
+        temp_dir = os.path.join(db_dir, "sqlite-tmp")
+        try:
+            os.makedirs(temp_dir, exist_ok=True)
+        except OSError:
+            return None
+        # SQLite uses TMPDIR for PRAGMA temp_store=FILE spill files.
+        os.environ.update(
+            {"TMPDIR": temp_dir, "TMP": temp_dir, "TEMP": temp_dir},
+        )
+        return temp_dir
+
+    def _tune_sqlite_pragmas(self):
+        try:
+            self.provider.prefer_temp_store_file = False
+            self.execute_sql("PRAGMA journal_mode=WAL")
+            self.execute_sql("PRAGMA synchronous=NORMAL")
+            self.execute_sql("PRAGMA wal_autocheckpoint=1000")
+            self.execute_sql("PRAGMA temp_store=MEMORY")
+            self.execute_sql("PRAGMA cache_size=-8000")  # 8 MB
+            self.execute_sql("PRAGMA mmap_size=67108864")  # 64 MB
+            self.execute_sql("PRAGMA busy_timeout=5000")  # 5 s wait on lock contention
+            self._sqlite_memory_relaxed = False
+        except Exception as exc:
+            print(f"SQLite pragma setup failed: {exc}")
+
+    def apply_memory_pressure_pragmas(
+        self,
+        relax: bool,
+        *,
+        landlock_active: bool = False,
+        fs_sandbox_active: bool | None = None,
+    ) -> bool:
+        """Shrink SQLite cache under low RAM.
+
+        FILE temp spills break complex conversation queries under filesystem
+        sandboxes (Landlock or Windows AppContainer), even when TMPDIR is
+        inside the allowed storage tree. Keep MEMORY temp while a FS sandbox
+        is active and only reduce cache/mmap. Without a sandbox, FILE temp
+        is still used.
+        """
+        sandbox_active = (
+            landlock_active if fs_sandbox_active is None else bool(fs_sandbox_active)
+        )
+        try:
+            if relax:
+                self._ensure_sqlite_temp_dir()
+                use_file_temp = not sandbox_active
+                self.provider.prefer_temp_store_file = use_file_temp
+                if use_file_temp:
+                    self.execute_sql("PRAGMA temp_store=FILE")
+                else:
+                    self.execute_sql("PRAGMA temp_store=MEMORY")
+                    _log.info(
+                        "Memory pressure under FS sandbox: keeping temp_store=MEMORY",
+                    )
+                self.execute_sql("PRAGMA cache_size=-2000")  # 2 MB
+                self.execute_sql("PRAGMA mmap_size=0")
+                self._sqlite_memory_relaxed = True
+            else:
+                self.provider.prefer_temp_store_file = False
+                self.execute_sql("PRAGMA temp_store=MEMORY")
+                self.execute_sql("PRAGMA cache_size=-8000")
+                self.execute_sql("PRAGMA mmap_size=67108864")
+                self._sqlite_memory_relaxed = False
+            return True
+        except Exception as exc:
+            print(f"SQLite memory-pressure pragma update failed: {exc}")
+            return False
+
+    def _get_pragma_value(self, pragma: str, default=None):
+        safe = _sanitize_pragma_read_name(pragma)
+        if safe is None:
+            return default
+        try:
+            cursor = self.execute_sql(f"PRAGMA {safe}")
+            row = cursor.fetchone()
+            if row is None:
+                return default
+            return row[0]
+        except Exception:
+            return default
+
+    def _get_database_file_stats(self):
+        def size_for(path):
+            try:
+                return os.path.getsize(path)
+            except OSError:
+                return 0
+
+        db_path = self.provider.db_path
+        wal_path = f"{db_path}-wal"
+        shm_path = f"{db_path}-shm"
+
+        main_bytes = size_for(db_path)
+        wal_bytes = size_for(wal_path)
+        shm_bytes = size_for(shm_path)
+
+        return {
+            "main_bytes": main_bytes,
+            "wal_bytes": wal_bytes,
+            "shm_bytes": shm_bytes,
+            "total_bytes": main_bytes + wal_bytes + shm_bytes,
+        }
+
+    def _get_backup_baseline_path(self, storage_path):
+        default_dir = os.path.join(storage_path, "database-backups")
+        return os.path.join(default_dir, BACKUP_BASELINE_FILENAME)
+
+    def _read_backup_baseline(self, storage_path):
+        from meshchatnext.src.json_store import load_json
+
+        path = self._get_backup_baseline_path(storage_path)
+        return load_json(path)
+
+    def _write_backup_baseline(
+        self,
+        storage_path,
+        message_count,
+        total_bytes,
+        main_bytes=None,
+    ):
+        path = self._get_backup_baseline_path(storage_path)
+        try:
+            data = {
+                "message_count": message_count,
+                "total_bytes": total_bytes,
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+            if main_bytes is not None:
+                data["main_bytes"] = main_bytes
+            from meshchatnext.src.json_store import save_json
+
+            save_json(path, data, indent=2, newline=False)
+        except OSError as e:
+            print(f"Failed to write backup baseline: {e}")
+
+    def _get_current_db_content_stats(self):
+        stats = self._get_database_file_stats()
+        try:
+            message_count = self.messages.count_lxmf_messages()
+        except Exception:
+            message_count = -1
+        return {
+            "message_count": message_count,
+            "total_bytes": stats["total_bytes"],
+            "main_bytes": stats["main_bytes"],
+        }
+
+    @staticmethod
+    def _size_bytes_for_compare(current_stats, baseline):
+        """Prefer main file size when both sides have it.
+
+        total_bytes includes WAL and SHM, which shrink on checkpoint or vacuum
+        without any message loss.
+        """
+        prev_main = baseline.get("main_bytes")
+        curr_main = current_stats.get("main_bytes")
+        if prev_main is not None and curr_main is not None:
+            return prev_main, curr_main
+        return (
+            baseline.get("total_bytes", 0),
+            current_stats.get("total_bytes", 0),
+        )
+
+    def _is_backup_suspicious(self, current_stats, baseline):
+        if not baseline:
+            return False
+        prev_count = baseline.get("message_count", 0)
+        curr_count = current_stats.get("message_count", 0)
+        if curr_count < 0:
+            return False
+        prev_bytes, curr_bytes = self._size_bytes_for_compare(current_stats, baseline)
+        if prev_count >= MIN_WIPE_MESSAGE_COUNT and curr_count == 0:
+            return True
+        if (
+            prev_bytes > MIN_SIZE_COMPARE_BYTES
+            and curr_bytes < prev_bytes * MIN_SIZE_RATIO
+            and prev_count > 0
+            and curr_count < prev_count * MESSAGE_DROP_RATIO
+        ):
+            return True
+        return False
+
+    merge_health_issues = staticmethod(merge_health_issues)
+
+    def check_db_health_at_open(self, storage_path, *, quick: bool = False):
+        """Run integrity and baseline checks after opening the database.
+
+        Returns human-readable issue strings. Empty if healthy.
+        When quick is True, use PRAGMA quick_check instead of full integrity_check.
+        """
+        issues = []
+        try:
+            integrity_rows = (
+                self.provider.quick_check()
+                if quick
+                else self.provider.integrity_check()
+            )
+            check_label = "quick check" if quick else "integrity check"
+            if not integrity_rows:
+                issues.append(f"Database {check_label} failed: no result")
+                _log.warning("DB open health check: no result")
+            else:
+                first = integrity_rows[0]
+                val = (
+                    next(iter(first.values())) if isinstance(first, dict) else first[0]
+                )
+                if val != "ok":
+                    issues.append(f"Database {check_label} failed: {val!s}")
+                    _log.warning("DB open health check: %s", val)
+        except Exception as e:
+            msg = f"Database integrity check error: {e!s}"
+            issues.append(msg)
+            _log.warning("DB open health check: %s", msg)
+
+        try:
+            current = self._get_current_db_content_stats()
+            baseline = self._read_backup_baseline(storage_path)
+            if self._is_backup_suspicious(current, baseline):
+                prev_c = baseline.get("message_count", 0)
+                prev_b = baseline.get("total_bytes", 0)
+                curr_c = current.get("message_count", 0)
+                curr_b = current.get("total_bytes", 0)
+                msg = (
+                    f"Database content anomaly: was {prev_c} messages / {prev_b} bytes, "
+                    f"now {curr_c} / {curr_b}. Restore from backup if needed."
+                )
+                issues.append(msg)
+                _log.warning("DB open health check: %s", msg)
+            else:
+                _log.info(
+                    "DB open health check ok: messages=%s total_bytes=%s",
+                    current.get("message_count"),
+                    current.get("total_bytes"),
+                )
+        except Exception as e:
+            _log.warning("DB open health check (baseline): %s", e)
+
+        return issues
+
+    def check_db_health_at_close(self, storage_path):
+        """Run health checks before closing the database (for logging only).
+
+        Uses quick_check instead of full integrity_check so Ctrl+C during
+        shutdown is less likely to race a long scan. Returns issue strings.
+        Empty if healthy.
+        """
+        issues = []
+        try:
+            quick_rows = self.provider.quick_check()
+            if not quick_rows:
+                issues.append("Database quick_check failed: no result")
+                _log.warning("DB close health check: no result")
+            else:
+                first = quick_rows[0]
+                val = (
+                    next(iter(first.values())) if isinstance(first, dict) else first[0]
+                )
+                if val != "ok":
+                    issues.append(f"Database integrity check failed: {val!s}")
+                    _log.warning("DB close health check: quick_check failed")
+        except Exception as e:
+            _log.warning("DB close health check: %s", e)
+
+        try:
+            current = self._get_current_db_content_stats()
+            baseline = self._read_backup_baseline(storage_path)
+            if self._is_backup_suspicious(current, baseline):
+                issues.append(
+                    "Database content anomaly detected at close. Consider restoring from backup.",
+                )
+                _log.warning("DB close health check: content anomaly")
+            else:
+                _log.info(
+                    "DB close health check ok: messages=%s total_bytes=%s",
+                    current.get("message_count"),
+                    current.get("total_bytes"),
+                )
+        except Exception as e:
+            _log.warning("DB close health check (baseline): %s", e)
+
+        return issues
+
+    def _database_paths(self):
+        db_path = self.provider.db_path
+        return {
+            "main": db_path,
+            "wal": f"{db_path}-wal",
+            "shm": f"{db_path}-shm",
+        }
+
+    def get_database_health_snapshot(self):
+        page_size = self._get_pragma_value("page_size", 0) or 0
+        page_count = self._get_pragma_value("page_count", 0) or 0
+        freelist_pages = self._get_pragma_value("freelist_count", 0) or 0
+        freelist_bytes = (
+            page_size * freelist_pages if page_size > 0 and freelist_pages > 0 else 0
+        )
+        if freelist_bytes > 0:
+            free_bytes = freelist_bytes
+        else:
+            try:
+                db_path = self.provider.db_path
+                if not db_path:
+                    free_bytes = 0
+                else:
+                    db_dir = os.path.dirname(os.path.abspath(db_path))
+                    free_bytes = shutil.disk_usage(db_dir).free if db_dir else 0
+            except OSError:
+                free_bytes = 0
+
+        return {
+            "quick_check": self._get_pragma_value("quick_check", "unknown"),
+            "journal_mode": self._get_pragma_value("journal_mode", "unknown"),
+            "synchronous": self._get_pragma_value("synchronous", None),
+            "wal_autocheckpoint": self._get_pragma_value("wal_autocheckpoint", None),
+            "auto_vacuum": self._get_pragma_value("auto_vacuum", None),
+            "page_size": page_size,
+            "page_count": page_count,
+            "freelist_pages": freelist_pages,
+            "estimated_free_bytes": free_bytes,
+            "files": self._get_database_file_stats(),
+        }
+
+    def _checkpoint_wal(self, mode: str = "TRUNCATE"):
+        safe_mode = _sanitize_wal_checkpoint_mode(mode)
+        return self.execute_sql(f"PRAGMA wal_checkpoint({safe_mode})").fetchall()
+
+    def run_database_vacuum(self):
+        try:
+            # Attempt to checkpoint WAL, ignore errors if busy
+            try:
+                self._checkpoint_wal()
+            except Exception as e:
+                print(
+                    f"Warning: WAL checkpoint during vacuum failed (non-critical): {e}",
+                )
+
+            self.execute_sql("VACUUM")
+            self._tune_sqlite_pragmas()
+
+            return {
+                "health": self.get_database_health_snapshot(),
+            }
+        except Exception as e:
+            # Wrap in a cleaner error message
+            raise Exception(f"Database vacuum failed: {e!s}") from e
+
+    def run_database_recovery(self):
+        actions = []
+
+        actions.append(
+            {
+                "step": "quick_check_before",
+                "result": self._get_pragma_value("quick_check", "unknown"),
+            },
+        )
+
+        actions.append({"step": "wal_checkpoint", "result": self._checkpoint_wal()})
+
+        integrity_rows = self.provider.integrity_check()
+        integrity = self._integrity_labels(integrity_rows)
+        actions.append({"step": "integrity_check", "result": integrity})
+
+        integrity_ok = bool(integrity) and integrity[0] == "ok"
+        if integrity_ok:
+            self.provider.vacuum()
+            actions.append({"step": "vacuum", "result": "ok"})
+            self._tune_sqlite_pragmas()
+        else:
+            actions.append({"step": "vacuum", "result": "skipped"})
+
+        actions.append(
+            {
+                "step": "quick_check_after",
+                "result": self._get_pragma_value("quick_check", "unknown"),
+            },
+        )
+
+        return {
+            "actions": actions,
+            "health": self.get_database_health_snapshot(),
+        }
+
+    @staticmethod
+    def _integrity_labels(rows) -> list:
+        labels = []
+        for row in rows or []:
+            if isinstance(row, dict):
+                labels.append(next(iter(row.values())))
+            else:
+                labels.append(row[0])
+        return labels
+
+    def _checkpoint_and_close(self):
+        try:
+            self._checkpoint_wal()
+        except Exception as e:
+            print(f"Failed to checkpoint WAL: {e}")
+        try:
+            self.close_all()
+        except Exception as e:
+            print(f"Failed to close database: {e}")
+
+    def durable_shutdown(self):
+        """Commit, force a durable WAL checkpoint, then close all connections.
+
+        Use on SIGINT/SIGTERM and identity teardown so Ctrl+C cannot leave an
+        uncheckpointed WAL that later fails PRAGMA quick_check.
+        """
+        try:
+            # FULL before the final checkpoint so the last pages hit disk even
+            # when the process is about to die (NORMAL can delay fsync).
+            self.execute_sql("PRAGMA synchronous=FULL")
+        except Exception as e:
+            print(f"Failed to set synchronous=FULL before shutdown: {e}")
+        try:
+            self._checkpoint_wal("TRUNCATE")
+        except Exception as e:
+            print(f"Failed to checkpoint WAL during durable shutdown: {e}")
+            with suppress(Exception):
+                self._checkpoint_wal("FULL")
+        try:
+            self.close_all()
+        except Exception as e:
+            print(f"Failed to close database during durable shutdown: {e}")
+
+    def close(self):
+        self.close_all()
+
+    def close_all(self):
+        if hasattr(self, "provider"):
+            self.provider.close_all()
+
+    def _identity_storage_dir(self) -> str:
+        db_path = self.provider.db_path
+        if not db_path:
+            msg = "database path is not configured"
+            raise ValueError(msg)
+        return os.path.dirname(os.path.abspath(db_path))
+
+    def _add_identity_storage_to_zip(
+        self,
+        zf: zipfile.ZipFile,
+        db_basenames: set[str],
+        *,
+        exclude_paths: set[str] | None = None,
+    ) -> list[str]:
+        identity_dir = self._identity_storage_dir()
+        excluded = {os.path.abspath(path) for path in (exclude_paths or ())}
+        included: list[str] = []
+        for root, dirs, files in os.walk(identity_dir, followlinks=False):
+            dirs[:] = [
+                d
+                for d in dirs
+                if d not in BACKUP_SKIP_DIR_NAMES
+                and not d.startswith(BACKUP_SKIP_DIR_PREFIXES)
+                and not os.path.islink(os.path.join(root, d))
+            ]
+            for name in files:
+                if name in db_basenames or name in (
+                    BACKUP_MANIFEST_NAME,
+                    INTEGRITY_MANIFEST_NAME,
+                ):
+                    continue
+                full_path = os.path.join(root, name)
+                if os.path.islink(full_path):
+                    continue
+                if os.path.abspath(full_path) in excluded:
+                    continue
+                rel_path = os.path.relpath(full_path, identity_dir).replace("\\", "/")
+                if rel_path.startswith(".."):
+                    continue
+                _zip_write_file(zf, full_path, arcname=rel_path)
+                included.append(rel_path)
+        return included
+
+    @staticmethod
+    def _safe_zip_extract_member(
+        zf: zipfile.ZipFile,
+        member: str,
+        target_dir: str,
+    ) -> None:
+        from meshchatnext.src.path_utils import is_safe_archive_member, is_under_root
+
+        # Normalize separators and reject absolute / parent traversal early.
+        normalized = member.replace("\\", "/")
+        if not is_safe_archive_member(normalized):
+            msg = f"Unsafe zip entry path: {member}"
+            raise DatabaseRestoreError(msg)
+        abs_target = os.path.realpath(target_dir)
+        # realpath resolves existing symlink prefixes (e.g. identity_dir/plugins -> outside).
+        abs_dest = os.path.realpath(os.path.join(target_dir, normalized))
+        if not is_under_root(abs_dest, abs_target):
+            msg = f"Unsafe zip entry path: {member}"
+            raise DatabaseRestoreError(msg)
+        zf.extract(member, target_dir)
+
+    @staticmethod
+    def _check_zip_fits_disk(zf: zipfile.ZipFile, target_dir: str) -> None:
+        """Refuse a restore whose uncompressed payload cannot fit on disk.
+
+        Extraction failing halfway leaves a half-restored staging dir. A
+        failed zip bomb also fills the disk the database lives on.
+        """
+        total = sum(info.file_size for info in zf.infolist() if not info.is_dir())
+        free = shutil.disk_usage(target_dir).free
+        headroom = max(total // 10, 64 * 1024 * 1024)
+        if total + headroom > free:
+            msg = (
+                f"Backup needs {total + headroom} bytes free but only "
+                f"{free} bytes are available on the storage disk"
+            )
+            raise DatabaseRestoreError(msg)
+
+    def _backup_to_zip(self, backup_path: str):
+        paths = self._database_paths()
+        os.makedirs(os.path.dirname(backup_path) or ".", exist_ok=True)
+        # ensure WAL is checkpointed to get a consistent snapshot
+        self._checkpoint_wal()
+
+        main_filename = os.path.basename(paths["main"])
+        db_basenames = {os.path.basename(p) for p in paths.values()}
+        backup_abs = os.path.abspath(backup_path)
+        with zipfile.ZipFile(backup_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            _zip_write_file(zf, paths["main"], arcname=main_filename)
+            if os.path.exists(paths["wal"]):
+                _zip_write_file(zf, paths["wal"], arcname=f"{main_filename}-wal")
+            if os.path.exists(paths["shm"]):
+                _zip_write_file(zf, paths["shm"], arcname=f"{main_filename}-shm")
+            included = self._add_identity_storage_to_zip(
+                zf,
+                db_basenames,
+                exclude_paths={backup_abs},
+            )
+            manifest = {
+                "version": 1,
+                "created_at": datetime.now(UTC).isoformat(),
+                "includes_identity_storage": True,
+                "files": sorted(included),
+            }
+            zf.writestr(BACKUP_MANIFEST_NAME, json.dumps(manifest, indent=2))
+
+        return {
+            "path": backup_path,
+            "size": os.path.getsize(backup_path),
+            "identity_files": len(included),
+        }
+
+    def _backup_pre_migration(self, from_version: int, to_version: int) -> dict:
+        storage_path = self._identity_storage_dir()
+        backup_dir = os.path.join(storage_path, "database-backups")
+        os.makedirs(backup_dir, exist_ok=True)
+        timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+        backup_path = self._unique_backup_path(
+            backup_dir,
+            f"{PRE_MIGRATE_BACKUP_PREFIX}v{from_version}-to-v{to_version}-",
+            timestamp,
+        )
+        result = self._backup_to_zip(backup_path)
+        print(
+            f"Pre-migration backup written to {result['path']} ({result['size']} bytes)",
+            flush=True,
+        )
+        return result
+
+    def list_auto_backups(self, storage_path: str) -> list[dict]:
+        backup_dir = os.path.join(storage_path, "database-backups")
+        if not os.path.exists(backup_dir):
+            return []
+
+        backups = []
+        for file in os.listdir(backup_dir):
+            if not file.endswith(".zip"):
+                continue
+            full_path = os.path.join(backup_dir, file)
+            stats = os.stat(full_path)
+            backups.append(
+                {
+                    "name": file,
+                    "path": full_path,
+                    "size": stats.st_size,
+                    "created_at": datetime.fromtimestamp(
+                        stats.st_mtime,
+                        UTC,
+                    ).isoformat(),
+                },
+            )
+        return sorted(backups, key=lambda row: row["created_at"], reverse=True)
+
+    def copy_auto_backup(
+        self,
+        storage_path: str,
+        filename: str,
+        dest_path: str,
+    ) -> dict:
+        from meshchatnext.src.path_utils import safe_path_under_dir
+
+        if not isinstance(filename, str) or not filename or "\x00" in filename:
+            msg = "Invalid backup name"
+            raise ValueError(msg)
+        normalized = filename.replace("\\", "/")
+        if normalized != os.path.basename(normalized) or ".." in normalized:
+            msg = "Invalid backup name"
+            raise ValueError(msg)
+
+        backup_dir = os.path.join(storage_path, "database-backups")
+        name = filename if filename.endswith(".zip") else f"{filename}.zip"
+        src = safe_path_under_dir(backup_dir, name)
+        if not src or not os.path.isfile(src):
+            msg = f"Backup not found: {name}"
+            raise FileNotFoundError(msg)
+
+        dest_parent = os.path.dirname(os.path.abspath(dest_path))
+        if dest_parent:
+            os.makedirs(dest_parent, exist_ok=True)
+        shutil.copy2(src, dest_path)
+        return {
+            "name": name,
+            "source": src,
+            "path": os.path.abspath(dest_path),
+            "size": os.path.getsize(dest_path),
+        }
+
+    def backup_database(
+        self,
+        storage_path,
+        backup_path: str | None = None,
+        max_count: int | None = None,
+    ):
+        default_dir = os.path.join(storage_path, "database-backups")
+        os.makedirs(default_dir, exist_ok=True)
+        timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+        current_stats = self._get_current_db_content_stats()
+        baseline = self._read_backup_baseline(storage_path)
+        suspicious = self._is_backup_suspicious(current_stats, baseline)
+
+        if backup_path is None:
+            prefix = "backup-SUSPICIOUS-" if suspicious else "backup-"
+            backup_path = self._unique_backup_path(default_dir, prefix, timestamp)
+
+        result = self._backup_to_zip(backup_path)
+
+        if suspicious:
+            _log.warning(
+                "Backup data-loss guard: current DB looks wrong (was %s messages / %s bytes, now %s / %s). "
+                "wrote backup-SUSPICIOUS-*.zip, skipping rotation",
+                baseline.get("message_count"),
+                baseline.get("total_bytes"),
+                current_stats.get("message_count"),
+                current_stats.get("total_bytes"),
+            )
+            print(
+                "Backup data-loss guard: current database looks wrong "
+                f"(was {baseline.get('message_count')} messages / {baseline.get('total_bytes')} bytes, "
+                f"now {current_stats.get('message_count')} / {current_stats.get('total_bytes')}). "
+                "Wrote backup-SUSPICIOUS-*.zip. Skipping rotation and baseline update. Check disk and DB.",
+            )
+            result["suspicious"] = True
+            result["baseline"] = baseline
+            result["current_stats"] = current_stats
+            return result
+
+        if current_stats.get("message_count", 0) < 0:
+            _log.warning(
+                "Backup message count unavailable, skipping rotation and baseline update",
+            )
+            result["count_unknown"] = True
+            result["current_stats"] = current_stats
+            return result
+
+        if max_count is not None and max_count > 0:
+            try:
+                backups = []
+                suspicious_backups = []
+                for file in os.listdir(default_dir):
+                    if (
+                        not file.endswith(".zip")
+                        or not file.startswith("backup-")
+                        or file.startswith(PRE_MIGRATE_BACKUP_PREFIX)
+                    ):
+                        continue
+                    full_path = os.path.join(default_dir, file)
+                    stats = os.stat(full_path)
+                    if "SUSPICIOUS" in file:
+                        suspicious_backups.append((full_path, stats.st_mtime))
+                    else:
+                        backups.append((full_path, stats.st_mtime))
+
+                for pool in (backups, suspicious_backups):
+                    if len(pool) > max_count:
+                        pool.sort(key=lambda x: x[1])
+                        to_delete = pool[: len(pool) - max_count]
+                        for path, _ in to_delete:
+                            if os.path.exists(path):
+                                os.remove(path)
+            except Exception as e:
+                print(f"Failed to cleanup old backups: {e}")
+
+        self._write_backup_baseline(
+            storage_path,
+            current_stats["message_count"],
+            current_stats["total_bytes"],
+            current_stats.get("main_bytes"),
+        )
+        return result
+
+    @staticmethod
+    def _unique_backup_path(directory: str, prefix: str, timestamp: str) -> str:
+        """Second-resolution timestamps collide. Never overwrite a backup."""
+        candidate = os.path.join(directory, f"{prefix}{timestamp}.zip")
+        counter = 2
+        while os.path.exists(candidate):
+            candidate = os.path.join(
+                directory,
+                f"{prefix}{timestamp}-{counter}.zip",
+            )
+            counter += 1
+        return candidate
+
+    def create_snapshot(self, storage_path, name: str):
+        """Creates a named snapshot of the database."""
+        snapshot_dir = os.path.join(storage_path, "snapshots")
+        os.makedirs(snapshot_dir, exist_ok=True)
+        # Ensure name is safe for filesystem
+        safe_name = "".join(
+            [c for c in name if c.isalnum() or c in (" ", ".", "-", "_")],
+        ).strip()
+        if not safe_name:
+            safe_name = "unnamed_snapshot"
+
+        snapshot_path = os.path.join(snapshot_dir, f"{safe_name}.zip")
+        return self._backup_to_zip(snapshot_path)
+
+    def list_snapshots(self, storage_path):
+        """Lists all available snapshots."""
+        snapshot_dir = os.path.join(storage_path, "snapshots")
+        if not os.path.exists(snapshot_dir):
+            return []
+
+        snapshots = []
+        for file in os.listdir(snapshot_dir):
+            if file.endswith(".zip"):
+                full_path = os.path.join(snapshot_dir, file)
+                stats = os.stat(full_path)
+                snapshots.append(
+                    {
+                        "name": file,
+                        "path": full_path,
+                        "size": stats.st_size,
+                        "created_at": datetime.fromtimestamp(
+                            stats.st_mtime,
+                            UTC,
+                        ).isoformat(),
+                    },
+                )
+        return sorted(snapshots, key=lambda x: x["created_at"], reverse=True)
+
+    def delete_snapshot_or_backup(
+        self,
+        storage_path,
+        filename: str,
+        is_backup: bool = False,
+    ):
+        """Deletes a database snapshot or auto-backup."""
+        from meshchatnext.src.path_utils import safe_path_under_dir
+
+        if not isinstance(filename, str) or not filename or "\x00" in filename:
+            msg = "Invalid path"
+            raise ValueError(msg)
+        normalized = filename.replace("\\", "/")
+        if normalized != os.path.basename(normalized) or ".." in normalized:
+            msg = "Invalid path"
+            raise ValueError(msg)
+
+        base_dir = "database-backups" if is_backup else "snapshots"
+        directory = os.path.join(storage_path, base_dir)
+        name = filename if filename.endswith(".zip") else f"{filename}.zip"
+        abs_path = safe_path_under_dir(directory, name)
+        if not abs_path:
+            msg = "Invalid path"
+            raise ValueError(msg)
+
+        # Unlink the literal entry, not the resolved path: safe_path_under_dir
+        # returns a realpath, so removing it would delete the target of a
+        # symlink entry and leave the link itself behind.
+        entry = os.path.join(directory, name)
+        if os.path.lexists(entry):
+            os.remove(entry)
+            return True
+        return False
+
+    @staticmethod
+    def _looks_like_sqlite(path: str) -> bool:
+        try:
+            with open(path, "rb") as handle:
+                return handle.read(16) == b"SQLite format 3\x00"
+        except OSError:
+            return False
+
+    def restore_database(self, backup_path: str):
+        if not os.path.exists(backup_path):
+            msg = "Backup not found"
+            raise FileNotFoundError(msg)
+
+        paths = self._database_paths()
+        self._checkpoint_and_close()
+
+        target_dir = os.path.dirname(paths["main"])
+        main_name = os.path.basename(paths["main"])
+        staging_dir = tempfile.mkdtemp(prefix=".meshchatnext-restore-", dir=target_dir)
+        integrity_rows = None
+        try:
+            if zipfile.is_zipfile(backup_path):
+                with zipfile.ZipFile(backup_path, "r") as zf:
+                    self._check_zip_fits_disk(zf, target_dir)
+                    for member in zf.namelist():
+                        if member.endswith("/"):
+                            continue
+                        self._safe_zip_extract_member(zf, member, staging_dir)
+            else:
+                shutil.copy2(backup_path, os.path.join(staging_dir, main_name))
+
+            staging_main = os.path.join(staging_dir, main_name)
+            if not os.path.exists(staging_main):
+                # Zip may use a different basename for the primary db file.
+                candidates = [
+                    os.path.join(staging_dir, name)
+                    for name in os.listdir(staging_dir)
+                    if name.endswith(".db") and not name.endswith(("-wal", "-shm"))
+                ]
+                if len(candidates) == 1:
+                    staging_main = candidates[0]
+                else:
+                    raise DatabaseRestoreError(
+                        "Backup does not contain a primary database file",
+                    )
+
+            if not self._looks_like_sqlite(staging_main):
+                raise DatabaseRestoreError(
+                    "Restored file is not a valid SQLite database",
+                )
+
+            aside_dir = tempfile.mkdtemp(
+                prefix=".meshchatnext-aside-",
+                dir=target_dir,
+            )
+            try:
+                for live_path in paths.values():
+                    if os.path.exists(live_path):
+                        shutil.move(
+                            live_path,
+                            os.path.join(aside_dir, os.path.basename(live_path)),
+                        )
+
+                shutil.move(staging_main, paths["main"])
+                for suffix, key in (("-wal", "wal"), ("-shm", "shm")):
+                    staged = os.path.join(
+                        staging_dir,
+                        os.path.basename(paths["main"]) + suffix,
+                    )
+                    if not os.path.exists(staged):
+                        staged = os.path.join(
+                            staging_dir,
+                            os.path.basename(staging_main) + suffix,
+                        )
+                    if os.path.exists(staged):
+                        shutil.move(staged, paths[key])
+
+                try:
+                    self.initialize()
+                except Exception as exc:
+                    self._restore_aside_files(aside_dir, paths)
+                    with suppress(Exception):
+                        self.initialize()
+                    raise DatabaseRestoreError(
+                        f"Restored files from backup but database failed to open: {exc!s}",
+                    ) from exc
+                self._tune_sqlite_pragmas()
+                integrity_rows = self.provider.integrity_check()
+                integrity = self._integrity_labels(integrity_rows)
+                if integrity and integrity[0] != "ok":
+                    self.close_all()
+                    self._restore_aside_files(aside_dir, paths)
+                    with suppress(Exception):
+                        self.initialize()
+                    raise DatabaseRestoreError(
+                        f"Restored backup failed integrity check: {integrity[0]!s}",
+                    )
+                try:
+                    self._copy_identity_storage_from_staging(
+                        staging_dir,
+                        target_dir,
+                        main_name,
+                    )
+                except Exception as exc:
+                    self.close_all()
+                    self._restore_aside_files(aside_dir, paths)
+                    with suppress(Exception):
+                        self.initialize()
+                    raise DatabaseRestoreError(
+                        f"Restored database but identity files failed to copy: {exc!s}",
+                    ) from exc
+                # The manifest on disk still describes the pre-restore tree.
+                # Drop it so a bare restore cannot block the next boot. The
+                # app-level restore writes a fresh signed baseline.
+                with suppress(OSError):
+                    os.remove(
+                        os.path.join(target_dir, INTEGRITY_MANIFEST_NAME),
+                    )
+                # The pre-restore backup baseline would flag the restored db
+                # as a content anomaly at next open. Re-baseline it.
+                with suppress(Exception):
+                    stats = self._get_current_db_content_stats()
+                    if stats.get("message_count", -1) >= 0:
+                        self._write_backup_baseline(
+                            target_dir,
+                            stats["message_count"],
+                            stats["total_bytes"],
+                            stats.get("main_bytes"),
+                        )
+            finally:
+                shutil.rmtree(aside_dir, ignore_errors=True)
+        finally:
+            shutil.rmtree(staging_dir, ignore_errors=True)
+
+        return {
+            "restored_from": backup_path,
+            "integrity_check": integrity_rows,
+            "health": self.get_database_health_snapshot(),
+        }
+
+    @staticmethod
+    def _copy_identity_storage_from_staging(
+        staging_dir: str,
+        target_dir: str,
+        main_name: str,
+    ) -> None:
+        skip = {main_name, f"{main_name}-wal", f"{main_name}-shm"}
+        main_stem = os.path.splitext(main_name)[0]
+        extras_aside = tempfile.mkdtemp(
+            prefix=".meshchatnext-extras-aside-",
+            dir=target_dir,
+        )
+        created: list[str] = []
+        try:
+            for root, _dirs, files in os.walk(staging_dir, followlinks=False):
+                for name in files:
+                    src = os.path.join(root, name)
+                    rel = os.path.relpath(src, staging_dir)
+                    rel_parts = rel.split(os.sep)
+                    if any(
+                        part.startswith(BACKUP_SKIP_DIR_PREFIXES) for part in rel_parts
+                    ):
+                        continue
+                    if rel in skip or rel == INTEGRITY_MANIFEST_NAME:
+                        continue
+                    if name.endswith(("-wal", "-shm")) and name.startswith(main_stem):
+                        continue
+                    if os.path.islink(src):
+                        continue
+                    dest = os.path.join(target_dir, rel)
+                    dest_dir = os.path.dirname(dest)
+                    if dest_dir:
+                        os.makedirs(dest_dir, exist_ok=True)
+                    if os.path.lexists(dest):
+                        aside = os.path.join(extras_aside, rel)
+                        aside_dir = os.path.dirname(aside)
+                        if aside_dir:
+                            os.makedirs(aside_dir, exist_ok=True)
+                        shutil.move(dest, aside)
+                    shutil.copy2(src, dest)
+                    created.append(dest)
+        except Exception:
+            for dest in reversed(created):
+                with suppress(OSError):
+                    if os.path.lexists(dest) and not os.path.isdir(dest):
+                        os.remove(dest)
+            Database._restore_extras_aside(extras_aside, target_dir)
+            raise
+        finally:
+            shutil.rmtree(extras_aside, ignore_errors=True)
+
+    @staticmethod
+    def _restore_extras_aside(extras_aside: str, target_dir: str) -> None:
+        if not os.path.isdir(extras_aside):
+            return
+        for root, _dirs, files in os.walk(extras_aside, followlinks=False):
+            for name in files:
+                src = os.path.join(root, name)
+                rel = os.path.relpath(src, extras_aside)
+                dest = os.path.join(target_dir, rel)
+                dest_dir = os.path.dirname(dest)
+                if dest_dir:
+                    os.makedirs(dest_dir, exist_ok=True)
+                if os.path.isdir(dest):
+                    continue
+                Database._replace_from_aside(src, dest)
+
+    @staticmethod
+    def _replace_from_aside(aside: str, live_path: str) -> None:
+        """Move aside onto live_path without deleting live first."""
+        if not os.path.exists(aside):
+            return
+        with suppress(OSError):
+            os.replace(aside, live_path)
+
+    @staticmethod
+    def _restore_aside_files(aside_dir: str, paths: dict) -> None:
+        """Put previously moved live DB files back after a failed restore."""
+        for live_path in paths.values():
+            aside = os.path.join(aside_dir, os.path.basename(live_path))
+            Database._replace_from_aside(aside, live_path)

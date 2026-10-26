@@ -1,0 +1,176 @@
+# Beta channel cut: tag a chosen ref (default master) as beta-*,
+# then dispatch build-release.yml. Also triggers Android emulator smoke.
+#
+# Pinned first-party actions (bump tag and SHA together when upgrading):
+#   actions/checkout@v6.0.1            8e8c483db84b4bee98b60c0593521ed34d9990e8
+#
+name: Beta Release
+
+on:
+    workflow_dispatch:
+        inputs:
+            ref:
+                description: Git ref to cut Beta from (branch, tag, or SHA)
+                required: true
+                default: master
+            suffix:
+                description: Optional tag suffix (default YYYY.MM.DD-sha7)
+                required: false
+                default: ""
+
+concurrency:
+    group: beta-release
+    cancel-in-progress: false
+
+permissions:
+    contents: read
+
+env:
+    HARDEN_ENDPOINTS: >
+        github.com:443
+        api.github.com:443
+        codeload.github.com:443
+        uploads.github.com:443
+        *.githubusercontent.com:443
+        *.actions.githubusercontent.com:443
+        *.githubapp.com:443
+        *.blob.core.windows.net:443
+        ghcr.io:443
+        azure.archive.ubuntu.com:80
+        archive.ubuntu.com:80
+        *.ubuntu.com:443
+        packages.microsoft.com:443
+        pypi.org:443
+        upload.pypi.org:443
+        *.pythonhosted.org:443
+        registry.npmjs.org:443
+        nodejs.org:443
+        go.dev:443
+        golang.org:443
+        proxy.golang.org:443
+        sum.golang.org:443
+        sh.rustup.rs:443
+        static.rust-lang.org:443
+        static.crates.io:443
+        index.crates.io:443
+        api.adoptium.net:443
+        dl.google.com:443
+        maven.google.com:443
+        repo.maven.apache.org:443
+        services.gradle.org:443
+        repo.gradle.org:443
+        plugins.gradle.org:443
+        chaquo.com:443
+        auth.docker.io:443
+        registry-1.docker.io:443
+        download.docker.com:443
+        production.cloudfront.docker.com:443
+        mirror.gcr.io:443
+        *.sigstore.dev:443
+        check.trivy.dev:443
+        cgr.dev:443
+        *.cgr.dev:443
+        dl-cdn.alpinelinux.org:443
+        *.alpinelinux.org:443
+        *.r2.cloudflarestorage.com:443
+        *.storage.bunnycdn.com:443
+        cdn.quad4.io:443
+        dl.flathub.org:443
+        flathub.org:443
+        api.securityscorecards.dev:443
+        meshchatx.com:443
+        cdn.playwright.dev:443
+        playwright.download.prss.microsoft.com:443
+        *.prss.microsoft.com:443
+        firefox.settings.services.mozilla.com:443
+        *.mozilla.com:443
+        storage.googleapis.com:443
+        *.stepsecurity.io:443
+
+jobs:
+    cut:
+        name: Tag Beta and dispatch build-release
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write
+            actions: write
+        outputs:
+            tag_name: ${{ steps.meta.outputs.tag_name }}
+            commit_sha: ${{ steps.meta.outputs.commit_sha }}
+        steps:
+            - name: Harden runner
+              uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+              with:
+                  egress-policy: ${{ runner.os == 'Linux' && 'block' || 'audit' }}
+                  allowed-endpoints: ${{ env.HARDEN_ENDPOINTS }}
+            - name: Checkout
+              uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+              with:
+                  ref: ${{ inputs.ref }}
+                  fetch-depth: 0
+                  # Tag push needs the persisted token (git push origin).
+                  persist-credentials: true
+
+            - name: Create tag
+              id: meta
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  SUFFIX: ${{ inputs.suffix }}
+              run: |
+                  set -euo pipefail
+                  short_sha="$(git rev-parse --short=7 HEAD)"
+                  full_sha="$(git rev-parse HEAD)"
+
+                  if [ -n "${SUFFIX}" ]; then
+                    tag="beta-${SUFFIX}"
+                  else
+                    tag="beta-$(date -u +%Y.%m.%d)-${short_sha}"
+                  fi
+
+                  if git rev-parse "refs/tags/${tag}" >/dev/null 2>&1; then
+                    echo "Tag ${tag} already exists" >&2
+                    exit 1
+                  fi
+
+                  git config user.name "github-actions[bot]"
+                  git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+                  git tag -a "${tag}" -m "Beta build for ${full_sha}" "${full_sha}"
+                  git push origin "${tag}"
+
+                  echo "tag_name=${tag}" >> "$GITHUB_OUTPUT"
+                  echo "commit_sha=${full_sha}" >> "$GITHUB_OUTPUT"
+                  echo "Beta tag: ${tag} @ ${full_sha}"
+
+            - name: Dispatch build-release for tag
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  TAG: ${{ steps.meta.outputs.tag_name }}
+                  SHA: ${{ steps.meta.outputs.commit_sha }}
+              run: |
+                  set -euo pipefail
+                  for attempt in 1 2 3 4 5; do
+                    if gh workflow run build-release.yml --ref "refs/tags/${TAG}"; then
+                      echo "Dispatched build-release.yml for ref ${TAG} (${SHA})"
+                      exit 0
+                    fi
+                    echo "Dispatch attempt ${attempt} failed; waiting for tag to propagate..."
+                    sleep 5
+                  done
+                  echo "Failed to dispatch build-release.yml for ${TAG}" >&2
+                  exit 1
+
+            - name: Dispatch Android emulator smoke
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  SHA: ${{ steps.meta.outputs.commit_sha }}
+              run: |
+                  set -euo pipefail
+                  gh workflow run android-emulator-smoke.yml --ref "${SHA}" || \
+                    echo "::warning::Could not dispatch android-emulator-smoke.yml"
+
+            - name: Prune old Beta prereleases
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  MESHCHATNEXT_KEEP_TESTING: "7"
+                  MESHCHATNEXT_KEEP_BETA: "5"
+              run: bash scripts/ci/github-prune-channel-prereleases.sh

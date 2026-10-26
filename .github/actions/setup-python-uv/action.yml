@@ -1,0 +1,41 @@
+# Pinned actions (bump tag and SHA together when upgrading):
+#   actions/setup-python@v6.2.0  a309ff8b426b58ec0e2a45f0f869d46889d02405
+#   actions/cache@v6.1.0 55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+name: Set up Python and UV
+description: Python runtime, checksum-verified UV binary, and UV download cache
+
+inputs:
+    python-version:
+        description: Python version
+        required: true
+    python-allow-prereleases:
+        description: Allow pre-release Python versions via setup-python
+        required: false
+        default: "false"
+    uv-version:
+        description: UV version installed from GitHub releases
+        required: false
+        default: "0.11.15"
+
+runs:
+    using: composite
+    steps:
+        - name: Set up Python
+          uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+          with:
+              python-version: ${{ inputs.python-version }}
+              allow-prereleases: ${{ inputs.python-allow-prereleases }}
+
+        - name: Install UV (release binary + SHA256)
+          shell: bash
+          env:
+              UV_VERSION: ${{ inputs.uv-version }}
+          run: bash scripts/ci/github-install-uv.sh
+
+        - name: Cache UV downloads
+          uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+          with:
+              path: ~/.cache/uv
+              key: uv-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('uv.lock') }}
+              restore-keys: |
+                  uv-${{ runner.os }}-${{ runner.arch }}-

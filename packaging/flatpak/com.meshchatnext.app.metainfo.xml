@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-License-Identifier: 0BSD -->
+<component type="desktop-application">
+    <id>com.meshchatnext.app</id>
+    <metadata_license>0BSD</metadata_license>
+    <project_license>0BSD AND MIT</project_license>
+    <name>Meshchat neXt</name>
+    <summary>Mesh networking chat client</summary>
+    <description>
+        <p>Meshchat neXt is a local-first mesh communications app built on the Reticulum Network Stack. It supports LXMF messaging, LXST voice calls, RRC relay chat, NomadNet page browsing, map overlays, and plugins.</p>
+    </description>
+    <launchable type="desktop-id">com.meshchatnext.app.desktop</launchable>
+    <icon type="stock">com.meshchatnext.app</icon>
+    <developer id="com.quad4">
+        <name>Quad4</name>
+    </developer>
+    <categories>
+        <category>Network</category>
+        <category>InstantMessaging</category>
+        <category>Chat</category>
+    </categories>
+    <content_rating type="oars-1.1">
+        <content_attribute id="social-chat">intense</content_attribute>
+        <content_attribute id="social-audio">intense</content_attribute>
+    </content_rating>
+    <releases>
+        <release version="4.8.6" date="2026-09-06"/>
+    </releases>
+</component>

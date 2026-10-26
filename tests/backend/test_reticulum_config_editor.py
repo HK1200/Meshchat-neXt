@@ -1,0 +1,236 @@
+# SPDX-License-Identifier: 0BSD
+
+"""Tests for the Reticulum Config Editor backend endpoints and helpers."""
+
+import json
+import os
+import shutil
+import tempfile
+from unittest.mock import MagicMock, patch
+
+import pytest
+import RNS
+
+from meshchatnext.meshchat import ReticulumMeshChat
+from tests.backend.http_request_stubs import JsonContent, RawContent
+
+
+def _rns_default_config_text_at(path: str) -> str:
+    return ReticulumMeshChat._write_rns_reticulum_default_config_file(path)
+
+
+@pytest.fixture
+def temp_dir():
+    dir_path = tempfile.mkdtemp()
+    yield dir_path
+    shutil.rmtree(dir_path)
+
+
+@pytest.fixture
+def mock_rns_minimal():
+    with (
+        patch("RNS.Reticulum") as mock_rns,
+        patch("RNS.Transport"),
+        patch("LXMF.LXMRouter"),
+        patch("meshchatnext.meshchat.get_file_path", return_value="/tmp/mock_path"),
+    ):
+        mock_rns_instance = mock_rns.return_value
+        mock_rns_instance.configpath = "/tmp/mock_config"
+        mock_rns_instance.is_connected_to_shared_instance = False
+        mock_rns_instance.transport_enabled.return_value = True
+
+        mock_id = MagicMock(spec=RNS.Identity)
+        mock_id.hash = b"test_hash_32_bytes_long_01234567"
+        mock_id.hexhash = mock_id.hash.hex()
+        mock_id.get_private_key.return_value = b"test_private_key"
+        yield mock_id
+
+
+@pytest.fixture
+def app_instance(mock_rns_minimal, temp_dir):
+    with patch("meshchatnext.meshchat.generate_ssl_certificate"):
+        instance = ReticulumMeshChat(
+            identity=mock_rns_minimal,
+            storage_dir=temp_dir,
+            reticulum_config_dir=os.path.join(temp_dir, ".reticulum"),
+        )
+        yield instance
+
+
+def _find_handler(app, method, path):
+    for route in app.get_routes():
+        if route.path == path and route.method == method:
+            return route.handler
+    raise AssertionError(f"Handler not found: {method} {path}")
+
+
+def _make_request(json_body=None):
+    request = MagicMock()
+
+    async def _json():
+        if json_body is None:
+            raise ValueError("no json body")
+        return json_body
+
+    request.json = _json
+    request.content = (
+        JsonContent(json_body) if json_body is not None else RawContent([])
+    )
+    return request
+
+
+def test_write_rns_reticulum_default_config_contains_required_sections(tmp_path):
+    path = str(tmp_path / "config")
+    text = _rns_default_config_text_at(path)
+    assert "[reticulum]" in text
+    assert "[interfaces]" in text
+    assert "[logging]" in text
+    assert "AutoInterface" in text
+
+
+def test_write_rns_reticulum_default_config_is_idempotent(tmp_path):
+    p1 = str(tmp_path / "a")
+    p2 = str(tmp_path / "b")
+    a = _rns_default_config_text_at(p1)
+    b = _rns_default_config_text_at(p2)
+    assert a == b
+
+
+@pytest.mark.asyncio
+async def test_endpoint_get_returns_current_config(app_instance):
+    _rns_default_config_text_at(app_instance._reticulum_config_file_path())
+    handler = _find_handler(app_instance, "GET", "/api/v1/reticulum/config/raw")
+
+    response = await handler(_make_request())
+    assert response.status == 200
+    payload = json.loads(response.body)
+    assert "[reticulum]" in payload["content"]
+    assert "[interfaces]" in payload["content"]
+    assert payload["path"].endswith("config")
+
+
+@pytest.mark.asyncio
+async def test_endpoint_put_writes_valid_config(app_instance):
+    handler = _find_handler(app_instance, "PUT", "/api/v1/reticulum/config/raw")
+
+    new_content = (
+        "[reticulum]\n  enable_transport = False\n\n"
+        "[interfaces]\n  [[Default Interface]]\n    type = AutoInterface\n"
+    )
+    response = await handler(_make_request({"content": new_content}))
+    assert response.status == 200
+    payload = json.loads(response.body)
+    assert payload["path"].endswith("config")
+
+    with open(app_instance._reticulum_config_file_path()) as f:
+        on_disk = f.read()
+    assert on_disk == new_content
+
+
+@pytest.mark.asyncio
+async def test_endpoint_put_rejects_missing_sections(app_instance):
+    handler = _find_handler(app_instance, "PUT", "/api/v1/reticulum/config/raw")
+
+    response = await handler(_make_request({"content": "garbage"}))
+    assert response.status == 400
+    payload = json.loads(response.body)
+    assert "[reticulum]" in payload["error"]
+
+
+@pytest.mark.asyncio
+async def test_endpoint_put_rejects_non_string_content(app_instance):
+    handler = _find_handler(app_instance, "PUT", "/api/v1/reticulum/config/raw")
+
+    response = await handler(_make_request({"content": 123}))
+    assert response.status == 400
+
+
+@pytest.mark.asyncio
+async def test_endpoint_put_rejects_invalid_json(app_instance):
+    handler = _find_handler(app_instance, "PUT", "/api/v1/reticulum/config/raw")
+
+    response = await handler(_make_request())
+    assert response.status == 400
+
+
+@pytest.mark.asyncio
+async def test_endpoint_reset_restores_defaults(app_instance):
+    reset_handler = _find_handler(
+        app_instance,
+        "POST",
+        "/api/v1/reticulum/config/reset",
+    )
+
+    config_path = app_instance._reticulum_config_file_path()
+    os.makedirs(os.path.dirname(config_path), exist_ok=True)
+    with open(config_path, "w") as f:
+        f.write(
+            "[reticulum]\n  enable_transport = True\n\n"
+            "[interfaces]\n  [[X]]\n    type = AutoInterface\n",
+        )
+
+    response = await reset_handler(_make_request())
+    assert response.status == 200
+    payload = json.loads(response.body)
+    expected = _rns_default_config_text_at(
+        os.path.join(app_instance.storage_dir, "_rns_default_ref"),
+    )
+    assert payload["content"] == expected
+
+    with open(config_path) as f:
+        on_disk = f.read()
+    assert on_disk == expected
+
+
+@pytest.mark.asyncio
+async def test_endpoint_get_returns_404_if_config_missing(app_instance):
+    config_path = app_instance._reticulum_config_file_path()
+    config_dir = os.path.dirname(config_path)
+    os.makedirs(config_dir, exist_ok=True)
+    if os.path.isfile(config_path):
+        os.remove(config_path)
+    assert not os.path.exists(config_path)
+
+    handler = _find_handler(app_instance, "GET", "/api/v1/reticulum/config/raw")
+    response = await handler(_make_request())
+    assert response.status == 404
+
+
+def test_ensure_reticulum_config_preserves_existing_parseable_config(app_instance):
+    config_path = app_instance._reticulum_config_file_path()
+    os.makedirs(os.path.dirname(config_path), exist_ok=True)
+    user_config = (
+        "[interfaces]\n"
+        "  [[Default Interface]]\n"
+        "    type = BackboneInterface\n"
+        "    enabled = Yes\n"
+        "    remote = 127.0.0.1\n"
+        "    target_port = 4242\n"
+        "    transport_identity = testidentity\n"
+    )
+    with open(config_path, "w", encoding="utf-8") as f:
+        f.write(user_config)
+
+    app_instance._reticulum_instance_name_startup_repair_done = True
+    app_instance._ensure_reticulum_config()
+
+    with open(config_path, encoding="utf-8") as f:
+        content = f.read()
+    assert "type = BackboneInterface" in content
+    assert "type = AutoInterface" not in content
+    assert "[reticulum]" in content
+
+
+def test_ensure_reticulum_config_writes_default_when_missing(app_instance):
+    config_path = app_instance._reticulum_config_file_path()
+    if os.path.isfile(config_path):
+        os.remove(config_path)
+
+    app_instance._reticulum_instance_name_startup_repair_done = True
+    app_instance._ensure_reticulum_config()
+
+    with open(config_path, encoding="utf-8") as f:
+        content = f.read()
+    assert "[reticulum]" in content
+    assert "[interfaces]" in content
+    assert "AutoInterface" in content

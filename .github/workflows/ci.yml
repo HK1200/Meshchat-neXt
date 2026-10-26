@@ -1,0 +1,909 @@
+# Primary CI: lint, tests, localization, Linux build check, E2E (master).
+# Native Windows/macOS Electron builds always run via native-build-dev.yml on master.
+# Verify matrix steps delegate to Taskfile.yml (task lint, test:frontend, test:lang).
+# Live LXMF local-TCP suite: task test:lxmf:live (MESHCHAT_LIVE_RETICULUM=1).
+#
+# The frontend bundle is built once via the reusable frontend-build workflow and
+# downloaded by downstream jobs instead of rebuilding on every runner.
+#
+# Pinned first-party actions (bump tag and SHA together when upgrading):
+#   actions/checkout@v6.0.1            8e8c483db84b4bee98b60c0593521ed34d9990e8
+#   actions/setup-python@v6.2.0        a309ff8b426b58ec0e2a45f0f869d46889d02405
+#   actions/upload-artifact@v7.0.2 cf430e030ddbb5b0abf93d22962f4752f3646cd9
+#   actions/download-artifact@v8.0.2 9000827ccba6bdab643e8b6fd33ac0654aef8333
+#   actions/setup-go@v6.5.0 924ae3a1cded613372ab5595356fb5720e22ba16
+#   actions/cache@v6.1.0 55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+
+name: CI
+
+on:
+    push:
+        branches:
+            - main
+    pull_request:
+        branches:
+            - main
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+concurrency:
+    group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+    cancel-in-progress: true
+
+env:
+    HARDEN_ENDPOINTS: >
+        github.com:443
+        api.github.com:443
+        codeload.github.com:443
+        uploads.github.com:443
+        *.githubusercontent.com:443
+        *.actions.githubusercontent.com:443
+        *.githubapp.com:443
+        *.blob.core.windows.net:443
+        ghcr.io:443
+        azure.archive.ubuntu.com:80
+        archive.ubuntu.com:80
+        *.ubuntu.com:443
+        packages.microsoft.com:443
+        pypi.org:443
+        upload.pypi.org:443
+        *.pythonhosted.org:443
+        registry.npmjs.org:443
+        nodejs.org:443
+        go.dev:443
+        golang.org:443
+        proxy.golang.org:443
+        sum.golang.org:443
+        sh.rustup.rs:443
+        static.rust-lang.org:443
+        static.crates.io:443
+        index.crates.io:443
+        api.adoptium.net:443
+        dl.google.com:443
+        maven.google.com:443
+        repo.maven.apache.org:443
+        services.gradle.org:443
+        repo.gradle.org:443
+        plugins.gradle.org:443
+        chaquo.com:443
+        auth.docker.io:443
+        registry-1.docker.io:443
+        download.docker.com:443
+        production.cloudfront.docker.com:443
+        mirror.gcr.io:443
+        *.sigstore.dev:443
+        check.trivy.dev:443
+        cgr.dev:443
+        *.cgr.dev:443
+        dl-cdn.alpinelinux.org:443
+        *.alpinelinux.org:443
+        *.r2.cloudflarestorage.com:443
+        *.storage.bunnycdn.com:443
+        cdn.quad4.io:443
+        dl.flathub.org:443
+        flathub.org:443
+        api.securityscorecards.dev:443
+        meshchatx.com:443
+        cdn.playwright.dev:443
+        playwright.download.prss.microsoft.com:443
+        *.prss.microsoft.com:443
+        firefox.settings.services.mozilla.com:443
+        *.mozilla.com:443
+        storage.googleapis.com:443
+        *.stepsecurity.io:443
+    FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    NODE_OPTIONS: --max-old-space-size=8192
+    PYTHON_VERSION: "3.14"
+    NODE_VERSION: "24"
+    UV_VERSION: "0.11.15"
+    PNPM_VERSION: "12.7.0"
+    GO_VERSION: "1.27.x"
+    TINYGO_VERSION: "0.42.0"
+    RNS_REQUIRED_SIGNER: ${{ vars.NEXT_TREE_SIGNER_HASH }}
+
+jobs:
+    frontend:
+        name: Build frontend artifact
+        uses: ./.github/workflows/frontend-build.yml
+        permissions:
+            contents: read
+        with:
+            artifact_name: meshchatnext-frontend-ci-${{ github.run_id }}-${{ github.run_attempt }}
+            retention_days: 1
+
+    verify:
+        name: ${{ matrix.task.name }}
+        runs-on: ubuntu-latest
+        timeout-minutes: ${{ matrix.task.timeout }}
+        permissions:
+            contents: read
+        strategy:
+            fail-fast: false
+            matrix:
+                task:
+                    - name: Lint
+                      id: lint
+                      timeout: 45
+                    - name: Frontend tests
+                      id: frontend-tests
+                      timeout: 45
+                    - name: Localization tests
+                      id: lang-tests
+                      timeout: 20
+                    - name: License audit
+                      id: license-audit
+                      timeout: 10
+                    - name: Docs mirror
+                      id: docs-mirror
+                      timeout: 10
+
+        steps:
+            - name: Harden runner
+              uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+              with:
+                  egress-policy: ${{ runner.os == 'Linux' && 'block' || 'audit' }}
+                  allowed-endpoints: ${{ env.HARDEN_ENDPOINTS }}
+            - name: Checkout
+              uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+              with:
+                  persist-credentials: false
+
+            - name: Set up development environment
+              uses: ./.github/actions/setup-dev-environment
+              with:
+                  python-version: ${{ env.PYTHON_VERSION }}
+                  uv-version: ${{ env.UV_VERSION }}
+                  node-version: ${{ env.NODE_VERSION }}
+                  pnpm-version: ${{ env.PNPM_VERSION }}
+
+            - name: Run matrix task
+              env:
+                  PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+              run: |
+                  set -euo pipefail
+                  case "${{ matrix.task.id }}" in
+                    lint)
+                      task lint
+                      if [ "${{ github.event_name }}" = "pull_request" ]; then
+                        git fetch --unshallow
+                        git fetch origin "+refs/heads/${PR_BASE_REF}:refs/remotes/origin/${PR_BASE_REF}"
+                        export COMMITLINT_FROM="origin/${PR_BASE_REF}"
+                        export COMMITLINT_TO="HEAD^2"
+                        task check:commits
+                      fi
+                      ;;
+                    frontend-tests)
+                      task test:frontend
+                      ;;
+                    lang-tests)
+                      task test:lang
+                      ;;
+                    license-audit)
+                      uv run python scripts/ci/license-check.py
+                      ;;
+                    docs-mirror)
+                      node scripts/sync-meshchatnext-docs.js
+                      if ! git diff --exit-code --quiet -- meshchatnext/src/frontend/public/meshchatnext-docs; then
+                        echo "::error::meshchatnext-docs mirror is out of date. Run: node scripts/sync-meshchatnext-docs.js"
+                        exit 1
+                      fi
+                      ;;
+                    *)
+                      echo "Unknown matrix task: ${{ matrix.task.id }}" >&2
+                      exit 1
+                      ;;
+                  esac
+
+            - name: Verify workspace clean
+              uses: ./.github/actions/verify-workspace-clean
+
+    visualiser-wasm:
+        name: Visualiser WASM (Go)
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        permissions:
+            contents: read
+        steps:
+            - name: Harden runner
+              uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+              with:
+                  egress-policy: ${{ runner.os == 'Linux' && 'block' || 'audit' }}
+                  allowed-endpoints: ${{ env.HARDEN_ENDPOINTS }}
+            - name: Checkout
+              uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+              with:
+                  persist-credentials: false
+
+            - name: Set up Go
+              uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+              with:
+                  go-version: ${{ env.GO_VERSION }}
+
+            - name: Install TinyGo
+              run: sh scripts/ci/setup-tinygo.sh ${{ env.TINYGO_VERSION }}
+
+            - name: Setup Task
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: sh scripts/ci/setup-task.sh 3.49.1
+
+            - name: Run visualiser-wasm tests
+              run: task test:visualiser-wasm
+
+            - name: Build visualiser-wasm artifacts
+              run: task build:visualiser-wasm
+
+            - name: Verify integrity.json stamped
+              run: |
+                  set -euo pipefail
+                  test -f meshchatnext/src/frontend/public/vendor/visualiser-wasm/integrity.json
+                  python3 - <<'PY'
+                  import json
+                  from pathlib import Path
+                  data = json.loads(Path("meshchatnext/src/frontend/public/vendor/visualiser-wasm/integrity.json").read_text())
+                  assert data.get("version") == "1.2.0", data
+                  assert str(data.get("wasm", "")).startswith("sha384-"), data
+                  assert str(data.get("wasmExec", "")).startswith("sha384-"), data
+                  print("visualiser-wasm integrity OK", data["version"])
+                  PY
+
+    geo-wasm:
+        name: Geo WASM (Go)
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        permissions:
+            contents: read
+        steps:
+            - name: Harden runner
+              uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+              with:
+                  egress-policy: ${{ runner.os == 'Linux' && 'block' || 'audit' }}
+                  allowed-endpoints: ${{ env.HARDEN_ENDPOINTS }}
+            - name: Checkout
+              uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+              with:
+                  persist-credentials: false
+
+            - name: Set up Go
+              uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+              with:
+                  go-version: ${{ env.GO_VERSION }}
+
+            - name: Install TinyGo
+              run: sh scripts/ci/setup-tinygo.sh ${{ env.TINYGO_VERSION }}
+
+            - name: Setup Task
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: sh scripts/ci/setup-task.sh 3.49.1
+
+            - name: Run geo-wasm tests
+              run: task test:geo-wasm
+
+            - name: Build geo-wasm artifacts
+              run: task build:geo-wasm
+
+            - name: Verify integrity.json stamped
+              run: |
+                  set -euo pipefail
+                  test -f meshchatnext/src/frontend/public/vendor/geo-wasm/integrity.json
+                  python3 - <<'PY'
+                  import json
+                  from pathlib import Path
+                  data = json.loads(Path("meshchatnext/src/frontend/public/vendor/geo-wasm/integrity.json").read_text())
+                  assert data.get("version") == "1.0.0", data
+                  assert str(data.get("wasm", "")).startswith("sha384-"), data
+                  assert str(data.get("wasmExec", "")).startswith("sha384-"), data
+                  print("geo-wasm integrity OK", data["version"])
+                  PY
+
+    backend-tests:
+        name: Backend tests (Python 3.14) - Shard ${{ matrix.shard }} / 4
+        runs-on: ubuntu-latest
+        timeout-minutes: 20
+        permissions:
+            contents: read
+        strategy:
+            fail-fast: false
+            matrix:
+                shard: [0, 1, 2, 3]
+        steps:
+            - name: Harden runner
+              uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+              with:
+                  egress-policy: ${{ runner.os == 'Linux' && 'block' || 'audit' }}
+                  allowed-endpoints: ${{ env.HARDEN_ENDPOINTS }}
+            - name: Checkout
+              uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+              with:
+                  persist-credentials: false
+
+            - name: Set up development environment
+              uses: ./.github/actions/setup-dev-environment
+              with:
+                  python-version: ${{ env.PYTHON_VERSION }}
+                  uv-version: ${{ env.UV_VERSION }}
+                  install-node: "false"
+
+            - name: Run backend tests
+              env:
+                  PYTEST_SHARD_INDEX: ${{ matrix.shard }}
+                  PYTEST_TOTAL_SHARDS: 4
+                  # One retry max: absorbs single flakes without hiding real
+                  # intermittency. Rerun counts surface via -rR in the log.
+                  PYTEST_ARGS: --reruns 1 -rR
+              run: task test:backend
+
+            - name: Verify workspace clean
+              uses: ./.github/actions/verify-workspace-clean
+
+    backend-coverage:
+        name: Backend coverage floor
+        runs-on: ubuntu-latest
+        timeout-minutes: 20
+        permissions:
+            contents: read
+        steps:
+            - name: Harden runner
+              uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+              with:
+                  egress-policy: ${{ runner.os == 'Linux' && 'block' || 'audit' }}
+                  allowed-endpoints: ${{ env.HARDEN_ENDPOINTS }}
+            - name: Checkout
+              uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+              with:
+                  persist-credentials: false
+
+            - name: Set up development environment
+              uses: ./.github/actions/setup-dev-environment
+              with:
+                  python-version: ${{ env.PYTHON_VERSION }}
+                  uv-version: ${{ env.UV_VERSION }}
+                  install-node: "false"
+
+            - name: Run backend tests with coverage floor
+              env:
+                  # Ratchet: raise this when measured coverage improves.
+                  COVERAGE_FLOOR: "59"
+                  PYTEST_ARGS: --reruns 1 -rR
+              run: task test:be:cov
+
+            - name: Diff coverage gate on changed lines
+              if: github.event_name == 'pull_request'
+              env:
+                  BASE_REF: ${{ github.base_ref }}
+              run: |
+                  set -euo pipefail
+                  git fetch origin "$BASE_REF" --depth=50
+                  uv run diff-cover coverage.xml \
+                      --compare-branch="origin/$BASE_REF" \
+                      --fail-under=80 \
+                      --markdown-report diff-cover-report.md
+                  cat diff-cover-report.md >> "$GITHUB_STEP_SUMMARY"
+
+    backend-tests-py315:
+        # Advisory while 3.15 is pre-release: surfaces stdlib removals and
+        # dependency gaps early without gating merges on ecosystem lag.
+        # UV_PYTHON steers uv sync/uv run to the 3.15 interpreter; the
+        # libcodec2-dev install in github-install-deps.sh lets the
+        # sdist-only pycodec2 build.
+        name: Backend tests (Python 3.15 beta)
+        runs-on: ubuntu-latest
+        timeout-minutes: 40
+        continue-on-error: true
+        permissions:
+            contents: read
+        env:
+            UV_PYTHON: "3.15"
+        steps:
+            - name: Harden runner
+              uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+              with:
+                  egress-policy: ${{ runner.os == 'Linux' && 'block' || 'audit' }}
+                  allowed-endpoints: ${{ env.HARDEN_ENDPOINTS }}
+            - name: Checkout
+              uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+              with:
+                  persist-credentials: false
+
+            - name: Set up development environment
+              uses: ./.github/actions/setup-dev-environment
+              with:
+                  python-version: "3.15"
+                  python-allow-prereleases: "true"
+                  uv-version: ${{ env.UV_VERSION }}
+                  install-node: "false"
+
+            - name: Run backend tests
+              env:
+                  PYTEST_ARGS: --reruns 1 -rR
+              run: task test:backend
+
+            - name: Verify workspace clean
+              uses: ./.github/actions/verify-workspace-clean
+
+    mutation-changed:
+        name: Mutation (changed backend modules, advisory)
+        if: github.event_name == 'pull_request'
+        runs-on: ubuntu-latest
+        timeout-minutes: 120
+        continue-on-error: true
+        permissions:
+            contents: read
+        steps:
+            - name: Harden runner
+              uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+              with:
+                  egress-policy: ${{ runner.os == 'Linux' && 'block' || 'audit' }}
+                  allowed-endpoints: ${{ env.HARDEN_ENDPOINTS }}
+            - name: Checkout
+              uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+              with:
+                  persist-credentials: false
+                  fetch-depth: 0
+
+            - name: Set up development environment
+              uses: ./.github/actions/setup-dev-environment
+              with:
+                  python-version: ${{ env.PYTHON_VERSION }}
+                  uv-version: ${{ env.UV_VERSION }}
+                  install-node: "false"
+
+            - name: Fetch base ref for diff
+              env:
+                  PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+              run: git fetch origin "+refs/heads/${PR_BASE_REF}:refs/remotes/origin/${PR_BASE_REF}"
+
+            - name: Mutate changed backend modules
+              env:
+                  MUTMUT_BASE_REF: origin/${{ github.event.pull_request.base.ref }}
+                  MUTMUT_MAX_MODULES: "3"
+                  MUTMUT_MIN_SCORE: "50"
+              run: bash scripts/ci/mutation-changed.sh
+
+            - name: Upload mutation report
+              if: always()
+              uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+              with:
+                  name: mutation-pr-report
+                  path: mutmut-cicd-stats.json
+                  if-no-files-found: ignore
+
+    zizmor:
+        name: Workflow audit (zizmor)
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        permissions:
+            contents: read
+        steps:
+            - name: Harden runner
+              uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+              with:
+                  egress-policy: ${{ runner.os == 'Linux' && 'block' || 'audit' }}
+                  allowed-endpoints: ${{ env.HARDEN_ENDPOINTS }}
+            - name: Checkout
+              uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+              with:
+                  persist-credentials: false
+
+            - name: Set up development environment
+              uses: ./.github/actions/setup-dev-environment
+              with:
+                  python-version: ${{ env.PYTHON_VERSION }}
+                  uv-version: ${{ env.UV_VERSION }}
+                  install-node: "false"
+
+            - name: Audit workflow files
+              run: uvx zizmor@1.30.1 --min-severity medium --format plain .github/workflows/
+
+    quarantined-tests:
+        name: Quarantined backend tests (non-gating)
+        runs-on: ubuntu-latest
+        timeout-minutes: 20
+        continue-on-error: true
+        permissions:
+            contents: read
+        steps:
+            - name: Harden runner
+              uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+              with:
+                  egress-policy: ${{ runner.os == 'Linux' && 'block' || 'audit' }}
+                  allowed-endpoints: ${{ env.HARDEN_ENDPOINTS }}
+            - name: Checkout
+              uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+              with:
+                  persist-credentials: false
+
+            - name: Set up development environment
+              uses: ./.github/actions/setup-dev-environment
+              with:
+                  python-version: ${{ env.PYTHON_VERSION }}
+                  uv-version: ${{ env.UV_VERSION }}
+                  install-node: "false"
+
+            - name: Run quarantined tests
+              # Exit 5 = no quarantined tests collected, which is success.
+              run: |
+                  task schema-fixtures
+                  set +e
+                  uv run pytest tests/backend -n auto -m quarantine --reruns 1 -rR
+                  code=$?
+                  set -e
+                  if [ "$code" -eq 5 ]; then
+                    echo "No quarantined tests."
+                    exit 0
+                  fi
+                  exit "$code"
+
+    lxmf-live-local:
+        name: Live LXMF (local TCP + pack/reject)
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        permissions:
+            contents: read
+        steps:
+            - name: Harden runner
+              uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+              with:
+                  egress-policy: ${{ runner.os == 'Linux' && 'block' || 'audit' }}
+                  allowed-endpoints: ${{ env.HARDEN_ENDPOINTS }}
+            - name: Checkout
+              uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+              with:
+                  persist-credentials: false
+
+            - name: Set up development environment
+              uses: ./.github/actions/setup-dev-environment
+              with:
+                  python-version: ${{ env.PYTHON_VERSION }}
+                  uv-version: ${{ env.UV_VERSION }}
+                  install-node: "false"
+
+            - name: Run live LXMF local suites
+              run: task test:lxmf:live
+
+            - name: Verify workspace clean
+              uses: ./.github/actions/verify-workspace-clean
+
+    build-check:
+        name: Linux build check
+        runs-on: ubuntu-latest
+        needs: frontend
+        timeout-minutes: 60
+        permissions:
+            contents: read
+        env:
+            FRONTEND_ARTIFACT_NAME: ${{ needs.frontend.outputs.artifact_name }}
+            MESHCHATNEXT_FRONTEND_PREBUILT: "1"
+        steps:
+            - name: Harden runner
+              uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+              with:
+                  egress-policy: ${{ runner.os == 'Linux' && 'block' || 'audit' }}
+                  allowed-endpoints: ${{ env.HARDEN_ENDPOINTS }}
+            - name: Checkout
+              uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+              with:
+                  persist-credentials: false
+
+            - name: Smoke-test package bloat checker
+              run: bash scripts/ci/verify-package-contents-smoke.sh
+
+            - name: Set up development environment
+              uses: ./.github/actions/setup-dev-environment
+              with:
+                  python-version: ${{ env.PYTHON_VERSION }}
+                  uv-version: ${{ env.UV_VERSION }}
+                  node-version: ${{ env.NODE_VERSION }}
+                  pnpm-version: ${{ env.PNPM_VERSION }}
+
+            - name: Fetch frontend artifact
+              uses: ./.github/actions/fetch-frontend-artifact
+              with:
+                  artifact-name: ${{ env.FRONTEND_ARTIFACT_NAME }}
+
+            - name: Compile backend sources
+              run: task compile
+
+            - name: Build backend (cx_Freeze)
+              run: pnpm run build-backend
+
+            - name: Verify bleak bundled in frozen backend
+              run: bash scripts/ci/github-verify-frozen-bleak.sh build/exe
+
+            - name: Verify RNS.vendor.umsgpack bundled in frozen backend
+              run: bash scripts/ci/github-verify-frozen-umsgpack.sh build/exe
+
+            - name: Verify FS sandbox modules bundled in frozen backend
+              run: bash scripts/ci/github-verify-frozen-sandbox.sh build/exe
+
+            - name: Verify frozen backend import runtime
+              run: bash scripts/ci/github-verify-frozen-runtime.sh build/exe
+
+            - name: Verify frozen pycodec2/libcodec2 layout
+              run: bash scripts/ci/github-verify-frozen-codec2.sh build/exe
+
+            - name: Verify frozen backend has no package bloat
+              run: bash scripts/ci/verify-package-contents.sh frozen build/exe
+
+            - name: Verify workspace clean
+              uses: ./.github/actions/verify-workspace-clean
+
+            - name: Upload Linux build-check artifacts
+              uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+              with:
+                  name: meshchatnext-linux-build-check-${{ github.run_id }}
+                  path: |
+                      meshchatnext/public/
+                      build/exe/
+                  if-no-files-found: warn
+
+    validate-build-artifact:
+        name: Validate Linux build artifact
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        needs: build-check
+        permissions:
+            contents: read
+        steps:
+            - name: Harden runner
+              uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+              with:
+                  egress-policy: ${{ runner.os == 'Linux' && 'block' || 'audit' }}
+                  allowed-endpoints: ${{ env.HARDEN_ENDPOINTS }}
+            - name: Checkout
+              uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+              with:
+                  persist-credentials: false
+
+            - name: Download Linux build-check artifact
+              uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+              with:
+                  name: meshchatnext-linux-build-check-${{ github.run_id }}
+                  path: .artifacts/linux-build-check
+
+            - name: Validate artifact contents
+              run: |
+                  set -euo pipefail
+                  test -d ".artifacts/linux-build-check/meshchatnext/public"
+                  test -d ".artifacts/linux-build-check/build/exe"
+                  test -n "$(ls -A .artifacts/linux-build-check/meshchatnext/public)"
+                  test -n "$(ls -A .artifacts/linux-build-check/build/exe)"
+                  bash scripts/ci/github-verify-frozen-bleak.sh \
+                      .artifacts/linux-build-check/build/exe
+                  bash scripts/ci/github-verify-frozen-umsgpack.sh \
+                      .artifacts/linux-build-check/build/exe
+                  bash scripts/ci/github-verify-frozen-sandbox.sh \
+                      .artifacts/linux-build-check/build/exe
+                  bash scripts/ci/github-verify-frozen-runtime.sh \
+                      .artifacts/linux-build-check/build/exe
+                  bash scripts/ci/github-verify-frozen-codec2.sh \
+                      .artifacts/linux-build-check/build/exe
+                  bash scripts/ci/verify-package-contents.sh frozen \
+                      .artifacts/linux-build-check/build/exe
+                  echo "Linux build artifact download + content validation passed."
+
+    e2e:
+        name: E2E smoke
+        runs-on: ubuntu-latest
+        timeout-minutes: 25
+        permissions:
+            contents: read
+        steps:
+            - name: Harden runner
+              uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+              with:
+                  egress-policy: ${{ runner.os == 'Linux' && 'block' || 'audit' }}
+                  allowed-endpoints: ${{ env.HARDEN_ENDPOINTS }}
+            - name: Checkout
+              uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+              with:
+                  persist-credentials: false
+
+            - name: Set up development environment
+              uses: ./.github/actions/setup-dev-environment
+              with:
+                  python-version: ${{ env.PYTHON_VERSION }}
+                  uv-version: ${{ env.UV_VERSION }}
+                  node-version: ${{ env.NODE_VERSION }}
+                  pnpm-version: ${{ env.PNPM_VERSION }}
+
+            - name: Cache Playwright browsers
+              uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+              with:
+                  path: ~/.cache/ms-playwright
+                  key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+            - name: Run Playwright smoke E2E
+              run: bash scripts/ci/github-e2e.sh tests/e2e/smoke.spec.js tests/e2e/live-mesh.spec.js tests/e2e/nomad-favourites-menu.spec.js
+
+            - name: Upload Playwright junit results
+              if: always()
+              uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+              with:
+                  name: e2e-junit
+                  path: test-results/junit/
+                  if-no-files-found: ignore
+
+    e2e-crawl:
+        name: E2E exploratory
+        runs-on: ubuntu-latest
+        timeout-minutes: 60
+        permissions:
+            contents: read
+        steps:
+            - name: Harden runner
+              uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+              with:
+                  egress-policy: ${{ runner.os == 'Linux' && 'block' || 'audit' }}
+                  allowed-endpoints: ${{ env.HARDEN_ENDPOINTS }}
+            - name: Checkout
+              uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+              with:
+                  persist-credentials: false
+
+            - name: Set up development environment
+              uses: ./.github/actions/setup-dev-environment
+              with:
+                  python-version: ${{ env.PYTHON_VERSION }}
+                  uv-version: ${{ env.UV_VERSION }}
+                  node-version: ${{ env.NODE_VERSION }}
+                  pnpm-version: ${{ env.PNPM_VERSION }}
+
+            - name: Cache Playwright browsers
+              uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+              with:
+                  path: ~/.cache/ms-playwright
+                  key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+            - name: Run Playwright exploratory E2E
+              run: |
+                  bash scripts/ci/github-e2e.sh \
+                      tests/e2e/exploratory.spec.js \
+                      tests/e2e/exploratory-interactions.spec.js \
+                      tests/e2e/personas.spec.js \
+                      tests/e2e/accessibility.spec.js \
+                      tests/e2e/mobile-crawl.spec.js
+
+            - name: Upload Playwright junit results
+              if: always()
+              uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+              with:
+                  name: e2e-junit-exploratory
+                  path: test-results/junit/
+                  if-no-files-found: ignore
+
+    ui-lighthouse:
+        name: UI Lighthouse (core pages)
+        needs: frontend
+        runs-on: ubuntu-latest
+        timeout-minutes: 45
+        permissions:
+            contents: read
+        env:
+            FRONTEND_ARTIFACT_NAME: ${{ needs.frontend.outputs.artifact_name }}
+            MESHCHATNEXT_FRONTEND_PREBUILT: "1"
+            MESHCHAT_LH_SKIP_BUILD: "1"
+        steps:
+            - name: Harden runner
+              uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+              with:
+                  egress-policy: ${{ runner.os == 'Linux' && 'block' || 'audit' }}
+                  allowed-endpoints: ${{ env.HARDEN_ENDPOINTS }}
+            - name: Checkout
+              uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+              with:
+                  persist-credentials: false
+
+            - name: Set up development environment
+              uses: ./.github/actions/setup-dev-environment
+              with:
+                  python-version: ${{ env.PYTHON_VERSION }}
+                  uv-version: ${{ env.UV_VERSION }}
+                  node-version: ${{ env.NODE_VERSION }}
+                  pnpm-version: ${{ env.PNPM_VERSION }}
+
+            - name: Cache Playwright browsers
+              uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+              with:
+                  path: ~/.cache/ms-playwright
+                  key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+            - name: Fetch frontend artifact
+              uses: ./.github/actions/fetch-frontend-artifact
+              with:
+                  artifact-name: ${{ env.FRONTEND_ARTIFACT_NAME }}
+
+            - name: Run UI page smoke + Lighthouse CI subset
+              run: bash scripts/ci/github-lighthouse.sh
+
+            - name: Upload Lighthouse reports
+              if: always()
+              uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+              with:
+                  name: lighthouse-reports
+                  path: |
+                      test-results/lighthouse/
+                      test-results/perf/
+                      test-results/heap/
+                      test-results/metrics/
+                  if-no-files-found: ignore
+                  retention-days: 14
+
+    self-check:
+        name: Headless Self-Check (${{ matrix.os }})
+        runs-on: ${{ matrix.os }}
+        timeout-minutes: 20
+        strategy:
+            fail-fast: false
+            matrix:
+                os: [ubuntu-latest, macos-latest, windows-latest]
+        permissions:
+            contents: read
+        steps:
+            - name: Harden runner
+              uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+              with:
+                  egress-policy: ${{ runner.os == 'Linux' && 'block' || 'audit' }}
+                  allowed-endpoints: ${{ env.HARDEN_ENDPOINTS }}
+            - name: Checkout
+              uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+              with:
+                  persist-credentials: false
+
+            - name: Set up development environment
+              uses: ./.github/actions/setup-dev-environment
+              with:
+                  python-version: ${{ env.PYTHON_VERSION }}
+                  uv-version: ${{ env.UV_VERSION }}
+                  install-node: "false"
+                  install-task: "false"
+
+            - name: Install opus codec libraries (ubuntu)
+              if: runner.os == 'Linux'
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y libopus0 libopusfile0 libogg0
+
+            - name: Install opus codec libraries (macOS)
+              if: runner.os == 'macOS'
+              run: |
+                  # The pyogg copy bundled in LXST ships x86_64 dylibs only,
+                  # so arm64 runners need Homebrew builds instead.
+                  brew install opus opusfile
+                  echo "DYLD_FALLBACK_LIBRARY_PATH=$(brew --prefix)/lib:/usr/local/lib:/usr/lib" >> "$GITHUB_ENV"
+
+            - name: Run headless system self-check
+              shell: bash
+              run: |
+                  # Exercises storage_lock_good (native flock/msvcrt + soft ENOSYS
+                  # fallback), umsgpack roundtrip, LXST telephony, and the rest of
+                  # SELF_CHECK_LABELS on each OS.
+                  # Overall exit may be non-zero when optional host-local checks
+                  # fail (missing Reticulum config, identity fixtures). Gate on
+                  # the checks this job cares about via grep.
+                  set -o pipefail
+                  uv run python -m meshchatnext.meshchat --self-check --headless 2>&1 | tee self-check-out.txt || true
+                  grep -E '^\[OK\][[:space:]]+Storage Lock' self-check-out.txt
+                  grep -E '^\[OK\][[:space:]]+FS Sandbox Modules' self-check-out.txt
+                  # AppContainer Launch spawns a real sandboxed child on
+                  # Windows and FAILs on loader-init exits like 0xC0000142.
+                  # SKIP is fine where the platform or runner lacks support.
+                  grep -E '^\[(OK|SKIP)\][[:space:]]+AppContainer Launch' self-check-out.txt
+                  grep -E '^\[OK\][[:space:]]+HTTP Server Security' self-check-out.txt
+                  # On macOS/Windows the epoll degradation must rebind
+                  # BackboneClientInterface to TCPClientInterface. On Linux it
+                  # must be left alone. Both states print OK.
+                  grep -E '^\[OK\][[:space:]]+RNS Backbone Fallback' self-check-out.txt
+                  grep -E '^\[OK\][[:space:]]+Umsgpack Roundtrip' self-check-out.txt
+                  grep -E '^\[OK\][[:space:]]+LXST Telephony' self-check-out.txt
+                  # The bundled win_amd64 opusfile/opus DLLs access-violate in
+                  # the probe subprocess on Windows CI (rc 0xC0000005). The
+                  # row is still printed as FAILED but is not gated there.
+                  if [ "$RUNNER_OS" != "Windows" ]; then
+                      grep -E '^\[(OK|SKIP)\][[:space:]]+Audio Codec Roundtrip' self-check-out.txt
+                  fi
+                  grep -E '^\[OK\][[:space:]]+Miniaudio Decode' self-check-out.txt
+                  grep -E '^\[OK\][[:space:]]+Translation Pack Import' self-check-out.txt

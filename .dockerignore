@@ -1,0 +1,158 @@
+# Documentation
+LICENSE
+donate.md
+screenshots/
+
+vendor/lxmfy/tests/
+vendor/lxmfy/docs/
+vendor/lxmfy/.gitea/
+vendor/rns_filesync/tests/
+vendor/rns_filesync/docs/
+vendor/rns_filesync/docker/
+vendor/rns_filesync/packaging/
+vendor/rns_filesync/sideband/
+vendor/rns_filesync/man/
+vendor/rns_filesync/scripts/
+vendor/offline/
+
+# Development files
+android/
+android/keystore/
+*.jks
+*.keystore
+Makefile
+*.apk
+*.aab
+
+# Build artifacts and cache
+/build/
+/dist/
+/build-dir/
+/python-dist/
+/maven/
+/.local/
+/android/chaquopy-recipes/**/build/
+/android/chaquopy-recipes/**/dist/
+/android/chaquopy-recipes/**/env/
+/android/chaquopy-recipes/**/requirements/
+/android/chaquopy-recipes/**/fix_wheel/
+/android/chaquopy-recipes/**/wrappers/
+/android/chaquopy-recipes/**/target/
+/android/chaquopy-recipes/**/*.orig
+/android/chaquopy-recipes/**/*.rej
+/node_modules/
+.pnpm-store/
+**/__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.o
+*.a
+*.la
+*.lo
+*.dll
+*.dylib
+.Python
+*.egg-info/
+*.egg
+
+# Virtual environments
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Docker files
+docker/
+!docker/i2pd.conf
+!docker/tunnels.conf
+.dockerignore
+meshchat-config/
+
+# Local storage and runtime data
+storage/
+testing/
+telemetry_test_lxmf/
+temp-tests/
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+.coverage
+coverage/
+coverage-electron/
+.pytest_cache/
+htmlcov/
+
+# Mutation testing artifacts
+.mutmut-cache/
+mutants/
+mutmut-stats/
+mutmut-cicd-stats.json
+reports/mutation/
+.stryker-tmp/
+
+test-results/
+playwright-report/
+blob-report/
+
+# Local benchmark / CI artifact downloads
+bench_results.json
+bench_results.txt
+/cache/
+.artifacts/
+
+# Test suites and reports (not used in container image build)
+tests/
+
+# CI and packaging trees not used in Docker image
+# electron/ and scripts/ci/ are required by Dockerfile.build (Electron packaging + build entry scripts)
+.github/
+packaging/
+scripts/private/
+
+# Host-built micron WASM binaries (Docker/build fetch fresh copies)
+meshchatnext/src/frontend/public/vendor/micron-parser-go/micron-parser-go.wasm
+meshchatnext/src/frontend/public/vendor/micron-parser-go/wasm_exec.js
+
+# Host-built visualiser WASM (Docker builds with Go from visualiser-wasm/)
+meshchatnext/src/frontend/public/vendor/visualiser-wasm/visualiser.wasm
+meshchatnext/src/frontend/public/vendor/visualiser-wasm/wasm_exec.js
+
+.hypothesis
+.hypothesis/
+
+cosign.key
+
+*.exe

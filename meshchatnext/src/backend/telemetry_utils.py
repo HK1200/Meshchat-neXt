@@ -1,0 +1,133 @@
+# SPDX-License-Identifier: 0BSD
+
+import math
+import struct
+import time
+
+from RNS.vendor import umsgpack
+
+
+def _valid_number(value):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return value if math.isfinite(value) else None
+
+
+class Sensor:
+    SID_NONE = 0x00
+    SID_TIME = 0x01
+    SID_LOCATION = 0x02
+    SID_PRESSURE = 0x03
+    SID_BATTERY = 0x04
+    SID_PHYSICAL_LINK = 0x05
+    SID_ACCELERATION = 0x06
+    SID_TEMPERATURE = 0x07
+    SID_HUMIDITY = 0x08
+    SID_MAGNETIC_FIELD = 0x09
+    SID_AMBIENT_LIGHT = 0x0A
+    SID_GRAVITY = 0x0B
+    SID_ANGULAR_VELOCITY = 0x0C
+    SID_PROXIMITY = 0x0E
+    SID_INFORMATION = 0x0F
+    SID_RECEIVED = 0x10
+    SID_POWER_CONSUMPTION = 0x11
+    SID_POWER_PRODUCTION = 0x12
+    SID_PROCESSOR = 0x13
+    SID_RAM = 0x14
+    SID_NVM = 0x15
+    SID_TANK = 0x16
+    SID_FUEL = 0x17
+    SID_RNS_TRANSPORT = 0x19
+    SID_LXMF_PROPAGATION = 0x18
+    SID_CONNECTION_MAP = 0x1A
+    SID_CUSTOM = 0xFF
+
+
+class Telemeter:
+    @staticmethod
+    def unpack_location(packed):
+        try:
+            if packed is None:
+                return None
+            latitude = struct.unpack("!i", packed[0])[0] / 1e6
+            longitude = struct.unpack("!i", packed[1])[0] / 1e6
+            # int32-scaled fields can encode absurd values. Reject out of
+            # range coordinates before they reach map projections.
+            if not (-90.0 <= latitude <= 90.0 and -180.0 <= longitude <= 180.0):
+                return None
+            return {
+                "latitude": latitude,
+                "longitude": longitude,
+                "altitude": struct.unpack("!i", packed[2])[0] / 1e2,
+                "speed": struct.unpack("!I", packed[3])[0] / 1e2,
+                "bearing": struct.unpack("!i", packed[4])[0] / 1e2,
+                "accuracy": struct.unpack("!H", packed[5])[0] / 1e2,
+                "last_update": _valid_number(packed[6]),
+            }
+        except Exception:
+            return None
+
+    @staticmethod
+    def pack_location(
+        latitude,
+        longitude,
+        altitude=0,
+        speed=0,
+        bearing=0,
+        accuracy=0,
+        last_update=None,
+    ):
+        try:
+            return [
+                struct.pack("!i", round(latitude * 1e6)),
+                struct.pack("!i", round(longitude * 1e6)),
+                struct.pack("!i", round(altitude * 1e2)),
+                struct.pack("!I", round(speed * 1e2)),
+                struct.pack("!i", round(bearing * 1e2)),
+                struct.pack("!H", round(accuracy * 1e2)),
+                int(last_update) if last_update is not None else int(time.time()),
+            ]
+        except Exception:
+            return None
+
+    @staticmethod
+    def from_packed(packed):
+        try:
+            p = umsgpack.unpackb(packed)
+            res = {}
+            utc = _valid_number(p.get(Sensor.SID_TIME))
+            if utc is not None:
+                res["time"] = {"utc": int(utc)}
+            if Sensor.SID_LOCATION in p:
+                res["location"] = Telemeter.unpack_location(p[Sensor.SID_LOCATION])
+            pl = p.get(Sensor.SID_PHYSICAL_LINK)
+            if isinstance(pl, (list, tuple)) and len(pl) >= 3:
+                rssi, snr, q = (_valid_number(v) for v in pl[:3])
+                res["physical_link"] = {"rssi": rssi, "snr": snr, "q": q}
+            b = p.get(Sensor.SID_BATTERY)
+            if isinstance(b, (list, tuple)) and len(b) >= 2:
+                charge = _valid_number(b[0])
+                if charge is not None:
+                    res["battery"] = {"charge_percent": charge, "charging": bool(b[1])}
+            # Add other sensors as needed
+            return res
+        except Exception:
+            return None
+
+    @staticmethod
+    def pack(time_utc=None, location=None, battery=None, physical_link=None):
+        p = {}
+        p[Sensor.SID_TIME] = int(time_utc if time_utc is not None else time.time())
+        if location:
+            p[Sensor.SID_LOCATION] = Telemeter.pack_location(**location)
+        if battery:
+            # battery should be [charge_percent, charging]
+            p[Sensor.SID_BATTERY] = [battery["charge_percent"], battery["charging"]]
+        if physical_link:
+            # physical_link should be [rssi, snr, q]
+            p[Sensor.SID_PHYSICAL_LINK] = [
+                physical_link["rssi"],
+                physical_link["snr"],
+                physical_link["q"],
+            ]
+        return umsgpack.packb(p)

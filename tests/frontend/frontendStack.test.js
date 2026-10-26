@@ -1,0 +1,103 @@
+// SPDX-License-Identifier: 0BSD
+
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { describe, expect, it } from "vitest";
+
+const ROOT = resolve(import.meta.dirname, "../..");
+const FRONTEND_ROOT = join(ROOT, "meshchatnext", "src", "frontend");
+
+function readRepo(relPath) {
+    return readFileSync(resolve(ROOT, relPath), "utf8");
+}
+
+function walkVueFiles(dir, out = []) {
+    for (const name of readdirSync(dir)) {
+        const filePath = join(dir, name);
+        const stat = statSync(filePath);
+        if (stat.isDirectory()) {
+            walkVueFiles(filePath, out);
+            continue;
+        }
+        if (name.endsWith(".vue")) {
+            out.push(filePath);
+        }
+    }
+    return out;
+}
+
+describe("frontend stack migration reference", () => {
+    it("package.json no longer depends on Vuetify or @mdi/font", () => {
+        const pkg = JSON.parse(readRepo("package.json"));
+        const allDeps = { ...pkg.dependencies, ...pkg.devDependencies };
+        expect(allDeps.vuetify).toBeUndefined();
+        expect(allDeps["vite-plugin-vuetify"]).toBeUndefined();
+        expect(allDeps["@mdi/font"]).toBeUndefined();
+        expect(allDeps["@mdi/js"]).toBeTruthy();
+    });
+
+    it("vite.config.mjs uses Vite 8 features and excludes Vuetify bundling", () => {
+        const vite = readRepo("vite.config.mjs");
+        expect(vite).toContain("rolldownOptions");
+        expect(vite).toContain("chunkImportMap: false");
+        expect(vite).toContain("LEFTOVER_PUBLIC_PATTERNS");
+        expect(vite).toContain("RobotoMonoNerdFont");
+        expect(vite).toMatch(/tailwind-v3.*forms-v0/);
+        // emptyOutDir stays false so non-Vite trees under public survive, but
+        // production builds wipe assets/ before emit to avoid hash pile-up.
+        expect(vite).toContain("emptyOutDir: false");
+        expect(vite).toMatch(/rmSync\(assetsDir/);
+
+        const manifest = readRepo("MANIFEST.in");
+        expect(manifest).toMatch(/NerdFont/);
+        expect(manifest).toMatch(/tailwind-v3\.4\.3-forms-v0\.5\.7\.js/);
+        const pyproject = readRepo("pyproject.toml");
+        expect(pyproject).toMatch(/NerdFont/);
+        expect(pyproject).toMatch(/tailwind-v3\.4\.3-forms-v0\.5\.7\.js/);
+        const checkScript = readRepo("scripts/ci/check-public-packaging.py");
+        expect(checkScript).toContain("MAX_HASHES_PER_STEM");
+        expect(checkScript).toContain("LEFTOVER_RES");
+
+        expect(vite).toContain("tsconfigPaths: true");
+        expect(vite).toContain('"micron-parser"');
+        expect(vite).toMatch(/node_modules["'],\s*["']micron-parser["'],\s*["']js["'],\s*["']micron-parser\.js["']/);
+        expect(vite).toContain("MESHCHAT_VITE_BUNDLED_DEV");
+        expect(vite).not.toContain("vite-plugin-vuetify");
+        expect(vite).not.toContain("vendor-vuetify");
+    });
+
+    it("main.js bootstraps Vue without Vuetify or MDI font CSS", () => {
+        const main = readRepo("meshchatnext/src/frontend/main.js");
+        expect(main).not.toContain("createVuetify");
+        expect(main).not.toContain("@mdi/font");
+        expect(main).not.toContain(".use(vuetify)");
+    });
+
+    it("Vue SFCs do not reference Vuetify components or v-icon", () => {
+        const vueFiles = walkVueFiles(FRONTEND_ROOT);
+        const offenders = [];
+        for (const file of vueFiles) {
+            const body = readFileSync(file, "utf8");
+            if (
+                /<v-(?!if|else-if|else|for|model|show|bind|on|slot|memo|html|click-outside)[a-z-]/.test(body) ||
+                body.includes('from "vuetify')
+            ) {
+                offenders.push(file.replace(`${ROOT}/`, ""));
+            }
+        }
+        expect(offenders).toEqual([]);
+    });
+
+    it("theme engine no longer syncs Vuetify theme colors", () => {
+        const theme = readRepo("meshchatnext/src/frontend/theme/themeEngine.js");
+        expect(theme).not.toContain("syncVuetifyThemeColors");
+        expect(theme).not.toContain("vuetifyTheme");
+        const tokens = readRepo("meshchatnext/src/frontend/theme/designTokens.js");
+        expect(tokens).not.toContain("vuetifyThemesFromTokens");
+    });
+
+    it("shared modal and popover components exist for Vuetify replacements", () => {
+        expect(readRepo("meshchatnext/src/frontend/components/AppModal.vue")).toContain("AppModal");
+        expect(readRepo("meshchatnext/src/frontend/components/ClickPopover.vue")).toContain("ClickPopover");
+    });
+});

@@ -1,0 +1,199 @@
+# SPDX-License-Identifier: 0BSD
+
+import logging
+import time
+
+import pytest
+
+from meshchatnext.src.backend.database import Database
+from meshchatnext.src.backend.persistent_log_handler import PersistentLogHandler
+
+
+@pytest.fixture
+def db(tmp_path):
+    db_file = tmp_path / "test_logs.db"
+    database = Database(str(db_file))
+    database.initialize()
+    return database
+
+
+@pytest.fixture
+def handler(db):
+    handler = PersistentLogHandler(database=db, flush_interval=0.1)
+    logger = logging.getLogger("test_logger")
+    logger.addHandler(handler)
+    logger.setLevel(logging.DEBUG)
+    try:
+        yield handler, logger
+    finally:
+        # test_logger is module-global. A stale handler would keep
+        # flushing into a dead tmp_path db during later tests.
+        logger.removeHandler(handler)
+
+
+def test_log_insertion(handler, db):
+    persistent_handler, logger = handler
+    logger.info("Test message")
+
+    # Wait for flush
+    time.sleep(0.2)
+    logger.info("Trigger flush")  # emit triggers flush if interval passed
+
+    logs = persistent_handler.get_logs(limit=10)
+    assert len(logs) >= 2
+    # Logs are descending by timestamp, so newer is first
+    messages = [log["message"] for log in logs]
+    assert "Test message" in messages
+    assert "Trigger flush" in messages
+
+
+def test_search_and_filter(handler, db):
+    persistent_handler, logger = handler
+    logger.info("Hello world")
+    logger.error("Something went wrong")
+
+    time.sleep(0.2)
+    logger.debug("Force flush")
+
+    # Search
+    results = persistent_handler.get_logs(search="world")
+    assert len(results) == 1
+    assert "Hello world" in results[0]["message"]
+
+    # Filter by level
+    results = persistent_handler.get_logs(level="ERROR")
+    assert len(results) == 1
+    assert "Something went wrong" in results[0]["message"]
+
+
+def test_anomaly_flooding(handler, db):
+    persistent_handler, logger = handler
+    persistent_handler.flooding_threshold = 5
+    # Flooding uses a 1s window from last_reset_time. The handler may be created
+    # well before this loop on slow CI. If the 6th warning falls after that second,
+    # the counter resets and totals never exceed the threshold. Reset state here and
+    # emit enough warnings to survive one mid-burst reset.
+    with persistent_handler.lock:
+        persistent_handler.message_counts.clear()
+        persistent_handler.last_reset_time = time.time()
+
+    for i in range(15):
+        logger.warning(f"Message {i}")
+
+    time.sleep(0.2)
+    logger.debug("Force flush")
+
+    logs = persistent_handler.get_logs(limit=30)
+    anomalies = [log for log in logs if log["is_anomaly"]]
+    assert len(anomalies) > 0
+    assert any(log["anomaly_type"] == "flooding" for log in anomalies)
+
+
+def test_anomaly_repeat(handler, db):
+    persistent_handler, logger = handler
+    persistent_handler.repeat_threshold = 3
+
+    for _ in range(5):
+        logger.warning("Same message")
+
+    # Wait for flush
+    logger.debug("Force flush")
+
+    logs = persistent_handler.get_logs(limit=20)
+    anomalies = [log for log in logs if log["is_anomaly"]]
+    assert len(anomalies) > 0
+    assert any(log["anomaly_type"] == "repeat" for log in anomalies)
+
+
+def test_log_cleanup(handler, db):
+    _persistent_handler, logger = handler
+
+    # Insert many logs
+    for i in range(100):
+        logger.info(f"Log {i}")
+
+    time.sleep(0.2)
+    logger.debug("Trigger cleanup")
+
+    # Force cleanup with small limit
+    db.debug_logs.cleanup_old_logs(max_logs=10)
+
+    count = db.debug_logs.get_total_count()
+    assert count <= 11  # 10 + the trigger log
+
+
+def test_set_database_flushes_buffered_logs_to_previous_database(tmp_path):
+    db_a_file = tmp_path / "a.db"
+    db_b_file = tmp_path / "b.db"
+    db_a = Database(str(db_a_file))
+    db_b = Database(str(db_b_file))
+    db_a.initialize()
+    db_b.initialize()
+
+    handler = PersistentLogHandler(database=db_a, flush_interval=3600)
+    logger = logging.getLogger("identity_a_logger")
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+
+    logger.info("identity A buffered log")
+    assert len(handler.logs_buffer) == 1
+
+    handler.set_database(db_b)
+    logger.info("identity B log")
+    handler._flush_to_db()
+
+    logs_a = db_a.debug_logs.get_logs(limit=10)
+    logs_b = db_b.debug_logs.get_logs(limit=10)
+    assert any("identity A buffered log" in row["message"] for row in logs_a)
+    assert all("identity A buffered log" not in row["message"] for row in logs_b)
+    assert any("identity B log" in row["message"] for row in logs_b)
+
+    logger.removeHandler(handler)
+
+
+def test_flush_writes_batch_in_single_transaction(handler, db):
+    persistent_handler, logger = handler
+    for i in range(5):
+        logger.info(f"batched {i}")
+    persistent_handler._flush_to_db()
+
+    logs = persistent_handler.get_logs(limit=20)
+    messages = [log["message"] for log in logs]
+    for i in range(5):
+        assert any(f"batched {i}" in m for m in messages)
+
+
+def test_db_writes_disabled_never_flushes(handler, db):
+    persistent_handler, logger = handler
+    persistent_handler.db_writes_enabled = False
+
+    logger.info("buffered only")
+    persistent_handler._flush_to_db()
+    persistent_handler.get_logs(limit=10)  # read path must not flush either
+
+    assert db.debug_logs.get_total_count() == 0
+    assert len(persistent_handler.logs_buffer) == 1
+
+
+def test_cleanup_throttled_between_flushes(handler, db, monkeypatch):
+    persistent_handler, logger = handler
+    # The 0.1s emit flush interval lets a log call drain the buffer on its
+    # own under CI load, racing the explicit flushes below. Pin it high so
+    # every flush here is the explicit one.
+    persistent_handler.flush_interval = 3600
+    calls = []
+    monkeypatch.setattr(
+        db.debug_logs,
+        "cleanup_old_logs",
+        lambda *a, **k: calls.append(1),
+    )
+    logger.info("first")
+    assert persistent_handler.logs_buffer
+    persistent_handler._flush_to_db()
+    logger.info("second")
+    persistent_handler._flush_to_db()
+    assert calls == [1]
+    persistent_handler._last_db_cleanup = None
+    logger.info("third")
+    persistent_handler._flush_to_db()
+    assert calls == [1, 1]

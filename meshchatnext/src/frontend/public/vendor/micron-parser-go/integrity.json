@@ -1,0 +1,7 @@
+{
+  "version": "v1.3.0",
+  "wasm": "sha384-Bl4Jjlch/vPOU6gNstLMDjVtTsxA3qLVuDsf8Mloogznb3yzrqy5h1ygGf0Y+Fgf",
+  "wasmExec": "sha384-PWCs+V4BDf9yY1yjkD/p+9xNEs4iEbuvq+HezAOJiY3XL5GI6VyJXMsvnjiwNbce",
+  "wasmExecSourceUrl": "https://raw.githubusercontent.com/golang/go/go1.26.2/lib/wasm/wasm_exec.js",
+  "wasmExecEtag": "W/\"97232acf11bb7ff454a8c640d2a6c59e000ceebfee1e4478f2f250d98618a007\""
+}

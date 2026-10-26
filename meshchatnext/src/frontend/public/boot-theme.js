@@ -1,0 +1,32 @@
+/* SPDX-License-Identifier: 0BSD */
+(function () {
+    try {
+        var theme = null;
+        if (window.MeshchatNextAndroid && typeof window.MeshchatNextAndroid.getPreferredUiTheme === "function") {
+            theme = window.MeshchatNextAndroid.getPreferredUiTheme();
+        }
+        if (!theme) {
+            try {
+                theme = window.localStorage.getItem("meshchatnext_ui_theme");
+            } catch (e) {}
+        }
+        if (theme === "system") {
+            theme =
+                window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        }
+        if (theme !== "light" && theme !== "dark") {
+            theme = "light";
+        }
+        if (theme === "dark") {
+            document.documentElement.classList.add("dark");
+            document.documentElement.dataset.bootTheme = "dark";
+            document.documentElement.style.colorScheme = "dark";
+        } else {
+            document.documentElement.classList.remove("dark");
+            document.documentElement.dataset.bootTheme = "light";
+            document.documentElement.style.colorScheme = "light";
+        }
+        document.documentElement.dataset.themePreference =
+            theme === "dark" || theme === "light" ? theme : "light";
+    } catch (e) {}
+})();

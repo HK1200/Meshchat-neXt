@@ -1,0 +1,1783 @@
+# Source-project release history
+
+These entries document inherited source-project history, not Meshchat neXt releases. Names, links and version numbers identify their historical context. Current product changes are in [CHANGELOG.md](CHANGELOG.md); source credits and licensing are in [LEGAL.md](LEGAL.md).
+
+## Historical 4.10.7-HK-1.0.1 — Android voice and Bluetooth fixes
+
+- Fix native call audio framing, playback and session cleanup.
+- Fix the dialer remaining on Accept after answering from a locked-screen notification.
+- Prevent duplicate answer requests and misleading errors after a notification answers the same call.
+- Route call playback and microphone through connected Bluetooth call headsets and release the route after calls.
+- Add checksum-verified, missing-only Opus provisioning and build verification.
+- Prepare isolated, checksum-pinned 64-bit native release inputs while preserving the original development libraries.
+- Correct the first-launch tutorial branding.
+- Fix OpenBLAS complex-return ABI and NumPy extended-precision exception reporting in the 16 KB native inputs.
+
+Release validation and signing/migration requirements are recorded in `android/release/README.md`. The existing 1.0.0 release notes below describe that earlier release.
+
+---
+
+## Historical MeshChatX HK 4.10.7-HK-1.0.0 — Initial Android Release
+
+- HK1200's fork, based on MeshChatX 4.10.7.
+
+- Initial release provides Bluetooth RNode connectivity fixes for Android, including bundled Reticulum Bluetooth compatibility fixes.
+
+### Also Added:
+
+- Android native LXST audio bridge using AudioRecord and AudioTrack.
+- Android LXST calling compatibility improvements, including Codec2 initialization checks and removal of Web Audio dependencies.
+
+### Notes:
+
+- RNode Bluetooth pairing and connection have been tested and are now functional on Android.
+- LXST voice calling requires further testing.
+
+---
+
+## [4.10.7] - 2026-10-11 [released]
+
+### Added
+
+- Traffic tools: sustained high traffic now raises a warning in the log and on the Traffic page, naming the component (LXMF, RRC, NomadNet, crawler) or the wire total when the load is announces, path requests, or forwarding. Warnings are rate limited so a flood cannot flood the log.
+- Traffic tools: active transfers now show with progress, covering RNCP file transfers and file sync. Their bytes are metered as they move, so the component table names them instead of hiding them in the residual row.
+- Traffic tools: hovering the chart shows the upload and download rates at that point in time and which component was driving them. Both series now share one vertical scale so their heights compare honestly.
+
+### Fixed
+
+- Relay chat: delivered messages no longer show "not delivered to hub" after a restart or reconnect. Echo confirmations are now persisted, a late echo restores a failed row instead of counting it as a repeat, and the client asks the hub which sends it already relayed on rejoin (T_SYNC/T_SEEN) so delivered rows heal without resending.
+- Relay chat: messages sent to a room the client has not joined are now confirmed by a direct hub receipt instead of always expiring as failed.
+- Profile: clearing the display name no longer claims an auto-save and then brings the old name back. The field keeps what you are typing, an empty name sent by any client resets to the default name, and leaving the field empty restores the saved name with a notice.
+- Relay chat: the available rooms section remembers whether it was collapsed or expanded when you navigate away and come back. Mount time auto-selection no longer overwrites the saved layout before it is restored.
+- Relay chat: unreachable hubs no longer spray mesh wide path requests while the reconnect backoff grows. Each hub gets a small burst for the first attempt, then at most one request per minute.
+- Settings: the auto announce interval and the propagation auto sync interval now clamp to a one minute minimum instead of accepting sub-minute values that turn announces and mailbox syncs into mesh wide storms.
+- Relay chat: the log now names the hub when a send budget blocks, warns when a message keeps getting redelivered, and reports how many held messages a rejoin resent.
+- Messages: the log warns when a destination has exhausted its auto-resend budget and messages need a manual retry.
+- File sync: the announce interval setter now enforces the same one minute floor the loader and the UI already use, so an API request can no longer set a sub-minute announce storm.
+- Traffic tools: the hover guide and dots on the activity chart are round again on wide windows. They now render outside the stretched chart area instead of being squished by it.
+- Remote execute: listener sessions now surface their address even when quiet mode suppresses rnx log output. The manager derives the rnx.execute destination hash from the identity file instead of waiting for a log line that may never come.
+- Tools: rnsh and rnx are out of alpha. Both are covered by live network tests that run a real listener and initiator over a loopback Reticulum link, including the frozen app launcher path.
+- NomadNet browser: multi-line form fields on pages now accept and submit line breaks again. The bundled micron WASM renderer ignored the field row count and drew a single-line box, so posts submitted through forms arrived as one long line. Lines carrying multi-row fields now render through the JS parser on any WASM version, and the bundled renderer is updated to v1.3.0 which draws the textbox correctly on its own.
+
+## [4.10.6] - 2026-10-09 [released]
+
+### Fixed
+
+- Nomad and Micron pages: restored the bundled Roboto Mono Nerd Font, so Nerd Font glyphs and icons on pages such as rngit render again instead of showing as boxes.
+- Settings: Roboto Mono Nerd Font is selectable as the UI font again.
+- CI: the wheel packaging check no longer treats the bundled Nerd Font as a leftover, so Android and Linux release builds pass with it.
+- Packages: RPM and Alpine APK assets build again. The Linux release job installs Go and TinyGo for the full builds those formats run, and the release log now lists the final asset set so a skipped format cannot pass unnoticed.
+
+## [4.10.5] - 2026-10-09 [released]
+
+### Fixed
+
+- Flatpak CDN: the release purge now reaches the Bunny API under the CI egress allowlist, and an unreachable purge no longer fails the whole release.
+- CI: the Flatpak OSTree publish is best effort in the release pipeline. A CDN failure no longer fails the release run, since the GitHub, PyPI, and rngit assets are already complete.
+
+### Notes
+
+- v4.10.4 is skipped due to a CI/CD issue with the Flatpak CDN purge and tags are immutable.
+
+## [4.10.4] - 2026-10-09 [released]
+
+### Changed
+
+- Python and desktop packages no longer ship old Vite chunks, the Nerd Font, or the browser Tailwind script. Release builds start from a clean frontend tree.
+- Standalone docs pages use a small static stylesheet instead of the old browser Tailwind file.
+- Nomad and Micron monospace UI uses JetBrains Mono / system fonts. An existing Roboto Mono Nerd Font setting switches over automatically.
+- Map and network visualiser WASM builds require TinyGo.
+- Relay chat: redelivered copies now show as an x2, x3 badge on the original message instead of folding in silently. Counts survive restarts and hub reconnects, and a relay preference turns the badge off.
+
+### Fixed
+
+- Relay chat: restarting the app no longer reposts your recent messages to every configured hub and room. Rows saved while a send was still unconfirmed loaded back as failed and were retried on rejoin, so delivered messages arrived again at staggered times. Only sends that fail in the current session auto-retry now, and replayed text that looks like a hub command is skipped.
+- Relay chat: retried messages reuse the original envelope id and timestamp instead of minting new ones, so receivers that dedupe by id collapse a retry with the original copy.
+- Messages: resending a failed message now keeps its original title and timestamp, so a resend that rebuilds the same payload carries the same message hash and dedupes at receivers and propagation nodes instead of arriving as a copy stamped at retry time.
+- Relay chat: the compose box floats over the room history with a light frosted look, same idea as the conversation composer. The scroll-to-bottom control sits above it.
+- Relay chat: Enter or Send while a message is already going out is ignored, so one press cannot post the same line twice.
+- Flatpak install from the Meshchat neXt remote failed after the last release. The CDN index is kept in sync with the package files again so `flatpak install` can pull the app.
+
+## [4.10.3] - 2026-10-08 [released]
+
+### Changed
+
+- CI now targets master only. The dev branch is retired, so every master commit still publishes the rolling `:dev` Docker image while `:latest` moves only on release tags and manual runs. The Android Gradle egress allowlist now includes jitpack.io.
+
+### Fixed
+
+- **I2P / SIGPIPE**: losing the I2P router (or any broken peer socket) no longer kills the Linux backend. The process now ignores SIGPIPE at startup so keepalive writes that return EPIPE reach Reticulum exception handlers and can reconnect when SAM returns. Electron also retains the signal name when a child exits with a null code, so signal-terminated backends are reported instead of silently dropped (fixes #137).
+- **NomadNet crash-tab**: Electron no longer shows dual vertical scrollbars on micron-parser-js pages. The crash-tab document had `overflow-x: hidden` on both `html` and `body` with `height: 100%`, which computes `overflow-y: auto` on both and nests two scrollports. `html` is now non-scrolling and `body` is the sole vertical scroller.
+- Relay chat: the channel list (/list) now populates on hubs whose reply exceeds the link MDU. rrcd splits oversized notices into one NOTICE envelope per line, so the header was parsed as an empty list and the room lines landed as stray system notices. The client now reassembles the burst into one notice before parsing.
+- Messages: the conversation composer now floats over the message list instead of holding a normal-flow band at the bottom, so it no longer shows as a background strip while scrolling up. The scroll-to-bottom button floats above it, and the pill uses a subtle backdrop blur. The empty pane in split view no longer shows the drop-hint overlay over the compose input.
+- CI: harden-runner now enforces egress blocking on Linux runners with an explicit allowed-endpoints list built from observed run traffic.
+
+## [4.10.2] - 2026-10-07 [released]
+
+### Fixed
+
+- Contacts: the empty-state box no longer sits flush against the search bar separator.
+- Themes: toggle switches now have a border outline in the off state so they stay visible on near-black themes.
+
+- Windows: shared-instance RPC replies are read through the connection dispatch path instead of os.read, fixing bad file descriptor errors that broke LXMF delivery, interface stats, and interface management on Windows builds when connected to an external rnsd.
+- Messaging: outbound sends that fail the path wait are now persisted as failed messages instead of being dropped, so they resend automatically when the peer announces and can be resent manually. The propagation-node fallback now defaults on for new configurations and is a safe no-op when no propagation node is set.
+- Maps: user-configured tile servers, Nominatim endpoints, and extra CSP sources are no longer stripped from the Content Security Policy in privacy mode. Only the shipped public defaults stay gated. Scheme-less and subdomain-template ({s}, {r}) tile URLs are normalized so OpenLayers and the CSP match real hosts.
+- NomadNet: page translation now works with the sandboxed page renderer. The shell asks the renderer frame for the page text over the frame channel instead of reading an empty shell container, so the translate button opens the translator with real page content.
+- NomadNet: the page shell no longer can show its own scrollbar next to the rendered frame's scrollbar. The container only scrolls for state banners now, which removes the second slider on platforms with always-on scrollbars.
+- NomadNet: serving nodes no longer re-hash the whole source image on every /media request. The hash is memoized by file stat. Failed conversions are marked and skipped for an hour instead of respawning the encoder on every request, which removes the sustained CPU spikes on image-heavy pages.
+- Desktop: every popout window (call, nomad tab, translator, paper message, and the rest) now runs in its own renderer process where the API allows it, so a crash there cannot take the whole app down. A crashed child window is destroyed instead of lingering as a dead frame. The main window's crash recovery dialog is unchanged.
+- NomadNet: rendered pages that use the full-bleed shell (.html, .md, .txt) no longer overflow the viewer by the header and toolbar height. The content container carried a stray min-h-full that beat its min-h-0, so the rendered frame ran ~54px past the bottom of the pane and its scrollbar hung below the page boundary, reading as the extra-slider artifact.
+- Network visualiser: leaving the page during engine setup no longer orphans a live graph instance per visit. The init chain now checks for unmount after every await and destroys anything created in flight.
+- Network visualiser: the loading overlay now has a cancel button. Stopping aborts in-flight fetches, halts physics and batch work, and leaves a fresh load one click away on the refresh button.
+- Telemetry: tracked peers that never answer are no longer polled every interval forever. Each unanswered request doubles the wait up to a daily cap, and after a bounded number of misses the peer is skipped until a telemetry response re-arms it or tracking is re-toggled.
+- Messaging: automatic resends no longer retry feature-only deliveries (commands, reactions, telemetry) to peers that never sent one back, so Sideband and other LXMF clients are not spammed with payload types they cannot parse.
+- Contacts: shared address output now uses the bare 32-hex hash when no public key is known, since not every LXMF client parses an lxmf:// URI. lxma:// output is unchanged when a public key is available.
+- Android: Bluetooth RNode interfaces (BLE and classic) added or imported through the UI now write the Android-native Reticulum keys at save time, so the live attach takes the Bluetooth path instead of treating a bt:// or ble:// port as a dead USB serial device. Leftover Bluetooth keys are also stripped when an interface is switched back to serial or TCP, since the Android implementation lets stale ble_* settings override the port.
+- Android: the RNode form now asks for Bluetooth permission when the BLE or Bluetooth transport is enabled, instead of relying on the bundled startup prompt that can be dismissed and never re-shown.
+- Android (build): the bundled Reticulum wheel now guards paired-device enumeration against devices with no name and denied Bluetooth permissions, so one bad bonding record or a missing grant no longer kills RNode Bluetooth bring-up.
+- Relay chat: the hide join/part preference now applies. A setup-time read shadowed the setting's lookup, so presence lines kept rendering and the toggle wrote the old value back to storage.
+- Tools: the traffic page refresh button no longer flashes on every background poll. The spinner now only runs for manual refreshes.
+- Tools: the traffic page RRC hint now counts connected hubs by the real status constant instead of a string comparison that always read zero.
+
+### Added
+
+- Interfaces: bulk config imports now attach imported interfaces live instead of requiring a restart. The restart banner only appears when live attach could not bring one up.
+- Health: the monitor now tracks file descriptor counts, warning when usage nears the limit and when the count climbs steadily across the check window, catching slow descriptor leaks early.
+- Diagnostics: new Traffic tool shows live upload and download rates per interface and per component, per-peer byte attribution, announce and propagated splits, a rolling activity chart, and plain-language hints explaining what is driving the wire load.
+- Interfaces: I2P community presets can now be quick-added like other presets. They run through the normal add-interface checks, so transport mode and the single-I2P rule still apply.
+- Interfaces: the community presets list now has a filter dropdown for TCP, Backbone, I2P, Yggdrasil, and other types.
+- Messages: the message translate bar now has an auto-translate toggle per conversation. The chosen language pair is remembered per contact, and when auto-translate is on, new incoming messages are translated on arrival and the newest loaded messages are translated when the conversation opens.
+- Maps: the tile server URL now accepts TileJSON endpoints (URLs ending in .json). Tile templates, attribution, zoom range, bounds, relative tile URLs, and scheme:tms are honored, and a bad document falls back to the next provider like a failed tile server.
+- Translator: the pack catalog now shows both directions of a language pair as a single bidirectional entry, and downloading it installs every direction present in the catalog. A search field filters the catalog by language or pair code.
+- Updated Python deps: rns 1.5.7, lxst 0.5.4 floor.
+- Messages: inbound messages that arrive while a conversation is open now enter with a short fade-and-rise instead of appearing instantly. History, outbound messages, and reduced-motion settings are unaffected.
+- Tools: shared tool page headers are slimmer so tool content gets more vertical space.
+
+## [4.10.1] - 2026-10-04 [released]
+
+### Fixed
+
+- Messages: the mobile attachment popup lived outside the paperclip button's click-outside boundary, so taps inside the menu counted as outside clicks. Touch devices closed the menu before the tap could fire any item, and on desktop the add image accordion collapsed the menu instead of expanding. The popup now renders inside the bound element.
+
+### Added
+
+- Relay chat: the composer is now a multiline field that grows with content up to 160px. Enter sends, Shift+Enter inserts a newline, and Escape, ArrowUp message recall, and Tab nick completion behave as before.
+- Interfaces: discovered interface settings gained Max Stored Interfaces plus Mark Unknown After, Mark Stale After, and Delete After day fields, so retention of discovered interfaces is configurable instead of fixed at Reticulum defaults.
+- Interfaces: the discovery list can be exported as a zip of the Reticulum interface store and imported again on another install, supporting offline backup and sharing of discovered interfaces. Import validates entries and keeps old archives in the retention window instead of letting them expire immediately.
+- Interfaces: the discovered list is now paginated at 48 per page with selectable page sizes, so large discovery stores stay responsive.
+
+## [4.10.0] - 2026-10-03 [released]
+
+### Added
+
+- Interfaces: per-interface runtime attach, detach, and reload using the RNS 1.5.5 interface management API. New POST endpoints /reticulum/interfaces/attach, /detach, and /reload, plus a Restart Interface action on attached interfaces in the Interfaces page.
+- Interfaces: interface edits, enables, disables, deletions, and bitrate changes now apply live against the running Reticulum stack instead of always requiring a full RNS restart. The restart banner only appears when a live apply is refused.
+- Interfaces: discovery settings expose the RNS 1.5.5 autoconnect_unverified_implementations toggle, and discovered interface cards show the announcing implementation name and version.
+- CI: a backend test leg now runs the full suite on Python 3.15 (beta) in advisory mode.
+- Sidebar: configurable filter chips on the conversations and announces lists. The funnel menu exposes every filter, a pencil button opens an editor modal to show, hide, and reorder chips, chips can also be dragged directly in the bar, and the layout persists per browser. New filters include Favourites on conversations and Direct, Nearby, Pinned, and Blocked on announces.
+- Fonts: Inter, JetBrains Mono, IBM Plex Sans, and Space Grotesk are bundled and selectable in appearance settings with live preview.
+- Docs: relative image links in in-app documentation now render, and image and clip assets ship with the docs bundle. A declarative guide capture system (tests/ui/guide) produces annotated WebP screenshots and animated clips for documentation.
+- Deployment: Helm chart, Ansible role and playbook, Proxmox template build, a devcontainer, and a standalone Firecracker microVM start.sh.
+- Tooling: UI metrics tracking (test:ui:metrics) records perf, heap, and Lighthouse results per git revision and fails on regressions against a local baseline.
+- Screenshots: the UI screenshot catalog now captures a desktop/mobile x light/dark matrix as WebP at 2x device scale, and guide screenshots support reusable annotation overlays (boxes, spotlights, blurs, arrows, badges, captions) plus a CDP/ffmpeg recorder for animated clips.
+
+### Changed
+- Sync messages button is pinned to the top nav bar by default with a stacked mail and sync-state icon
+- Updated Python deps: rns 1.5.6, cryptography 50.0.2, wasmtime 49, miniaudio 1.71, numpy 2.5.3 on Python 3.12+, setuptools 84
+- Backend threads are named for attribution in py-spy and top -H
+
+- Python 3.15 readiness: event-loop policy calls replaced by get_running_loop(), and the atheris dev dependency is gated to interpreters that have wheels (up to 3.14 on Linux x86_64).
+- Config: update_config now applies a generic pass over every registered config field, so newly added settings can no longer be silently dropped when no explicit handler exists. get_config_dict serializes registered fields generically behind a denylist instead of a hardcoded key list.
+- UI: hardcoded color buttons migrated to semantic action tokens (primary, success, danger, warning) so they follow theme presets, and sidebar chrome uses the raised-surface token so panels separate from the canvas on flat themes.
+- Search inputs use a compact pill variant in sidebars and on settings, call, docs, and debug pages.
+
+### Fixed
+
+- Config: ui_font_family, ui_custom_font_name, nomad_* and other newer settings now round-trip through GET /config instead of silently reverting, and multi-megabyte custom font data serves on demand via /api/v1/app/custom-font.
+- Icons: LxmfUserIcon badges render their glyph again. Percentage padding was measured against the card width instead of the icon and collapsed the SVG to zero size, leaving empty colored circles on bot and contact rows.
+- Docs: ![alt](src) markdown no longer renders as a stray bang plus a link, unsafe image sources are dropped, and relative image paths resolve under /meshchatnext-docs/ in-app.
+- UI: the Banished page screenshot path no longer exposes the skeleton grid. Loaded-state markers gate capture.
+
+### Security
+
+- Docs: _safe_href strips ASCII whitespace and control characters before scheme checks so payloads like java\tscript: can no longer reach the page as javascript: links or images, and URLs containing & are no longer double entity-encoded in rendered links.
+
+## [4.9.3] - 2026-09-30 [released]
+
+### Changed
+
+- Reticulum Network Stack updated to 1.5.5, which adds runtime interface attach/detach/reload management, publishes implementation name and version in discovery announcements, and fixes IFAC publishing edge cases.
+- Tutorial: the Back/Skip/Next row is fused back into the bottom of the step content in both modal and page modes instead of a separate pinned footer bar.
+- Visualiser: the radial view is replaced by a cluster view that groups peers into lobes around the interface that announced them, so the layout shows where traffic actually arrives from. Stored radial preferences upgrade to cluster.
+
+### Fixed
+
+- Visualiser: WebGL live layout settles again. Tick damping and the per-step speed cap were tuned so nodes spread out and come to rest instead of ringing at equilibrium.
+- Map: dragging the settings window stays smooth now (backdrop blur is disabled for the drag) and the coordinates readout no longer re-renders the whole page on every pointer event.
+- NomadNet: image size hints now follow upstream semantics. A bare w=/h= number is a character cell count (columns and rows) instead of pixels, w=n renders at the image's native size, and percent values stay relative to the page as upstream intends. Matches markqvist's NomadNet ImageWidget behavior.
+- NomadNet: the w=/h= spec now sizes the loaded image itself instead of only the invisible placeholder box, so w=50 renders 50 columns wide as in upstream NomadNet.
+- NomadNet: image alignment is applied. a=c centers and a=r right-aligns whole-line images, and whole-line images default to centered like the upstream ImageWidget.
+- NomadNet: a loaded image drops the placeholder border and padding and shows the bare image, and the reserved placeholder space is released so pages no longer keep dead space at the bottom.
+- NomadNet: the page shell no longer keeps its own scrollbar next to the rendered frame's scrollbar. The container was always scrollable by its own padding and showed a second slider on platforms with always-on scrollbars.
+- Issue triage: the welcome comment no longer asks reporters for logs or a screenshot when the issue body already contains an attachment or a filled-in logs section.
+
+### Security
+
+- Plugin install and preview paths now jail wasm backend entries under the plugin tree, bound extracted zip content by real bytes and file count instead of declared size, reject symlink members, and keep fallback wasm stubs out of the integrity-checked tree. A failed enable() rolls back to a clean disabled state.
+- RRC hub sessions that never send HELLO are reaped on a timeout so a peer cannot pin session slots, stale link-close callbacks no longer clear a live session's state, and a room-less forced-leave error preserves local room history instead of wiping it.
+- Reticulum config snapshots returned by the API redact secrets before serving, matching the redaction used by the live config view.
+- File sync incoming-file tracking expires and clears on link close so a dead link cannot pin a path against re-request forever.
+- Docs archive import streams members with a real-byte cap and skips symlink entries before anything reaches disk.
+
+### Fixed
+
+- Forwarding: replies sent to a forwarding alias now route back to the original sender. The mapping was keyed by the alias identity hash while replies arrive addressed to the alias destination hash, so the reply path never matched.
+- Messages: auto-resend no longer reclaims a malformed message forever. The attempt budget is spent before attachment parsing, so a bad base64 field cannot loop a resend.
+- Messages: local retention purge keys on when the row was written locally instead of the sender-controlled LXMF timestamp, so a peer can no longer age a message out instantly or keep it forever.
+- Telephone: an outgoing call that stalls mid-dial now times out and hangs up instead of leaving the phone stuck in Calling until teardown, and an incoming ring during a pending outbound call is surfaced instead of silently dropped.
+- Voicemail: the auto-answer timer is bound to the link instance it was scheduled for, the blocklist fails closed when lookup errors, and greeting recording writes to a temp file that only replaces the live greeting on success.
+- Web audio bridge reattaches after an LXST pipeline reconfiguration (answer, profile switch, loudspeaker toggle) instead of leaving mic and speaker paths silently disconnected, and per-client sends coalesce so one slow socket no longer stalls the whole 60fps feed.
+- Geo WASM: MGRS formatting for single-digit zones is correct, OLC shorten/recover no longer panics on edge-case codes, and NaN or non-finite coordinates cannot crash the runtime.
+- Visualiser WASM: the WebGL pick radius holds a screen-space minimum so clicks still land at high zoom, scene handlers validate argument types instead of calling Float on non-numbers, coincident layout nodes get a deterministic separation nudge, and duplicate edges are deduplicated.
+- Relay chat: sent messages now show a gray "sending" hint until the hub relays the message back. If the echo never arrives, or the link drops first, the line switches to "not delivered to hub" with a retry action that resends under a new envelope id.
+- Relay chat: message and sidebar context menus show icons, and the message menu gains "Message user" (opens a direct conversation through the peer's LXMF address) and "Copy user hash".
+- Context menus across the app use a pointer cursor on interactive items.
+- NomadNet: a live announce no longer re-sorts its row to the top of the announces list, so clicking a node no longer makes the sidebar reshuffle under the cursor.
+- Relay chat: a "new messages" divider marks where unread history starts when a room opens, pressing ArrowUp on an empty composer recalls your last sent message, a byte counter appears near the hub's message limit, failed sends retry once automatically on rejoin, and hubs show their measured link latency next to the status line.
+- Context menus support Escape to close and arrow-key navigation between items.
+- RRC: hub reconnect after a restart no longer stalls on a dead link. The connect worker now waits for both the identity and a live path before creating the link, since a link request sent with no known path is dropped silently and only the establishment timeout would recover it. Path requests retry inside the connect window instead of a single shot.
+- RRC: a link stuck PENDING on a dead path no longer parks the hub in CONNECTING for minutes. An establishment watchdog tears it down after a bounded window and lets reconnect backoff retry instead.
+- Live e2e now covers backend restarts (warm storage reconnect within an SLA), link flaps, and network partitions through a control-file chaos proxy between the peer and the backend.
+- Nightly QA workflow runs a soak harness that samples threads, fds, RSS, path table and interface byte rates under a steady mesh workload and fails on any rising leak slope, plus opt-in live backend tests and mutation runs on the highest-risk modules.
+- Backend tests gained a Hypothesis state machine for the RRC hub connect lifecycle and property-based codec/parser tests for the wire format.
+- Shared-instance RNS calls can no longer wedge the web server. The shared RPC recv had no deadline, so a stalled rnsd blocked whatever thread asked, including the aiohttp loop serving /interface-stats, /path-table, path probe, blocklist and telephone endpoints. Route handlers now run those calls in a thread when a shared instance is in use, and every shared-instance RPC recv carries a 10s deadline.
+- RNode Flasher: the page 500s in dev mode because Vite refuses dynamic imports of public assets, and the fallback code imported vendor modules without any SRI check. Vendor bundles now load through a hash-verified blob URL path shared by all flasher scripts, and the dead web-serial polyfill reference (the file was never shipped) is removed.
+- RRC: reconnect backoff can no longer overflow after days of retries (the exponent is capped), a dead link reporting close twice no longer double-counts the backoff, and a connect that crosses a manual disconnect no longer installs its link anyway. A connect attempt epoch now drops links from superseded workers.
+- RRC: hub error text can no longer delete room history files. Only explicit remove/clear actions erase the archive. History files now compact to the retention window instead of growing without bound.
+- RRC: pending-delivery echoes age out on message reads, not only on inbound packets. Active-room tracking normalizes room names so mixed-case paths cannot split unread state or history.
+- Removed dead code: the bot_propagation re-export shim, the never-wired lifecycle deferred_network module, two unused frontend API wrappers, the unused FormSubLabel component, a dead RRC ping path (send_ping was never called, so pong tracking and its bookkeeping were inert), the trusted-publisher OO store cluster, unused config fields, and roughly two dozen unreachable DAO, plugin, sandbox, and diagnostics helpers.
+- Map coordinate format now persists: the PATCH handler and config export were wired (the setting was previously silently dropped).
+- API hardening from OpenAPI contract fuzzing: malformed JSON bodies (arrays or nulls in string fields) no longer 500 on the RRC join-room, hub-create, room key/topic, archive, and LXMF send endpoints. They now fail 400 with a named reason. The lxmf send error response also gained the standard error/code/message fields.
+- RRC room names containing lone-surrogate unicode are rejected at normalize time instead of exploding mid-encode inside CBOR.
+- RNPath tool: a remote query no longer fires without a management identity (it returned a guaranteed 400 on every poll and spammed the console), and the search box is clamped so oversized input cannot overflow the HTTP request line.
+- Testing: an OpenAPI spec now ships under docs/openapi.yaml covering 79 API operations, exercised live by Schemathesis against a loopback backend in CI, plus an atheris coverage-guided fuzz suite over the RRC envelope codec and parsers, golden CBOR wire captures pinned against decode/round-trip drift, deterministic replay of recorded RRC sessions, a SIGKILL crash-consistency suite that kills the backend mid-write and asserts storage integrity on restart, a shared-instance e2e that runs the backend against a real rnsd, and scripted exploratory personas (impatient, adversarial input, data-heavy seeding) over all routes.
+- Testing: axe-core accessibility audit runs across all routes with a baseline ratchet so new serious or critical violations fail while documented debt is tracked to zero. Visual regression screenshots for key routes can be generated per environment through a dedicated Playwright config. A diff-cover gate requires 80% coverage on changed backend lines in pull requests.
+- RRC sessions can now record every routed envelope to JSONL for deterministic replay in tests.
+- Health monitor now samples Linux IO stall pressure (/proc/pressure/io avg10). Sustained high IO pressure warns in the log and over the websocket, throttles the background ratchet persist worker until pressure clears, and reports recovery.
+- Shared-instance RPC: the deadline now also covers the authkey handshake (a stalled rnsd rpc_loop could park the connect path forever) and the whole frame read, not just the first byte. Every remaining route handler that still called a blocking shared-instance RPC on the event loop now offloads it, including rnstatus/rnpath/rnprobe/trace tools, path probe, blocklist writes, telephone dialing, and the reticulum hot-reload shutdown sequence. RPC timeouts surface as 503 instead of a generic 500, and a deadlined packet-metric lookup can no longer skip the message state update it precedes.
+- Command palette: typing with peers or contacts lacking names no longer crashes filtering, and pressing arrows on a query with no matches crashed the render path because the highlight move indexed an empty result set, and null entries in peer or contact lists could throw while building results.
+- IO pressure handling hardens: the gate releases when PSI disappears mid-run or the monitor stops, ratchet writes held during pressure flush synchronously at shutdown, and a dropped re-queue signal can no longer orphan pending ratchet entries.
+- Live e2e covers RRC room history across a backend restart and before_seq pagination, plus an exploratory interaction crawl (buttons, menus, command palette) on every route and an adb-based mobile UI crawl when a device is attached.
+- E2E hardening: the live peer no longer self-terminates at 10 minutes (soak runs were measuring a dead mesh), storm destinations now announce the real rrc.hub aspect, the soak slope oracle uses the correct slope standard error and fails on too few samples or peer death, the stack script frees ports with escalation and kills Vite on cleanup, and fault-injection specs restore chaos modes in finally blocks so one failure cannot poison the suite.
+- RNode flasher: the dead load-polyfill action and a standalone-page import of a file that was never shipped are removed, SRI verification failures log loudly instead of being swallowed, vendor loading deduplicates concurrent runs, and insecure contexts surface a clear error instead of silent crypto.subtle failures.
+- Live e2e now covers an adversarial announce storm (40 synthetic hub announces), a second live peer for cross-peer isolation checks, and an exploratory route crawl that fails on console errors or blank pages. The e2e stack also frees its ports from stale leftovers before starting.
+- Live e2e now also asserts interface byte counters stay bounded during idle announce windows and real chat flows, catching unbounded announce or path-request churn before it becomes a traffic bill.
+- Telephony: dialing by identity hash no longer resolves a wrong identity. The announce fallback rebuilt the peer identity from its public key through a private-key API, producing a constant wrong hash, so calls by identity hash could never find a path.
+- Backend: fixed a self-deadlock in AsyncUtils.run_async where a done-callback could fire inline while the futures lock was held, freezing the main event loop and wedging the server under sustained announce traffic. A live Playwright mesh suite now covers real LXMF delivery and relay-hub connect, join, and echo over a local TCP link.
+- LXMF: a transient blocklist or contact lookup error can no longer bounce inbound long messages with a false REJECTED state. The pre-transfer policy only rejects on a positive verdict, matching the 4.8.8 unknown-peer rule.
+- Health monitor now probes the main event loop and dumps all thread stacks to the log if the loop stops answering, and SIGUSR1 dumps stacks on demand, so silent server wedges self-diagnose.
+- Relay chat: auto-connect now waits for the first interface to come online before sending path requests, so hubs connect quickly after a restart instead of burning a full path-request window.
+- Contacts context menu dismisses consistently on Escape, and the announce sidebar no longer corrupts first-seen timestamps or custom names from slim live announce payloads. Announce list pagination no longer skips server rows when live nodes arrive mid-browse.
+- Sandbox: seccomp denylist now prefers the seccompy backend (pure Python, no libseccomp needed) and falls back to libseccomp via ctypes when it is absent.
+- Crawler: re-queued tasks keep their retry budget instead of resetting to zero, in-flight tasks count toward the per-node page cap, a successful crawl clears the previous skip reason, and a node's own page destinations are never queued for self-crawl.
+- Page nodes write pages and hosted files atomically and open served files with O_NOFOLLOW so a swapped symlink cannot redirect a served path after the jail check.
+- Media conversion holds a process-wide lock around the temporary-directory and environment window so concurrent conversions cannot clobber each other's temp settings.
+
+## [4.9.2] - 2026-09-28 [released]
+
+### Added
+
+- Network visualiser gains a radial view mode that pins nodes on deterministic hop rings around the local node, plus screen-space label decluttering so dense zoomed views stay readable.
+- Settings self-test gains a CBOR roundtrip check that exercises the RRC codec's encode, decode, and stream replay paths.
+- CI performance suite measures cold-load FCP, LCP, SPA route transition latency, API round-trip, and post-mount heap per page with per-page budgets, plus a heap-growth spec that fails when a page leaks listeners, timers, or nodes across mount/unmount cycles.
+- NomadNet: local page nodes rescan their pages and files directories on a timer and on each incoming link, so content dropped in externally is served without a restart and removed content stops answering. Matches upstream NomadNet's page_refresh_interval behavior.
+- Backend fault-injection suite covers malformed RRC wire traffic, reconnect timer storms, hub store corruption, page-node rescan failures, crawler garbage inputs, link-cache teardown errors, and callback exceptions.
+
+### Security
+
+- HTTP-set `command_plugins_path` is jailed under storage so remote callers cannot point the plugin loader at arbitrary Python files.
+- Reticulum `rpc_key` and interface secrets are served only to loopback or authenticated callers, and a redacted GET round-trips through PUT via a sentinel so non-privileged edits cannot erase real values.
+- `auth_session_epoch` is stamped into session cookies and checked on HTTP middleware and the WebSocket upgrade, so password, auth-toggle, and setup changes revoke outstanding sessions. Session secret files are restricted to 0600.
+- Translation-pack extraction is bounded by per-member, total, and file-count caps with streamed copies.
+- `/api` responses send `Cache-Control: no-store`, the static auth bypass is scoped to actual asset suffixes, and remote markup rendered into the main document loses `id`/`name` attributes so archived pages cannot clobber window globals.
+
+### Fixed
+
+- Messages: opening a raw outbound message no longer 404s once it leaves router memory (delivered or post-restart). The paper URI endpoint rebuilds the signed `lxm://` URI from the stored row, preserves the original timestamp so the message hash and ingest deduping hold, verifies the repacked hash against the stored row, and skips the request entirely for inbound messages, which can never be signed by the local sender.
+- Messages: resend preserves title, reply quotes, reactions, app extensions, and correctly decomposed telemetry, and other sessions are told when the old failed row is deleted.
+- Messages: cancel validates the hash, reaches forwarding-alias routers, and reconciles rows stuck in generating/outbound/sending to cancelled after a restart instead of returning ok while nothing changed.
+- Messages: startup recovery fails `sent`+`direct` rows that could never advance after restart, and a same-hash inbound delivery can no longer demote an outbound row to incoming or repoint its peer.
+- Messages: hash lookups normalize case across message, attachment, spam, and announce paths.
+- Messages: queued sends snapshot peer and composer state so a cleared composer or peer switch cannot send into the wrong conversation, pending placeholders dedupe correctly, inbound duplicates are dropped, and audio decode is serialized with contexts closed on unmount.
+- Messages: paper URI generation and URI ingest over WebSocket were fire-and-forget. A failed send or dropped reply left buttons disabled or a spinner forever. Sends now check the result, toast on failure, and bound the wait with a timeout.
+- Android: bridge-backed buttons (WiFi Aware grant, nearby permission, native RNode flasher) were silently dead because the injected bridge sat inside a Vue reactive proxy. The bridge now marks itself non-reactive and binds methods to the raw instance.
+- Android: release APKs kept stripping `org.meshchatnext.locallink.*` because the classes are only reached via `jclass()` from Python, so WiFi Aware stayed disabled in minified builds. R8 keeps them and a dex check gates the build.
+- Android: the native RNode flasher no longer shows a duplicate title hidden behind the status bar.
+- Reticulum: a second AutoInterface bind failure left a zombie singleton that killed every in-process restart. Recovery now releases interface sockets and resets singleton state before rebinding, a colliding interface is rejected at add time, and a guidance notice reports auto-disabled interfaces.
+- NomadNet: image loading now parses the NomadNet 1.4 whole-line image syntax (paren links with `w`/`h`/`a`/`s`/`k`/`profile` fields and percent widths) and sends the `key` field the `/media` protocol requires. Verified live against `rns.recipes`.
+- NomadNet: page and file download events are correlated by request id so stale transfers cannot feed replacement entries, and archive navigation performs full teardown.
+- NomadNet: requesting an unknown page or file from a local node opened a doomed link to the node itself. Local serving now resolves only canonical /page, /file, and /media paths, and the download handlers fail fast instead, reporting archive availability for pages.
+- Relay chat: prefs and drafts are scoped per identity, so hide-join/part and ignore state apply once the identity hash resolves, hub switches reset room state, the composer clears before send to end double-send and lost-text races, and debounced config writes survive identity switches.
+- Relay chat: hub auto-reconnect retried on a 60 s backoff cap forever, so a large set of unreachable hubs produced a constant stream of link and path requests. Backoff now doubles per failure up to a 15 minute ceiling with jitter, startup connects are staggered, path requests dedupe per hub, and a fresh hub announce resets the backoff so a recovering hub reconnects quickly. Manual connects reset the counter for an immediate retry.
+- Service worker: subframe requests are excluded from the shell navigation strategy and only shell documents or extensionless SPA routes use the fallback slot, fixing the stale-cache stuck Loading page. Updates reload exactly once, WebTransport falls back to WebSocket on session death, and a version-mismatched backend triggers a reload after reconnect.
+- Backend: `websocket_broadcast` from foreign loops forwards onto the owning client's loop, the self-test endpoint runs off the event loop so its own probes cannot deadlock, and the Windows AppContainer probe wait is bounded.
+- Backend: deleting an identity tears down its live context first, telemetry per destination is capped, and in-flight propagation-node tasks are cancelled on shutdown.
+- Electron: protocol links are stripped from backend argv and delivered to the renderer after load, certificate-error bypass is scoped to the local backend, DevTools shortcuts and hardware permissions are gated, and the Electron runtime version invalidates stale caches on upgrade.
+- UI: context menus dismiss on click-off and re-right-click again, popup carets stay off rounded corners, and the map drawing toolbar stays pinned at the top on xl screens.
+- UI: stuck-state follow-through in MiniChat (send failures now toast and fresh timestamps render), ContactsPage lxma import, NomadNet archives spinner, and the archived-pages flush result toast.
+- CI: alpine APKs are built without fpm and verified by actually installing them in an apk-tools container.
+- Locale files gained the missing aware/nearby permission strings in all 15 locales.
+- Backend: a wedged SQLite pool could leave every API call answering 503 until a manual restart. When WAL or SHM files get unlinked under open connections, every statement fails with a disk I/O error and per-connection retries never recover. The provider now spots failures that persist on fresh connections, resets the whole connection pool at once, and if that is not enough restarts the process. Restart attempts are bounded, so a permanently broken store keeps serving retryable 503s instead of crash-looping.
+- Relay chat: a malformed hub or client envelope could raise inside a packet handler and break session processing. Client and server dispatch now contain handler errors per packet, and the announce-reset and path-request rate limits use never-fired sentinels so the first retry is not skipped on hosts with low uptime.
+- HTTP: the safe file response raises a real error instead of asserting when aiohttp hands back no writer.
+- CI: Docker builds install pnpm 12 through npm since the pinned node image's corepack cannot shim its native binary, and the dev container does the same.
+- CI: the shared Node setup keys its corepack cache by runner architecture, so an arm64 pnpm binary can no longer be restored onto the x64 macOS build runner.
+
+### Changed
+
+- The Landlock sandbox now uses `landlockpy` instead of the custom ctypes plumbing. The enforced filesystem policy is unchanged and Android is unaffected.
+- Relay chat's CBOR codec moved from cbor2 to cborx, a zero-dependency RFC 8949 implementation with an optional compiled fast path. Canonical wire encoding is unchanged, decode rejects trailing bytes instead of ignoring them, and Android packages cborx through a Chaquopy recipe instead of the cbor2 wheel.
+- Visualiser layout spacing widened to match node size, WASM and JS paths gained LOD color, NaN guard, edge-filtering, and dead-scene fallback parity, and `visualiser.wasm` was rebuilt.
+- UI lighthouse, performance, and heap suites run against the production bundle instead of the Vite dev server, and service workers are unregistered before audits so scores cannot be nulled by a controlled navigation.
+- Backend: the eight per-identity periodic loops (auto-announce, propagation sync, crawler, auto-backup, telemetry, retention, flood cooldown, auto propagation selection) now share one background event loop instead of one thread each. Backups, retention sweeps, and announce table reads run in worker threads so they cannot stall the shared loop. This cuts several threads and thread-local database connections per identity.
+- Backend: debug log writes to SQLite are batched into one transaction per flush, the retention sweep runs at most every ten minutes instead of every five seconds, and MESHCHAT_LOG_DB=0 disables database logging entirely. On SD-card installs this removes a steady stream of small writes.
+- Backend: after identity setup finishes, startup objects are frozen out of the cyclic garbage collector's scan set, and the periodic cleanup calls malloc_trim so freed memory returns to the OS instead of sitting in allocator arenas.
+- Docker images and the Raspberry Pi installer set MALLOC_ARENA_MAX=2 and OPENBLAS_NUM_THREADS=1, and the Pi guide documents both plus MESHCHAT_LOG_DB=0 for low-memory and SD-card deployments.
+- Backend: the LXST telephony stack, numpy, and its audio backends no longer load at startup. The web audio bridge sits behind a lazy proxy that constructs it on first call, and telephone and voicemail resolve their LXST symbols on demand. Text-only installs keep tens of MB of memory and the OpenBLAS worker threads out of the process. If the audio stack fails to initialize or a bridge call keeps raising, the proxy disables audio for the session instead of letting errors reach the messaging paths.
+
+## [4.9.1] - 2026-09-21 [released]
+
+### Added
+
+- Android Nearby: hotspot, WiFi Direct, WiFi Aware, and NFC tap link nearby phones with no router. Peers join through Auto Interface or the bundled AwareInterface.
+- Android satellite readiness: the app declares constrained-data optimization so the OS can route mesh traffic on a satellite attach. Nearby shows satellite state and a low-bandwidth hint.
+- OIDC sign-on for the web UI (Authentik, Keycloak, Pocket ID, and compatible providers) via Authorization Code + PKCE. Set it under Settings, Authentication, or with MESHCHAT_OIDC_* variables. OIDC can require login without a local password.
+- UI heap-profile spec fails CI if a catalog page leaves listeners, timers, or heap above baseline after unmount.
+- Android GPS location source shares your position through the native LocationManager bridge, so location works even when the WebView geolocation API fails. Pick it under Settings, Location.
+- Top navigation bar is customizable. Pin, reorder, or remove section buttons under Settings, Appearance, and NomadNet joins the default set.
+- Reticulum config editor keeps versioned snapshots on every save and can restore an older config.
+- Contact shares carry the display name and LXMF icon (name plus colors), so the card renders like a real contact.
+- Toasts can carry an action button. Errors like a missing propagation node or disabled location now offer a Configure shortcut that jumps to the right settings section.
+- Screenshot tooling: `task screenshots` captures desktop and mobile views of every page with seeded demo data.
+
+### Security
+
+- Messages: user text could forge markdown placeholders and inject anchors or tokens into linkified URLs. Placeholders now use a per-render nonce, and linkified URLs stop at bracket tokens.
+- Map exchange: the KML sanitizer now matches namespaced, attribute, and CDATA href forms, and treats malformed remote URLs as unsafe.
+- Docs: uploaded Reticulum documentation HTML no longer shares the app origin. The docs iframe and `/reticulum-docs/` responses are CSP-sandboxed.
+- Authentication: the public setup endpoint no longer sets a local password on an OIDC-only deployment.
+
+### Fixed
+
+- Windows desktop: the AppContainer child no longer dies at loader init (0xC0000142) when the LPAC token lacks window station access. A failed sandbox still falls back to an unsandboxed backend in auto mode.
+- Desktop: a crashed renderer now offers relaunch, relaunch without GPU acceleration, or quit instead of leaving a dead window. Crash minidumps are kept locally under the Crashpad folder, and GPU process deaths are logged.
+- Desktop: a crash-looping GPU process (which takes the window's renderer down with it) now triggers an automatic fallback, the app disables hardware acceleration once via the disable-gpu marker and relaunches.
+- Packaged builds: `.gitkeep` placeholders are no longer hashed into `backend-manifest.json`, so a dropped marker cannot block onboarding.
+- Relay chat: hosted hub announce intervals show hours and days, and accept values like "6h" or "1d".
+- Messages: reopening a conversation no longer shows a stale first page that misses messages sent while the pane was closed.
+- NomadNet: the path-finder menu hides on small screens, and the mobile sidebar gains a URL entry row.
+- Relay chat: Host, Bots, and Search tabs collapse into the overflow menu on narrow screens.
+- Android: a failed Chaquopy start or missing WebView no longer closes the app with no message. Startup and renderer crashes show a readable error.
+- NomadNet: closing a node opened from the announce list returns to that list instead of a new Favourites tab. The sidebar reopens on the last used tab.
+- NomadNet: leaving the browser and coming back no longer reloads the page. Scroll position and field contents survive.
+- Relay chat: backing out of a room opened from Search or Discovery returns to that view.
+- Reverse proxy: trusted proxies can pass X-Forwarded-Proto and X-Forwarded-Port, so TLS-terminating ingress no longer gets 403 on `/ws` upgrades.
+- Docker: the entrypoint prepends `meshchatnext` when argv starts with a flag, so `docker run image --flag` and Kubernetes args no longer crash su-exec.
+- Landlock: parent directories of `--ssl-cert` and `--ssl-key` are granted as read roots, so TLS files outside the usual roots load.
+- Logging: the Python logger also writes to stdout, so request-handler tracebacks show up in docker logs and kubectl logs.
+- WebSocket: the cost limiter covers binary and invalid JSON frames, and idle timeout drops dead or flooding clients. The telephone audio socket uses the same gating.
+- Authentication: turning auth_enabled off no longer wipes the local password hash while OIDC still enforces login.
+- Settings: an empty OIDC client secret no longer overwrites the stored secret, and an invalid issuer URL is rejected before any keys persist.
+- Backend: concurrent `reload_reticulum` calls are serialized, and recovery clears a dead instance instead of reusing it.
+- Backend: transport-thread RNS callbacks wake asyncio safely, dropped coroutines are closed, and the memory log handler drops its database handle at identity teardown.
+- Voicemail: greeting text is passed to espeak on stdin, so a leading dash is not treated as a flag.
+- Startup: leftover ratchet files with non-hex names are swept before RNS init, so they do not retrigger the corrupted-ratchet path on every boot.
+- Map: telemetry, announce, and interface coordinates are range-checked before projection, and marker updates stop after the map is torn down.
+- Messages: conversation and relay timelines cap retained items, unmount no longer cancels accepted sends, and MiniChat no longer races local appends against its fetch.
+- Frontend lifecycle: live transport cleans up sockets on destroy and mid-connect mode changes, failed WASM injections can be retried, and a stale NomadNet started event cannot resurrect a cancelled download.
+- Boot: the splash waits for the initial route chunk (4 second cap) before fading, so the shell does not jump onto an empty view.
+- NomadNet: page images no longer stick on Loading when a burst of file downloads was rate-limited. Errors now fail the matching download.
+- Themes: outbound, failed, and waiting message bubbles now take their colors from the active theme instead of a fixed blue. Settings pickers show the theme-resolved color until you override it.
+- Settings: the Reticulum Stack panel no longer leaks into Simple mode or unrelated tabs.
+- Android: location sharing no longer fails when browser geolocation is unavailable. Native GPS is used when selected, with a clear prompt when permission is missing.
+- Messages: shared contacts no longer show the raw payload above the card, and the mobile composer moves attachments into the input with a tidy picker.
+- Relay chat: search, cleanup, options, and leave collapse into a menu on mobile so the members button still fits.
+- Interface cards no longer leave a gap above the title on mobile, and the map info chip no longer touches the zoom controls.
+- Map: switching between online and offline no longer flashes a blank map, offline uses cached tiles when present, and the last view is restored on restart.
+- Voicemail works without espeak: record or upload a greeting even when text-to-speech is unavailable.
+- LXMFy bots get their configured icon colors seeded up front instead of showing a white avatar until first reply.
+- Popup menus show a caret pointing back at the button that opened them.
+- Mobile shows one toast at a time, and settings sections collapse to icon buttons on small screens.
+- Service worker: HEAD probes on hashed assets no longer reject the fetch, fixing the emoji picker data load.
+- Windows: the AppContainer backend sandbox is off by default again after loader-init crashes on some systems. Set MESHCHAT_APPCONTAINER=1 to require it, or auto to enable it with an unsandboxed fallback.
+- Desktop: Chromium GPU and logging flags injected by a crash-fallback relaunch no longer leak into backend arguments, which could break the Windows backend spawn under a Job Object.
+- NomadNet: page and file downloads in flight resume on the new socket after a websocket reconnect instead of spinning forever, and a resend that lands on a dead socket fails the download cleanly.
+- NomadNet: requests that never get a response now fail on a watchdog timeout instead of hanging, and dead links are evicted so the next attempt reconnects.
+- Tutorial: navigation buttons stay pinned below the scroll area in page mode, and the bootstrap-only toggle follows the backend default of off.
+- Map: location search sits inline in the header on desktop and tablet, and the first-run tooltip anchors to the map tools button.
+
+### Changed
+
+- Install docs cover reverse proxies, Kubernetes, and previously undocumented flags and MESHCHAT_* variables.
+- Long sessions bound per-view state (announces, map markers, NomadNet pages, MiniChat, toasts) and clean up timers and streams on unmount.
+- Bump rns to 1.5.4 and lxst to 0.5.3.
+- Hardcoded palette colors across calls, contacts, toasts, voice notes, and docs controls now use semantic theme tokens that follow the active theme.
+- Headless self-check gains a Windows AppContainer launch probe so loader-init failures show up in `--self-check` and CI.
+- CI checks the packaged Electron backend tree against `backend-manifest.json` before staging is pruned.
+- GHCR container images publish zstd-compressed OCI layers for faster pulls on modern runtimes. Docker Hub stays on gzip for compatibility.
+
+## [4.9.0] - 2026-09-12 [released]
+
+### Added
+
+- Bergamot WASM offline translation replaces Argos Translate and LibreTranslate. Packs are user-imported from local files and served same-origin. The app never downloads packs.
+- Conversation, Relay chat and the standalone Translator page use the local translation layer with quiet, opt-in message actions, original/translation toggles, remembered target languages and per-message/session caching.
+- Translation pack manager validates imported archives, rejects path traversal, and stores multiple packs under application storage.
+- Relay chat messages can be translated from the message context menu. Translated text is shown inline with a toggle.
+- Backend Landlock test probes cover translation-pack read/write under storage and the old Argos Translate CLI root has been removed.
+
+- Built-in geo-wasm converts WGS84, UTM, MGRS and Plus Code locally, so the map works offline without a network round trip.
+- The bundled `starter_world.mbtiles` is now a 30-degree world graticule covering z0-z4 instead of a solid placeholder, so the map is usable offline immediately.
+- Delivery failure tips throttle per peer, order by severity, cap the detail count and deduplicate diagnostic fetches so they do not get noisy.
+- DatabaseProvider closes idle live-thread SQLite handles after 120 seconds and dead-thread handles, preventing unbounded file-descriptor growth in containers.
+- Opt-in image support for Mesh Server and Micron pages. The parser recognizes `img=1` image links and `/media/` URLs, renders placeholders with alt text and size metadata, and loads the image only after an explicit click or when the policy is set to auto or always.
+- Page nodes serve `/media/` images in webp, png, jpg, jpeg, bmp, gif and tiff, converting non-webp formats to webp and caching the result. `/file/` stays webp-only, matching NomadNet 1.4.2.
+- Nomad page images download over the Reticulum page socket, report progress, reassemble chunked transfers and are cached per node and page path.
+- Page nodes grant file access only after a page request, so direct links to hosted files fail without first visiting the page.
+- Image loading on Micron pages is controlled by a global policy in Settings: never, manual, auto or always.
+- New tests cover the database file-descriptor oracle, delivery help tips, message cancel-send, raw message view, map bounds/provider handling and Micron image parsing.
+- Micron page output now exposes ARIA landmarks and semantic heading levels for screen readers. Rendered pages are wrapped in a main landmark, section headings receive heading role and level, links and inputs get focus and label hints, and the crash tab iframe document is marked as a document, receives the page path as its title, and advertises the current application locale.
+- New frontend tests cover the Micron accessibility attributes, crash tab iframe title, and crash tab document title.
+- The app shell now exposes a header landmark, a main content landmark, and a skip link so screen-reader and keyboard users can jump to the page body.
+- Primary side navigation is wrapped in a nav landmark, and each link receives an accessible name and aria-current when active.
+- AppModal now traps focus and restores it on close, and toast and loading states are announced with live regions.
+- The command palette is exposed as a dialog with role, aria-modal, and a combobox/listbox pattern for screen-reader users, and the Ctrl/Cmd+K shortcut is now routed through the configurable KeyboardShortcuts system.
+- The default keyboard shortcuts for opening the palette and toggling the sidebar are discoverable in the command palette, and navigation shortcuts are suppressed while a modal is open.
+- New frontend tests cover the command palette ARIA, command palette toggle-sidebar action, keyboard shortcut modal guard, and AppModal focusable-element discovery.
+- Settings sidebar gains a Simple and Advanced mode toggle. Simple mode hides technical sections (interfaces, transport, plugins and friends) while Advanced shows everything. Search always finds advanced settings.
+- The map restores proper tile attribution with a collapsible chip for OpenStreetMap, CARTO and OpenFreeMap sources, and the zoom control and scale line are themed to match the app.
+- Map tabs on wide screens gain a right-click context menu with rename, new tab, close, close others, close tabs to the right and close all.
+- The discovered-nodes toolbar button shows a spinner while nodes are being fetched.
+- Fixed pasting into nomad page input fields on Android. The WebView cannot show its own Paste menu for fields inside the rendered page frame, so long-press now opens an app Paste action that reads the system clipboard and inserts the text at the cursor.
+- Long-press on nomad page content on Android now opens the page/tab context menu, matching desktop right-click.
+- Fixed map tab right-click menu rendering behind the map toolbar: context menus now sit above page chrome.
+- The map scale now sits in a row with the credits chip at bottom-right, and map overlays are capped and stacked so toolbars, search, and info cards no longer overlap each other on narrow screens.
+- Relay chat gains a global Search tab that scans message history across every connected hub and room. Queries support quoted phrases, OR groups, NOT/-exclusion, field filters (from:, room:, hub:, kind:, date:) and fuzzy matching with result ranking. Results jump straight to the room.
+- Chat text now auto-links geographic references: Maidenhead grid locators (6+ characters, or any locator after a geo:/grid: prefix), lat/lon pairs, and other coordinate formats resolve locally and open the map with a marker.
+
+- Archives can be exported in bulk: an Export all (.zip) action below the search box downloads a zip bundle of the filtered set with a manifest, and each archive card gains an Export action that downloads the snapshot as a .mu file.
+- Relay chat member lists show avatar initials with presence dots, sticky online/offline headers, and a mention hint on hover. Right-clicking a member copies their identity hash.
+- Relay chat room headers now show the hub MOTD inline next to the room and hub name instead of a separate banner row.
+- Discovered interfaces fetch faster: the endpoint runs its filesystem scan and interface stats collection off the event loop and caches results briefly, and the map builds marker features in chunks so large sets stay responsive.
+- Tools page search icon no longer overlaps the placeholder text, and tool groups are now collapsible with count badges and persisted state.
+- The About page sandbox section shows the kernel Landlock ABI version when available.
+- The network visualiser adapts its batch size to measured apply time and pauses physics during silent refreshes when the frame rate is low, avoiding the 1-2 fps freeze on large graphs.
+- The messages split-view drop strip now only appears while dragging a conversation, freeing the space it occupied at rest. A conversation can also be opened in split view from its right-click menu.
+- Relay chat member rows gain a hover/tap direct-message action that lazily derives the member's LXMF address from their identity, waits for a path, then opens the conversation.
+- RRC hub hosts get anti-spam protections: per-peer session caps, a total session cap, and a rate limit on join/part/control traffic, plus a new Status tab in hub moderation showing relayed-message counts, drop counters, and a recent-events log.
+- All search inputs across the app now share a SearchInput component with consistent icon, clear button, loading spinner, and escape-to-clear. The icon-over-placeholder bug class is gone.
+- Offline mode with no basemap now shows a friendly in-map card with restore starter tiles, upload MBTiles and switch-to-online actions instead of a blank placeholder map.
+- Settings search tolerates typos: when strict matching finds nothing, queries like "mesages" still surface the messages settings.
+- Hosted relay hubs answer /history [room] [n] by replaying recent room messages to the requester only. Membership in the room is required, the count clamps to 50, and each request is logged in the host status events.
+- Relay chat gains a Bots tab for running LXMFy bots that join hubs as normal clients. Pick a hub and room list, set a nickname, mention-only mode, command prefix and reply cooldown, and the bot answers commands like uptime, ping, help and status in the rooms it joins.
+- The Bots page gains a custom command template with user-defined canned replies and a welcome message, a per-bot icon picker, and an expanded per-bot LXMF options form covering announce, signature verification, permissions, rate limits and admin hashes.
+- New tests cover the history command privacy and edge cases, RRC bot reply logic and validation, bot option normalizers, and restore hardening.
+
+### Fixed
+
+- The offline MBTiles source is capped to its metadata min/max zoom so OpenLayers stops requesting missing tiles.
+- OpenFreeMap is no longer treated as a raster fallback and Carto providers are now in the failover list.
+- The tile cache clear waits for pending access writes and counts replacement entries before eviction.
+- Successful tile blob application sets the tile state to LOADED, object URLs revoke on image load or error and dark placeholders are 256x256.
+- Cancel-send is shown inline, failed and rejected labels are localized and the raw message modal opens immediately with the paper URI loaded in the background.
+- All debounced save timeouts are cleared on unmount so config saves do not fire after the page is closed.
+- Crash tab render deadlines pause when the tab is inactive and the Network page cancels active page downloads on unmount.
+- Hop filter and announce chunk fetches catch errors instead of rejecting the whole render.
+- Unkeyed toasts with the same message and type replace the existing one instead of stacking.
+- Crash-tab hung toasts clear when the tab recovers, and the warning is skipped when the page is no longer active.
+- UIComponents SettingsPage mocks config patch responses and unmounts wrappers to prevent EnvironmentTeardownError.
+- Live name bindings in the split HTTP/WS modules support comparison, hashing and string conversion, so constants like `MAX_EXPORT_ZOOM` can be used in chained comparisons and map lookups.
+- AppImage packages now ship the backend `data/map/.gitkeep` marker, so the integrity check passes and onboarding no longer stalls on Connect to Mesh. A packaging test walks the real source tree and package.json filters so a missing file fails CI instead of the AppImage.
+- Direct links to nomadnet page addresses work when no node is selected yet. The destination hash and page path are parsed up front.
+- Restoring a backup now serializes concurrent restores, validates the restored identity key before replacing the current one, moves the restored tree into the slot matching its own identity hash, and rebaselines integrity state after the restore.
+- The RRC identity LXMF address endpoint now accepts real 16-byte identity hashes instead of only the 32-byte form, so the member direct-message action actually resolves.
+- RRC per-peer session caps no longer evict the host's own loopback client, can no longer be bypassed by links whose identify callback never fired, and cannot evict live sessions through a stale identify on an already-dropped link.
+- The split-view drop strip no longer stays visible if a conversation row unmounts mid-drag. Window-level drop and dragend handlers settle the state.
+- RRC room lists delivered over link resources (oversized /list and /who responses from hubs that negotiate resource envelopes) now populate the available-room list and member lists instead of being recorded as plain text.
+- Markers imported from KML or KMZ files, such as GhostMaps exports, can be selected, moved and edited again. Icon anchors were stored in image pixels but rebuilt as fractions, which pushed icons more than a thousand pixels off their coordinates once the icon image was cached or the drawing was reloaded. The restore and saved-drawing paths also skipped icon styles entirely, so reloaded markers collapsed to plain red dots at wide zooms. Both paths now use the same GeoJSON reader as imports.
+
+### Changed
+
+- The Flatpak Application ID is now `com.meshchatnext.app`, with a matching desktop file, icon and metainfo bundled.
+- The Linux app name and userData path use the new `com.meshchatnext.app` scheme while keeping the existing `meshchat-next` data directory.
+- Debug logs, RNode panels and flasher, message entry, conversation viewer and plugin settings now use semantic sem-* tokens instead of raw Tailwind colors. A behavior contract test enforces this for future changes.
+- Calls to print in `meshchatnext.py`, `nomadnet_downloader.py` and other backend paths now use the application logger.
+- Windows desktop builds spawn the Python backend inside an LPAC AppContainer by default when the APIs are available. Set MESHCHAT_APPCONTAINER=0 to disable. If AppContainer setup fails, the launcher falls back to an unsandboxed backend process.
+- Geo-wasm and the starter MBTiles have been rebuilt and regenerated.
+- Full Ruff, Prettier, ESLint and typecheck pass across the backend and frontend. The ruff ruleset now covers pyupgrade, bugbear, bandit security, comprehensions, performance and ruff rules.
+- Tool pages (Translator, Ping, RNCP, RNProbe, Forwarder, RNS Filesync, Debug Logs) render as one continuous fused panel instead of stacked cards.
+
+
+## [4.8.9] - 2026-09-09 [released]
+
+### Fixed
+
+- Re-releases the LXMF inbound attachment rejection fix from 4.8.8 with corrected test lint. The delivery resource policy no longer treats the local `lxmf.delivery` identity as the sender, so large messages transfer before the backchannel identifies the remote peer. Closes #94.
+
+## [4.8.8] - 2026-09-09 [released]
+
+### Fixed
+
+- Fixed LXMF inbound attachment rejection. The delivery resource policy no longer treats the local `lxmf.delivery` identity as the sender, so large messages transfer before the backchannel identifies the remote peer. Closes #94.
+
+## [4.8.7] - 2026-09-09 [released]
+
+### Security
+
+- Hardened Electron shell, Android navigation, map export, plugin endpoint host checks, identity switch copy, docs ZIP extraction, and local file handling.
+
+### Fixed
+
+- Moved blocking identity teardown and maintenance DB work off the async event loop.
+- Fixed WebSocket coalescing, broadcast ordering, stale cursor recovery, delivery state regression, conversation failed count, active-conversation reset, handler isolation, nomad download race, and map export locking.
+
+## [4.8.6] - 2026-09-06 [released]
+
+### Added
+
+- **Bug Reports Extension (off by default)**: Capture crashes and issues locally, group duplicates, and send a redacted report over the RNS when you choose. Crash screens can open or save into Bug Reports.
+- **Release channels**: Testing, Beta, and Stable. The sidebar shows which channel you are on. Testing and Beta ask once how to file useful bug reports.
+- **Install options**: Flatpak channels at https://cdn.quad4.io/flatpak/ (testing, beta, stable). Docker images with testing and beta tags.
+- **Plugins**: Richer plugin pages (tabs, tables, images, and more). Enabled plugins appear as their own destinations in the app. Plugin pages follow the theme and accent colors.
+- **Archives**: Search shows short previews. Open Micron, Markdown, or HTML previews from a card. Recrawl a page from the viewer. Layout stacks on phones.
+- **Smart Crawler**: Crawls less aggressively (about one request per node per day). Sites can opt out with # nocrawl or Archives settings.
+- **Nomad private tabs**: Ctrl+Shift+P opens a purple private tab that is not archived, favourited, or saved in history.
+- **Micron publish**: Publish can create a mesh server, upload the page, and open it in NomadNet in one step. Publish site uploads several tabs as pages with editable filenames, drag or arrow reordering, and an optional index page linking them all. Editor tabs can be dragged to reorder.
+- **Nomad identify-on-connect** (schema 58): Sticky per-favourite Identify when connecting, matching NomadNet. Auto-identifies on link before page requests. Fingerprint toggle and favourites import/export carry the identify flag.
+
+### Security
+
+- **DeepSource security pass**: Fixed or suppressed the first three batches of DeepSource security findings, including front-end rel attributes, Android TLS validation, stricter file permissions, and Python binding and subprocess audit rules.
+
+### Fixed
+
+- **Micron WASM**: ASCII-art whitespace is preserved again. Consecutive spaces in Micron markup were being collapsed by the WASM renderer, breaking ASCII art. Bumped micron-parser-go to v1.1.5.
+- **Micron WASM**: PUA/Nerd Font icon glyphs now render with `Roboto Mono Nerd Font` by wrapping them in a span. Bumped `micron-parser-go` to v1.1.2.
+- **Reticulum config**: Meshchat neXt no longer overwrites an existing .reticulum/config on startup. Existing parseable configs are preserved and only missing [reticulum] or [interfaces] sections are added.
+- **Messages**: Coming back to an open chat marks it read and clears badges and desktop notifications.
+- **Messages (propagated)**: Propagated send waits for a path to the preferred propagation node. Missing node or path gets a clear error and delivery help tip. Failed pending bubbles stay visible with the error.
+- **NomadNet**: Opening a node while the app is still connecting no longer sticks on Loading. A stuck page no longer freezes the whole Nomad UI. Switching away and back no longer falsely claims the page renderer stopped.
+- **Desktop app**: Startup and crash screens respect dark mode instead of flashing white.
+- **Map**: Interface and telemetry markers update again.
+- **UI**: Dropdown menus match the theme.
+- **Permissions-Policy**: Only microphone, camera, and autoplay are listed. Hardware and speaker-selection tokens are left to browser defaults so Brave and Chrome stop logging unrecognized feature warnings.
+- **Header buttons**: Navbar icons, sync, and compose share one size and hover circle. The language menu icon matches the rest.
+- **Stranger banner**: The not-in-contacts warning is a slim single row instead of a large box.
+
+### Removed
+
+- **ALTCHA**: The proof-of-work login challenge is gone from login, setup, the demo stack, and all builds. Password and session auth still apply.
+
+### Changed
+
+- **Theme consistency pass**: Shared primitives, conversation viewer, message entry, messages, about, settings, tutorial, call, and add-interface pages now use semantic color tokens instead of raw Tailwind classes. The audit script and fixtures track the remaining raw token inventory. The raw Tailwind color count in frontend components dropped from about 4990 to about 3758.
+- **Docker files**: Dockerfiles and compose files moved under docker/. Update commands to docker/Dockerfile and docker/docker-compose.yml.
+- **Dependencies**: Electron 44, jsdom 30, vis-network 10, vis-data 8, and assorted patch bumps. Dependency audit reports no known vulnerabilities.
+- **Vite and Vitest configs**: Renamed to .mjs so the ESM config warning is gone.
+- **Dev script**: task dev output is colored and single-prefixed.
+- **Smart Crawler**: Finished crawls stay finished until you refresh. Fewer crawls run at once.
+- **Reticulum**: RNS 1.5.3.
+- **WebTransport**: aioquic 1.3.0 is a normal dependency. Android builds ship aioquic and pylsqpack Chaquopy wheels.
+- **Micron**: Micron-Parser-Go WASM v1.2.0.
+- **Docs**: Short READMEs at the repo root. Full install and contributor guides under docs/en/.
+
+## [4.8.5] - 2026-08-21 [released]
+
+### Changed
+
+- **About**: Open-file count and nofile limits sit next to memory usage.
+- **Docker Compose**: Process open-file soft limit is raised to 65536 when the hard limit allows it.
+
+### Fixed
+
+- **Docker (too many open files)**: Announce-thread SQLite handles close when the thread exits. RNS ratchet writes share one worker. Websocket reconnects close the previous socket. Finished RNS websocket clients drop their sockets. Log rollover writes to stderr when the log file cannot reopen.
+- **Messages**: Conversation list and thread load keep working while announces arrive. A closed database handle reopens instead of returning HTTP 500.
+- **UI WebSocket**: The UI socket returns 503 after 64 clients. Ready-status broadcasts encode the payload as JSON so the send does not reject a dict.
+- **CSP**: Drop invalid IPv6 localhost WebSocket connect-src entries. Permissions-Policy is set without a duplicate Feature-Policy header.
+
+## [4.8.4] - 2026-08-20 [released]
+
+### Changed
+
+- **Community interface presets**: Build-time fetch uses https://meshchatx.com/api/mcx-interfaces instead of directory.rns.recipes.
+- **Android release APK**: GitHub assets use MeshchatNext-vVERSION-android-universal.apk, matching desktop installer names.
+- **Confirm and prompt dialogs**: Electron uses the in-app dialogs instead of native OS prompts.
+- **Collapsed sidebar**: The active rail item uses an inset pressed fill instead of the expanded blue pill. Collapsed buttons are square.
+- **Map announce**: Off until a pack is published.
+
+### Fixed
+
+- **Relay Chat room keys**: Hosted room lists mark keyed public rooms with [+k] and never send the key. Clicking an unkeyed listed room joins without a prompt. A stored key or a later bad-key error still supplies or asks for the key.
+- **Map catalog**: Catalog on Discover lists packs instead of hanging. Empty catalogs show a message.
+- **In-process memory growth**: Announce-rate, LXMF flood, RNCP, auto-resend, Mesh Server, and map overlay lists prune on append instead of waiting for About to poll. Identity teardown drops ringtone, notification-sound, translator, and community-interface managers.
+- **macOS universal**: Intel NumPy OpenBLAS libraries stay in the freeze tree so the x86_64 slice can load numpy. The Intel slice runs as x86_64 instead of starting as arm64 and failing on zlib.
+- **Relay Chat loopback**: Typed /help and /nick stay above the hub notice when talking to a locally hosted hub.
+- **macOS desktop**: Frozen builds include Codec2 so LXST calls start instead of crashing on a missing library.
+- **Disconnected banner**: Stopping or restarting the backend keeps the red banner until the backend answers again.
+- **Messages (path wait)**: Direct and opportunistic send wait for a path to the peer mail destination. A pasted identity hash is not a mail address and is no longer waited on.
+- **Telephone dial overlay**: Initiation status stays while LXST is calling or ringing, so the overlay does not close mid-ring.
+- **Relay Chat**: A welcome timeout tears the link and reconnects. Outbound chat is recorded locally only after it goes on the wire. A ban with no room name leaves every joined room.
+- **RNCP and FileSync**: Send, save, and sync-root paths refuse reserved identity-storage tops and files named identity, plus session secrets and app security config.
+- **Plugins**: Install refuses a source tree or zip that contains symbolic links. Hook dispatch returns immediately when the plugin runtime is disabled. Locale lookup stays inside the plugin install tree.
+- **Docs zip import**: Zip members with NUL bytes, absolute paths, parent directory segments, or a colon are skipped.
+- **Map overlays**: Cache writes refuse a temp path that is already a symlink or directory.
+- **Identity switch**: Relay Chat mention badge and LXMF unread refetch after switch. Compose drafts stay in the previous identity's storage bucket. Auto-resend locks and deferred managers drop with the torn-down identity.
+- **Messages**: An LXMF upsert with blank content, title, or fields keeps the stored values instead of wiping them.
+- **NomadNet**: Keep-alive tabs skip background polls when Nomad is not on screen. Opening a destination hash in the URL activates that tab.
+- **Telephone**: Audio context close is skipped when close is missing, so Android call teardown does not throw.
+- **Map local URL**: Unparseable tile or nominatim URLs are not treated as local.
+
+## [4.8.3] - 2026-08-14
+
+### Fixed
+
+- **Electron AppImage**: Loading screen shows the real package version instead of v0.0.0, and desktop IPC works in packaged builds.
+- **Database backup**: Identity zip backups no longer fail schema upgrades when files have timestamps before 1980.
+- **Navigation**: Sidebar works after Docker or backend restart without a full page reload.
+- **NomadNet tabs**: Tab labels stay visible on short screens such as 800x600.
+
+## [4.8.2] - 2026-08-14
+
+### Added
+
+- **Local developer tooling**: [Vue DevTools](https://devtools.vuejs.org/) overlay on task dev (localhost Vite only, MESHCHAT_VUE_DEVTOOLS=0 to disable). task debug attaches debugpy on 127.0.0.1:5678. Debugger launch config: Meshchat neXt: Vite + Python. Playwright e2e keeps DevTools off.
+- **Public demo mode**: Read-only mesh showcase via MESHCHAT_DEMO_MODE or --demo. Optional ALTCHA on login/setup, login page hint text, and [docker-compose.demo.yml](docker-compose.demo.yml) for Coolify.
+- **Database upgrades**: Automatic zip backup before schema migrations (skip with MESHCHAT_SKIP_PRE_MIGRATE_BACKUP=1). CLI --list-backups and --export-backup for rollback. Post-migrate checks, retention of five pre-migrate zips by default, storage lock for single-writer volumes, and N-1/N-2 upgrade tests.
+- **App sidebar**: Grouped layout is the default (Communicate, Explore, Network, App, plus More). Appearance can switch back to Classic. Compact identity footer with announce, QR, and auto-announce interval. Press and hold to reorder links and groups while expanded.
+- **Tools page**: Tools are listed under Diagnostics, Transfer, Messaging, Network, and Other instead of one ungrouped grid.
+- **Mesh Server executable pages**: Opt-in per node to run executable pages as shebang scripts (chmod +x on Linux/macOS, node config flag on Windows). Request fields are passed in the environment. Script stdout is the page body. Editing always shows the file source.
+- **Electron hardware choosers**: Serial, USB, and Bluetooth device requests open a native picker (RNode flasher, Web Serial).
+- **Propagation nodes**: Preferred node hash can be pasted from the clipboard, with path-request and clear actions on the preferred row.
+- **Database health toast**: SQLite health issues warn once per issue per session, not on every poll. The same text remains on About > Database.
+- **Landlock extra read roots**: Sideband command-plugin folder from Settings is allowed when it exists on disk. /sys is readable so USB serial metadata lookups work.
+- **Map discovery**: Publish sanitized GeoJSON/KML/KMZ packs from the Map page. Peers hear a slim announce, fetch the catalog over an RNS Link, and add the pack as a local overlay. NomadNet file links and RNGit stay as advanced sources.
+- **KML/KMZ sanitizer**: Strips remote links, unsafe zip entries, and DTD/ENTITY before overlay import or mesh publish. Remote icon URLs are removed.
+- **RNStatus**: Shows the same fields as the rnstatus CLI, including a copyable I2P address, transport/network IDs, path-request rates, and tunnel state. RX/TX rates are labeled as speeds, not packet counts.
+
+### Changed
+
+- **Community interface presets**: Runtime no longer fetches directory.rns.recipes. Presets come from a bundled JSON file refreshed at build time, or an optional public override.
+- **Runtime clearnet fetches**: Micron WASM no longer installs from GitHub at runtime. Repository bundled-wheel refresh is build-time only.
+- **Slow-interface path and link waits**: Cold path requests wait using first-hop timeout plus an airtime floor from the slowest online interface (down to 5 bps). New links wait on establishment timeout plus 5 seconds. Nomad, FileSync, LXMF, LXST, map fetches, and related paths use those helpers so a short timeout cannot finish a slow radio exchange.
+- **Dependencies**: LXMF 1.1.1. Unanswered path requests during propagation peer sync apply sync backoff instead of retrying immediately. Requires RNS 1.4.2.
+- **App sidebar**: Network Visualiser is under Explore with Nomad Network and Map, not in More.
+- **Messages empty state**: The no-conversations view sits near the top of the list without a dashed box. Actions are See announces and Add contact.
+- **Mesh Server UI**: Remaining mesh-server strings are translated. Announce interval 0 is labeled as manual-only.
+- **Docs**: Getting started lists sidebar More destinations. Linux sandbox guide covers USB serial under Landlock, executable Mesh Server pages, and plugin folders that must already exist on an allowed root at process start.
+- **Map page**: Discover / Publish / Layers / Offline side tabs. Drawing toolbar keeps the core tools. MBTiles export, Share, and Ping left the always-visible row (Ping stays on right-click).
+- **Map tiles and markers**: Tile cache keeps a memory LRU and stops rewriting IndexedDB metadata on every hit. Markers cluster on a grid. Inactive map tabs wait until first shown before building OpenLayers. Online tile fetch timeout is 8s.
+- **Settings search**: Query splits on hyphens and punctuation, matches compact forms, and treats short tokens as whole words. Tab names are searchable. Slash focuses the search field.
+- **Network visualiser planet view**: Each interface is its own globe around your node. Peers sit on the interface they use. Drag orbits, scroll zooms. WebGL only.
+- **Mobile header**: Relay Chat and Telephone icon buttons sit in the top bar with Compose and propagation sync. Relay Chat is omitted when RRC is disabled.
+
+### Fixed
+
+- **Sidebar last announced**: Relative time on the identity footer recomputes on the shell poll. Auto-announce events update the stamp without a page reload.
+- **Docker frontend build**: Vite helper script is copied into the Node stage so production builds do not fail with a missing import.
+- **Map KMZ import**: ArcGIS KMZ files (including [GhostMaps](https://github.com/s2underground/GhostMaps) ATAK exports) import again. Unused balloon stylesheets are skipped. CDATA HTML is flattened to plain text. Placemarks and local raster icons still import.
+- **Collapsed sidebar**: Icons in the app rail and Messages/Nomad collapse chevrons sit on the vertical center line.
+- **Messages (personal notes)**: Sending to your own LXMF address is stored locally as delivered, so self-chat no longer hangs waiting.
+- **Messages sidebar**: Conversation list updates when you press Send, before the server acknowledges.
+- **E2E**: Playwright helpers attach CSRF tokens for backend POSTs. Chromium is installed before the suite runs.
+- **Android LXST / Codec2**: Empty pycodec2 stub falls back to a ctypes binding over bundled libcodec2 so Codec2 voice profiles work on device.
+- **Android RNode flasher**: Open native flasher returns a real status and surfaces startup failures. Bluetooth settings tries GrapheneOS-friendly fallbacks. In-page Flash/DFU/detect reopen the native flasher instead of failing with a confusing Web Serial error. Firmware is chosen with a file picker.
+- **Connection banners**: Do not flash disconnected on startup before the first successful WebSocket open. Disconnect UI waits 2.5s. Reconnected only shows after a real disconnect banner.
+- **Android calls**: Native mic and speaker go through the telephone audio bridge, not browser getUserMedia. Device pickers that do nothing on native audio are hidden.
+- **Browser calls (Docker / HTTPS)**: Refresh Devices asks for mic permission with a bare audio prompt first so Brave and Chromium show the dialog. Clearer toasts for insecure HTTP and denied mic permission.
+- **HTTP security headers**: Permissions-Policy allows microphone, camera, bluetooth, serial, and usb for this origin so reverse proxies that omit the header do not block capture or RNode hardware APIs.
+- **RNode flasher Bluetooth**: Detect Brave's disabled-by-default Web Bluetooth API, show how to enable it, and offer Try Bluetooth / Recheck.
+- **UI language**: Persist language changes over the config HTTP API, normalize legacy locale codes, and stop the Reticulum manual language picker from overwriting app UI language.
+- **Network visualizer**: WebGL background follows light theme. Layout springs and repulsion are softer so the graph settles. Planet view keeps nodes on the front hemisphere and reloads after an identity switch.
+- **Electron / Android shell origin allowlists**: Parse URLs before treating them as the local backend (userinfo tricks are not loopback). Electron denies untrusted in-window data and blob navigations. Android WebView stays on the configured backend origin only.
+- **WebSocket Origin and read gating**: UI and telephone audio sockets reject a browser Origin that does not match the request authority. When password auth is on, every socket type except ping requires a session.
+- **FileSync sync-root picker**: Identity-storage ssl (TLS key material) cannot be chosen as a sync directory.
+- **Plugin integrity at invoke**: Invoke and hook dispatch re-hash the install tree and refuse tampered backends. Stale Python bytecode next to the entry file is cleared on load.
+- **Peer HTML sanitizers**: One XSS payload list runs against Markdown, Nomad HTML, Micron, and KML. Formatted pages still render. Scriptable nodes fail the oracle.
+- **v-html**: ESLint errors on v-html unless the nearby disable comment names a sanitizer.
+- **LAN bind**: Browser UI shows a persistent banner when bound off loopback with authentication off. Electron and Android hide it.
+- **Mesh payload caps**: Announce app data above 2048 bytes is omitted from storage. Map zip and Relay Chat line caps keep matching oracles.
+- **Outbound HTTP**: New backend HTTP clients must go through the outbound URL guard. Remaining app fetches are translator and map tiles.
+- **Translator (Landlock)**: On Linux, user-local pipx CLIs and Argos Translate data dirs are allowed so local translation works with the filesystem sandbox.
+- **Tests**: Landlock integration probes for subprocess spawn, Argos language listing, user-local CLI execution, and home write denial outside allowed roots.
+- **Windows desktop**: AppContainer sandboxing is opt-in (MESHCHAT_APPCONTAINER=1) instead of on by default.
+- **Portable mode (Electron)**: --data-dir / MESHCHAT_DATA_DIR and related storage flags work on Linux and macOS, not just the Windows portable exe. Storage, Reticulum config, crash reports, and logs resolve from the same root. Bots default to the app reticulum config dir.
+- **Mesh Server (page nodes)**: Page nodes re-announce on a timer so peers do not lose the route after the first announce expires. Each server has its own interval (default 15 minutes) and an automatic-announce toggle.
+- **Auth middleware**: Public API paths are exact matches. status.json is no longer public via a status prefix match. Plugin .js/.json/.wasm assets require auth.
+- **Interfaces / serial ports**: Serial port listing no longer returns 500 when Landlock blocks USB sysfs reads. It falls back to common /dev/ttyUSB and ttyACM style device globs.
+- **Announce interval 0**: Mesh Server and Relay Chat keep 0 as manual announce instead of snapping the slider back to 15 minutes.
+- **Propagation sync API**: Propagation sync and stop-sync are POST (CSRF and demo-mode blocked), not GET.
+- **Android startup**: If the listen port already answers Meshchat neXt status, the wrapper reuses that backend instead of treating the port as busy. I2P is only disabled on first recovery when the error text mentions I2P.
+- **Relay Chat hosting**: /unregister removes the room. /list omits a dangling dash on rooms with no topic. Ban, invite, and op checks do not create a room just to answer. /ban list requires op first.
+- **I2P interface**: New I2P interfaces default connectable to off, matching RNS. Transport Mode opens a server SAM destination. Add Interface requires at least one b32 peer and states SAM must listen on 127.0.0.1:7656.
+- **Identity switch logs**: Persistent log handler flushes the in-memory buffer to the old database before swapping, so lines queued during switch are not dropped.
+
+## [4.8.1] - 2026-07-25
+
+### Fixed
+
+- **Windows desktop**: Frozen backends start again instead of failing when aiohttp imports the standard library email package.
+- **Desktop packaging**: Only the correct LXST filterlib binary ships per platform so integrity checks match the installer. CI runs a frozen import smoke test before release.
+
+## [4.8.0] - 2026-07-25
+
+### Added
+
+- Browser PWA shell caching for UI assets, with a network-first fallback during short backend restarts (not used in Electron)
+- Plugin system: ZIP and WASM install, signed packages (RSG), Python and Sideband backends, install consent, and Settings management
+- Bundled Bug Reports plugin, plus plugin translations, UI slots, and contribution registries
+- Map overlays from NomadNet and RNGit (KMZ, KML, GeoJSON) with cache and refresh
+- RNS Link WebSocket API for external apps and plugins
+- RNS File Sync for shared folders on the mesh, with an in-app file manager to browse, upload, download, and delete files
+- Settings: Reticulum instance and share controls, tabbed Settings navigation, and desktop close or tray behavior
+- Nomad favourites: per-identity section layout
+- Optional pip-rns and rngit install path for RNS packages and docs
+- Message export and import with contacts and read state
+- Message maintenance in Settings: purge old local messages and clear duplicates
+- Host battery status on About and in the header (Electron, Android, Chromium)
+- System resource monitoring for CPU and memory in the UI
+- RSM signing and verification for meshchatnext.rsm
+- Notification sound settings
+- LXMFy 2.0.1 with RRC hub client support for bots
+- Network visualiser WebGL and WASM renderer, with a vis-network fallback and a Settings preference
+- Interfaces: internal mode, recursive path requests, announces-from-internal, discovery location command, and Backbone fast-flapping options
+- Reticulum interface module management from the UI
+- Reticulum 1.4.1 and LXMF 1.1.0, including propagation node options and cancel for incoming large message downloads
+- Interfaces: path gravity, announces-to-internal, and discovery autoconnect gravity and mode options
+- Relay Chat room keys so hosts can require a key to join a room
+- Desktop privacy: Windows screen security to omit Meshchat neXt from screenshots, recording, and Recall
+- Android privacy options to block screenshots and clear the clipboard when backgrounded
+- About shows the git commit. Nightly, preview, and local builds also show a short channel label in the sidebar
+- Tutorial connect: Internet plus local (recommended) adds AutoInterface and pre-selects three random community TCP bootstraps
+- Remote management allow-list for identities that may query this instance with rnstatus and rnpath
+- Post-install prompts for existing users after upgrades
+- Coolify-oriented Docker Compose with resource limits for deployments
+- LXST telephony half-duplex mode, live duplex switching, push-to-talk, and richer in-call stats
+- Optional Linux seccomp-BPF syscall denylist alongside Landlock
+- Bundled [RNS-over-HTTP](https://github.com/Quad4-Software/RNS-over-HTTP) HTTPInterface with Interfaces page client and server setup, auto-install into the Reticulum interface path, and httpx support on Android
+- Docker extra image variant with i2pd and yggdrasil, published beside the standard and hardened images
+
+### Changed
+
+- Tutorial: language and theme controls no longer overlay bootstrap titles. Connection and bootstrap actions stay locked while discovery or random pick is running
+- Tutorial connect and bootstrap: recommended mode stays on the bootstrap step for next and back, Finish is only on the last step, and random pick no longer sticks busy without a selection
+- Tutorial privacy and security step: shorter mobile copy and toggle layout so labels and switches fit
+- Auto propagation finder: requires usable paths and a scarce LXMF sync probe, remembers verified peers per identity, prefers live announces, cools down failures, and avoids re-probing a working preferred peer
+- Community interface presets refreshed from directory.rns.recipes (69 online listings)
+- Bundled Reticulum manual updated
+- Discovery map markers use dual-halo badge icons with banded cluster badges, zoom-gated labels, and cached styles for denser maps
+- Map default basemap is OpenStreetMap. Style presets list OSM first, and identity config wins over stale cached tile URLs
+- UI opens sooner: HTTP binds first, Reticulum starts in the background
+- Conversations load faster with slim list and thread queries
+- Conversation list uses a per-peer summary so refreshes no longer scan full message history
+- Conversation list omits contact image blobs and limits heavy callers such as Map and Network Visualiser
+- Messages page conversation poll is slower and skips while the tab is hidden
+- Fresh database init stays fast by skipping empty message-flag backfill
+- Outbound message status icons and titles reflect delivery method and state more clearly
+- Relay Chat: denser hub UI, announce interval, collapsed system lines, and reconnect notices
+- Relay Chat: clickable Nomad and LXMF links plus basic markdown for code, bold, italic, and strikethrough
+- Low-memory cleanup and SQLite tuning under memory pressure
+- Auto-resend keeps attachments and cleans duplicate outbound rows more reliably
+- Calls and audio work in Docker and headless setups via hostless LXST backends and the web audio bridge
+- Hardened identity path handling, stamp enforcement, plugin integrity, Nomad downloads, and local file path jails
+- Plugin strings live in plugin bundles, not main locale files
+- Docker frontend build includes the visualiser WASM and fails if those artifacts are missing
+
+### Fixed
+
+- LXMF outbound progress polling stops on REJECTED as well as delivered, failed, and cancelled states
+- Android Codec2: preload native libcodec2 before Python codec imports
+- Android RNode flasher is a native Activity with USB serial and ESP32 ROM flash. Tools opens it instead of a WebView serial polyfill
+- Android RNode flasher: Bluetooth permission request returns real status, handles the result callback, and opens app settings when permanently denied
+- Web Sync Messages after a backgrounded browser tab recovers a stale WebSocket, refreshes CSRF, and does not abort sync when path priming fails
+- Conversations: re-opening an already-read thread no longer decrements the Messages unread badge
+- Notifications: Do Not Disturb still updates the Messages unread badge. It only suppresses OS notifications and sound
+- Identity switch clears Relay Chat, NomadNet browser tabs, Map tabs, and RNSh session UI so keep-alive pages cannot show the previous identity
+- Map local URL checks use the private 172.16.0.0/12 range instead of treating all 172.x hosts as local
+- Messages unread badge is no longer overwritten by a paginated or filtered conversation page count
+- Deep-link or compose open marks the conversation read so the sidebar unread state clears
+- Map my-location prefers LXMF address hash telemetry, not only identity hash
+- RNode flasher integrity lookup matches flat and nested keys so required scripts load
+- Relay Chat kick, ban, and failed auto-rejoin clear unread counts so room pills do not stick
+- Nomad archive load owns its download id so mismatched replies cannot leave the spinner stuck
+- Relay Chat invite-only rooms grant a reconnect invite on unexpected link drop so auto-rejoin still works after the one-shot invite was consumed
+- Map remote overlay loads no longer undo layers from a stale generation, and tile cache view keys are identity-scoped
+- Nomad micron LXMF links route to Messages instead of being ignored
+- RNSh session config and identity paths stay under storage or the shared Reticulum config dir. Free-form extra args are rejected
+- Failed identity switch no longer wipes keep-alive UI and clears the switching overlay correctly
+- Settings, About, and Interfaces refresh identity-scoped state after an identity switch
+- About snapshot and backup restore guards concurrent restores and reloads the web UI after a successful restore
+- Interfaces enable and disable write the enabled flag when neither legacy key exists, and disable returns the correct success message
+- Interfaces enable and disable roll back in-memory config when the Reticulum config write fails
+- Disabling block-all-from-strangers restores a prior inbound stamp cost of 0 instead of forcing 8
+- Discovery settings save returns an error when RNS reload fails after a successful disk write
+- Interfaces stats map is replaced each poll so deleted interfaces cannot stay Connected
+- Desktop AppImage: logs always append to the storage logs folder. Stdout is only used when a terminal is attached, so background launches no longer raise broken-pipe dialogs
+- Android: LXMFy packaging, flock soft-lock, splash and logo clipping, Landlock skipped on Android
+- Android RNode BLE and USB via Chaquopy
+- Startup checks and disables unsupported interfaces
+- Nomad favourites: no more Unknown Node or lost custom sections
+- Relay Chat message dedupe. Network visualiser faster on large meshes
+- Bots and RNSh work in frozen macOS and Windows builds
+- Sensitive config is no longer mutable over WebSocket. Reticulum config repair on startup
+- Paper message URI encoding for non-ASCII title and content
+- LXMA contact import works with current RNS public-key loading and remembers the peer key before announce
+- Android calls: overlay accept opens the phone tab so native audio attaches. Web audio is no longer permanently disabled after a bridge error
+- Android Codec2: reliable native preload, builds fail without Codec2 wheels or jniLibs, and unavailable Codec2 profiles are hidden
+- Unknown meshchatnext links return a clear error instead of falling through to LXMF
+- NomadNet Micron copy no longer inserts a newline between every character
+- Unread message count is a red pill on the Messages nav icon
+- Missed call count is a red pill on the Calls nav icon
+- Notification bell removed from the header
+- Unread badge stays circular and remains visible when the sidebar is collapsed
+- Open conversations mark as read when a new message arrives without needing to reselect the thread
+- Unread badges dismiss when navigating back to an already-open Messages or Relay Chat room
+- Startup stage logs no longer print the same stage twice
+- Ctrl+C shutdown no longer floods reentrant logging errors
+- RNStatus interface mode labels match Reticulum modes again, including Internal
+
+## [4.7.2] - 2026-07-06
+
+### Fixed
+
+- **Micron editor**: Preview link clicks no longer navigate the main app window. http(s) links open in the system browser. Nomad mesh links route to the Nomad Network page. In-page #anchor links scroll within the preview. Fixes [#27](https://github.com/Quad4-Software/MeshChatX/issues/27) and [#34](https://github.com/Quad4-Software/MeshChatX/issues/34).
+- **Electron**: A will-navigate guard sends external http(s) URLs to the OS browser instead of replacing the Meshchat neXt window when a link is followed in-place (complements the 4.7.1 window.open handling).
+- **Micron editor / mesh servers**: Publishing preserves .html, .md, and .txt tab extensions instead of always saving as .mu.
+- **Page node API**: Publish failures return clear error messages for invalid JSON bodies, disk write errors, and mesh handler registration failures instead of unhandled 500 responses. File uploads use the same error handling. Fixes [#25](https://github.com/Quad4-Software/MeshChatX/issues/25).
+- **Archives / RNCP / messages**: Rich HTML link clicks use a shared navigation policy so http(s) links open externally and mesh links stay in-app (same behavior as Nomad Network and the micron editor preview).
+- **Android**: External http(s) links open in the system browser instead of being silently blocked in the WebView.
+- **RNSh**: Session startup prefers **python -m RNS.Utilities.rnsh.rnsh** over the pip rnsh console-script wrapper so sessions work when the wrapper is not executable (common with **pip install --user**) or when Landlock denies executing paths outside allowed read roots (e.g. ~/.local/bin/rnsh). Fixes [#36](https://github.com/Quad4-Software/MeshChatX/issues/36).
+- **Interfaces**: The Interfaces page no longer shows all links as Down when Reticulum is running normally. /api/v1/interface-stats now serializes all byte fields (network_id, interface hashes, IFAC signatures, and related values) instead of failing on unconverted payloads. Stats are merged on the frontend by interface_name as well as short_name. Fixes false Down status when Meshchat neXt owns its own Reticulum instance (embedded mode). Attaching to an already-running rnsd shared instance was unaffected.
+- **Messages / stranger banner**: The **Add to Contacts** button on the stranger-protection banner now uses the CSRF-aware window.api client instead of raw fetch, so adding a contact from the banner works again. It also checks for an existing contact before creating a duplicate, and shows a success or error toast for the result. Fixes [#38](https://github.com/Quad4-Software/MeshChatX/issues/38).
+- **Android / QR scanning**: Contact, message, and paper-message scanners now use a shared camera helper with higher-resolution constraints, optional continuous autofocus, and a jsQR canvas fallback when the WebView BarcodeDetector API is missing or unreliable. Camera permission is requested at Android startup. Fixes [#41](https://github.com/Quad4-Software/MeshChatX/issues/41).
+- **macOS**: Universal DMG startup no longer fails with **ImportError: cannot import name '_add_newdoc_ufunc' from 'numpy._core._multiarray_umath'** or **incompatible architecture (have 'arm64', need 'x86_64')** on NumPy. The x64 cx_Freeze slice now installs locked dependencies via **uv sync --python-platform x86_64-apple-darwin** (matching the arm64 slice) instead of unpinned **pip install -e .**, and the universal merge step refuses to mix mismatched pure-Python files with native extensions under the same package.
+- **UI / sidebars**: Collapsed state for the main navigation sidebar and feature sidebars (Messages, Nomad Network, Relay Chat) now persists in localStorage when switching pages or returning later.
+- **Desktop / crash recovery**: The Electron crash screen now diagnoses database corruption, lists local automatic backups, can restore a backup offline, relaunch with auto-repair or emergency mode, and includes copyable instructions for completely removing Meshchat neXt and Reticulum data folders.
+- **Database backups**: Creating a manual backup no longer bundles the just-created backup .zip into its own archive when the file is written inside the identity storage directory.
+- **Notifications**: The notification bell now refreshes immediately when a conversation is marked as read from the conversation view or via bulk mark-as-read in Messages, instead of waiting on the next 5-second poll or the next dropdown open.
+- **Bots**: Error and process log text in the Bots tool no longer picks up a stray line break from the closing <pre> tag formatting.
+
+### Added
+
+- **Messages / images**: Conversation images show a hover download control and support right-click **Save image to device** in the full-screen preview, in addition to the existing message context menu action.
+- **Docs**: README troubleshooting section for database corruption, backup restore, and full data removal on Linux, macOS, and Windows.
+
+- **Rich HTML links**: Shared NomadRichHtmlLinks click handler for v-html surfaces (Nomad browser, micron editor preview, archives, RNCP, conversation messages). Routes Nomad mesh and LXMF links in-app, opens http(s) externally, scrolls in-page anchors, and blocks unsafe javascript: navigation. Behavior contract tests guard wiring across frontend, Electron, and Android.
+- **Location / telemetry**: Settings include a Disabled location source so outbound telemetry replies are not sent until the operator opts in. New installs default to Disabled instead of browser geolocation.
+- **Docs**: scripts/sync-meshchatnext-docs.js copies **docs/*.md** into the in-app meshchatnext-docs bundle on predev and prebuild-frontend. Adds the **Meta Quest (SideQuest)** installation guide.
+- **Android**: Vendored a patched bleak pure-python wheel (unsupported platform-specific backend requirements stripped from its metadata) so RNode interfaces can use Bluetooth LE on Android builds.
+
+### Changed
+
+- **Docs**: README clarifies that Linux AppImage and .deb packages require glibc (not Alpine/PostmarketOS/musl) and documents APPIMAGE_EXTRACT_AND_RUN for FUSE-less launches. Fixes [#40](https://github.com/Quad4-Software/MeshChatX/issues/40).
+- **Tests**: Removed obsolete no-op backend tests. Strengthened frontend security and UI coverage (BlockedPage, SettingsPage copy/banished visibility, TGS decode fuzz, RelayChat XSS fuzz, interfaceDiscoveryUtils, ArchivesPage, NomadRichHtmlLinks) with behavior assertions instead of always-true checks. Added test_interface_stats_endpoint for /api/v1/interface-stats JSON serialization, plus an API client usage guard test that fails if a mutating request bypasses the CSRF-aware window.api client. New **task test:quick** / test:quick:be / test:quick:fe commands run a fast backend and frontend regression subset, and CI runs a thin Playwright smoke suite (tests/e2e/smoke.spec.js) against the backend and Vite dev server.
+- **Packaging**: Arch PKGBUILD installs Python dependencies with **uv sync** instead of a bare **uv pip install** step.
+- **CI**: GitHub Actions workflows were reorganized around shared composite actions (fetch-frontend-artifact, setup-dev-environment, setup-python-uv), the CodeQL workflow was renamed to security.yml, and Dependabot now also tracks weekly GitHub Actions updates grouped by publisher.
+- **Dependencies**: Bumped Vue to 3.5.39, Vuetify to 3.12.8, electron-builder to 26.15.3, Playwright to 1.61.1, prettier to 3.9.3, and other minor frontend/backend package versions. Relaxed the dompurify version constraint to >=3.4.11 and added an app-builder-lib>ajv override to keep transitive ajv versions compatible.
+
+## [4.7.1] - 2026-06-21
+
+### Fixed
+
+- **Android**: APK startup no longer crashes with **library "libpython3.so" not found** when loading **cryptography 49** wheels. The Android wheel build rewrites PyO3 abi3 extension DT_NEEDED entries from the unversioned libpython3.so SONAME to Chaquopy's libpython3.11.so at pack time.
+- **Electron**: window.open for local backend popout routes (#/popout/), call pages, and blob: URLs now opens a child Electron window with the app session instead of failing or delegating to the OS browser.
+
+## [4.7.0] - 2026-06-21
+
+### Fixed
+
+- **Messages**: Conversation history preserves original message timestamps and sorts correctly when the API returns rows out of order.
+- **Messages / conversations**: Outbound pending rows are deduplicated and reconciled when the conversation syncs so duplicate optimistic entries do not linger.
+- **Propagation**: The local propagation node is started on boot when lxmf_local_propagation_node_enabled is set in config (previously the setting could be on while the node never came up until toggled in the UI).
+- **Interfaces / discovery**: Turning discovery off also disables autoconnect for that interface. Saving discovery settings shows a **restarting RNS** toast with a proper spinner. The interfaces list shows all discovered peers with allowlist status, and the allowlist is applied when configuration is saved. Backbone interface cards label **IFAC tunnels** vs **public relays** and show remote host/port or listen address where applicable.
+- **RNode**: **TX power** values are validated and normalized before interfaces start so invalid power settings cannot crash Reticulum on startup.
+- **Network visualiser**: Direct and multi-hop edges render again when the path table references interfaces missing from interface-stats (synthesized interface nodes). vis-network edge smooth options use the object form required by v9. Physics pauses during node drag for smoother interaction.
+- **Path finder**: Conversation and Nomad pathfinding UI shows clearer loading states and handles archive snapshots more reliably.
+- **Downloads**: Shared DownloadUtils parses Content-Disposition filenames, routes API blob saves consistently, and uses the Android saveDownload bridge when present. WebView downloads use a dedicated listener with cookie forwarding and safer filename handling.
+- **Page node (Nomad)**: File payloads accept bytearray bodies. Existing files are registered during announces and listings.
+- **Chat UI**: Outbound bubbles always show timestamps. The three-dot menu stays visible on orange and red outbound themes. Timestamp and status icons remain readable on solid-colored outbound bubbles. Reply-quote previews wrap instead of truncating with line-clamp.
+- **Relative time**: Sidebar and list **time ago** strings use finer combined units (e.g. hours and minutes) instead of coarse single-unit rounding.
+- **macOS**: DMG builds include the microphone audio-input entitlement so calls can use the mic without extra manual signing steps.
+- **Voicemail**: Auto-answer no longer runs for callers whose identity or destination is blocked.
+- **Banishment**: is_destination_blocked treats an **identity hash** like a destination hash so voicemail, delivery, and other checks stay consistent with identity-level blocks.
+- **Identity / keys**: Public key loading accepts both 64-byte and 128-byte keys. Identity recall uses consistent hashing.
+- **Database**: Snapshot download names include the .zip extension. Restore and backup paths handle identity storage correctly.
+- **Storage**: Identity file path references and storage directory setup are more reliable across migration and restore flows.
+- **Relay chat**: RelayChatPage layout and overflow handling on smaller screens.
+- **CI**: setup-node runs before corepack on Ubuntu 24.04 so pnpm installs reliably. Micron WASM fetch and Electron coverage work with offline build flags.
+- **Docker**: pnpm-workspace.yaml is included in image build contexts.
+- **Android wheels**: cffi metadata pinned for consistent pycodec2 wheel builds. RECORD regeneration for installable Codec2 wheels.
+
+### Added
+
+- **Security**: App-wide **web UI IP allowlist** (settings + middleware), CSRF tokens on mutating HTTP routes (with /api/v1/auth/csrf bootstrap), and an **LXMF message blocklist** tool/API with import/export and inbound delivery filtering.
+- **Messages**: **Cancel send** for in-flight outbound LXMF messages (API, conversation UI, and localized strings).
+- **Attachments**: **Save image to device** on Android (and shared download helpers elsewhere).
+- **RRC (Reticulum Relay Chat)**: Wire-compatible RRC client and local hub hosting (rrcd-style). Connect to remote hubs, join rooms, send messages, and host hubs locally. **Member moderation** for hub operators, keep-alive routing, **message search**, mention counts, and persisted hub history. Sidebar **unread badge** for relay chat. Backup/restore includes **RRC hubs** and history files.
+- **RNSh**: Remote shell tool with terminal session management, **session resizing** API, and config-directory support for saved sessions.
+- **LXMF reactions and replies (standard fields)**: Outbound reactions use **FIELD_REACTION (0x40)** with REACTION_TO and REACTION_CONTENT. Replies use **FIELD_REPLY_TO (0x30)** and **FIELD_REPLY_QUOTE (0x31)**. Parsing, delivery filtering, notification bell logic, and UI merge paths use the current LXMF field layout (legacy field-16 reaction payloads are no longer emitted or interpreted as reactions).
+- **LXMF delivery**: When auto_resend_failed_messages_when_announce_received is enabled, failed outbound messages for a peer are resent after a successful ping or when an announce arrives and a path is already available.
+- **LXMF stamps**: UI for **solving stamps** with clearer tooltips and user feedback during proof-of-work.
+- **Messages / attachments**: Improved **file attachment** handling. Optional **outbound transfer progress** bar (speed, hops, elapsed time). **Message import** supports **file upload** with better error handling.
+- **Path finder**: Shared reticulumPathfinding.js helper for **quick request**, **force find**, and **drop path + request**. Available from the **conversation peer header** and the **Nomad browser** toolbar when a page load fails. Nomad also offers **load latest archive snapshot** when archives exist.
+- **Maintenance**: **DELETE /api/v1/maintenance/path-table** clears the Reticulum path table. Settings UI exposes **Clear Path Table** with localized description.
+- **Crash recovery / diagnostics**: Backend **crash recovery** with adaptive memory checks and improved logging. Electron persists backend crash reports, surfaces recovery hints in the loading UI, and can open the saved report from the desktop shell.
+- **Memory diagnostics**: Optional --memory-diag mode with /api/v1/diagnostics/memory endpoints (snapshots, heap breakdown by type/category, GC, referrers). SQLite **prepared-statement cache** is capped to reduce long-lived backend memory growth.
+- **Frontend heap monitor**: HeapMonitor logs JS heap usage in development builds (window.heapSnapshot when enabled).
+- **Network visualiser**: **POST /api/v1/announces/query** bulk endpoint for fetching many destination hashes in one request. Faster graph hydration for large networks.
+- **Database**: SQLite **WAL mode** and **busy timeout** for better concurrency. **Multipart file upload** for database restore. Backups include identity storage with manifest creation. Restore flow supports relaunch after import with optional storage lock bypass.
+- **Offline / air-gapped builds**: scripts/create-offline-bundle.sh and scripts/install-offline.sh, plus **pnpm run bundle:offline**, build:offline, and :offline Linux dist targets that set MESHCHATNEXT_OFFLINE_BUILD=1.
+- **Map**: MBTiles import and tile-provider logic improvements. Export panel and metadata handling for exchange exports. Localized file-drop hints for map layers.
+- **Micron editor / Mesh Server**: **Publish to Mesh Server** defaults new pages to index.mu. If index.mu already exists and the tab still has a default name (**New Tab**), the editor prompts for another filename. **Publish all tabs** uses the same rules per tab.
+- **Nomad browser**: Opening a node **focuses an existing tab** for the same destination (or opens a new tab when forceNewTab is set). Restored tabs validate destination hashes and filter external URLs. **Dark shell** styling and readable inputs on dark full-bleed pages. External http/https links open in a new browser tab.
+- **Interfaces**: Reworked interfaces page layout and discovery UX. API lists each interface’s allowlist membership. Minimum MTU validation for **TCP client** interfaces.
+- **Identities**: Redesigned Identities page layout and translations.
+- **Telephony**: Minimize control on active calls. Call-related settings persist reliably across sessions (tests added).
+- **RNStatus**: speed_str helper for human-readable bitrate formatting.
+- **Codec2**: Native Codec2 library integration in Android builds and CI workflows.
+- **Android**: AndroidStorageManager for internal vs external storage, migration, and setup options. Refactored RNode interface handling. Vendor wheel verification for aiohttp, cbor2, and cryptography.
+- **Electron**: Backend **process management** and automatic recovery. Patches for electron-installer-common glob handling and electron-builder filesystem constants.
+- **Flatpak**: Wayland socket, zypak Chromium sandbox module, and updated appId in packaging metadata.
+- **Sticker utils**: Bounded gzip decompression to prevent unbounded memory allocation on malformed payloads.
+- **Panes / tabs**: Browser-style pane and tab improvements across Nomad and tool pages.
+- **Tools UI**: ToolsPageHeader component replaces ad-hoc headers on tool pages for consistent navigation and back links.
+- **Docs**: **Meta Quest** headset installation guide. LXMF address updates across documentation.
+- **i18n**: **Finnish (fi)** locale. New strings for map, interfaces, RRC, transfer progress, maintenance, MTU hints, Micron editor publish prompts, call minimize, cancel send, save-to-device, security settings, and failed-message status across supported locales.
+
+### Changed
+
+- **Dependencies**: LXMF updated to 1.0.1, RNS to 1.3.5, aiohttp to 3.14.1, cryptography to 49.0.0, lxst to 0.4.7, Electron to 42.4.0, Vite to 8.0.16, dompurify to 3.4.11, UV to 0.11.15. Cbor2 added for RRC. Pnpm workspace overrides bump transitive form-data, socks, tar, tmp, undici, js-yaml, minimatch, and brace-expansion for known advisories.
+- **Android**: Chaquopy recipes and build.gradle pin **aiohttp 3.14.1** and **cryptography 49.0.0**. CI wheel verification updated for the new versions.
+- **Project URLs**: Default homepage and documentation links moved from git.quad4.io to the upstream project hosting service and official mirrors.
+- **Frontend**: General styling refresh. Identities sidebar icon updated. MaterialDesignIcon uses centralized icon resolution.
+- **Interface discovery**: Allowlist and blacklist pattern matching sanitizes patterns before matching.
+- **Android**: Build metadata, wheel-fetch scripts (retries, local wheel paths), and PKGBUILD / Arch packaging now use a Python virtual environment.
+- **Electron / packaging**: Legacy **Electron Forge** configs and scripts removed. Desktop builds use electron-builder only. macOS target config uses an array form. CI can build additional Mac architectures.
+- **CI**: Custom setup-node-pnpm action. GitHub release script excludes specific asset paths (library.zip, *.so.yml) and improves notes generation. Rust x86_64-apple-darwin target for macOS builds. Node.js version verification in workflows.
+- **Tests**: HTTP API route contract, interface discovery, call page, Micron editor publish, LXMF reaction field 0x40, RRC, RNSh, relay moderation, network visualiser bulk fetch and edge rendering, database restore, path finder / path-table maintenance, Nomad tab management, backbone interface labels, outbound **cancel send**, DownloadUtils, message blocklist, CSRF/IP allowlist, and notification user-facing filters updated for the above behavior.
+
+### Removed
+
+- **RNGit explorer**: The in-app RNGit tool and its tests were removed.
+- **Electron Forge**: Forge makers, config, and related packaging scripts (replaced by electron-builder workflows).
+
+## [4.6.2] - 2026-05-10
+
+### Fixed
+
+- **Build backend**: Bytecode cleanup now only removes .pyc and .pyo files when a matching .py source file is present, so standalone compiled artifacts are not deleted accidentally.
+- **Propagation sync**: Auto-select no longer lets a sync get stuck on an unreachable node. When auto_propagation is enabled and the current propagation node loses its path while syncing, the manager stops the stuck sync and evaluates candidates to find one with a working path. If no candidate works, the broken active node is removed rather than restored. Stuck-sync detection also monitors path unresponsiveness and stale paths.
+- **LXMF / chat UI**: Conversation sidebar and list APIs show one-line previews for image-only, **voice-note (audio)**, and file-attachment messages (plus notification previews) instead of an empty subtitle. Server (lxmf_sidebar_preview_for_conversation_latest_row) and client (lxmfConversationListPreview) stay aligned, with locale strings and tests.
+- **Outbound images (pending row)**: Optimistic pending-* messages no longer trigger a GET /api/v1/lxmf-messages/attachment/pending-*/image 404 when the FileReader preview URL is not ready yet. The client falls back to an inline **data URL** from the outbound job payload and avoids using the attachment endpoint for pending hashes without a preview.
+- **Conversation loads**: Stale responses from an older lxmf-messages/conversation fetch (e.g. after switching peers quickly) are still discarded safely, without noisy console logging.
+- **Identity context**: Guarded inbound_stamp_cost comparison against non-integer values to prevent TypeError.
+- **Config parsing**: configparser errors when reading configuration files are now handled gracefully to prevent crashes.
+- **Conversation cleanup**: Blocking a destination now deletes the associated conversation to ensure proper cleanup.
+- **Call handling**: Delayed hangup for rejected calls with improved contact lookup handling.
+- **Docs manager**: /meshchatnext-docs/index.html now resolves correctly after generating an index.html during docs population.
+- **Health monitor**: Added garbage collection calls during context teardown and health checks to clean up resources.
+- **Ping error logging**: Failed destination pings now log a clean console.warn message instead of dumping the full HttpError stack trace in browser dev tools.
+- **Trivy CI setup**: Added curl retries (--retry 5 --retry-delay 2) to handle transient 502 errors during Trivy downloads.
+- **Tests**: Fixed multiple failing backend tests (test_http_api_contract, test_interface_discovery, test_websocket_interfaces, test_security_fuzzing, test_telemetry_integration) for pytest compatibility, BoolConfig mocking, and RNS get_instance changes. Added missing dev dependencies (pytest-asyncio, pytest-xdist, pytest-cov, jsonschema).
+- **Banishment**: Blocking now targets the identity, not just a single destination hash. All known destinations for the same identity are blocked, contacts are deleted, and LXMF stamp/ticket state is cleaned up from LXMRouter.
+- **Banishment (UI)**: Blocked destinations page groups entries by identity and shows all blocked destination hashes per identity. Unblocking one unblocks the entire identity.
+- **Banishment (Reticulum)**: blackhole_identity() is always applied when available to drop packets before LXMF delivery callbacks reach the sender, preventing "phantom deliveries" to blocked peers.
+- **NomadNet file downloads**: Backtick-separated request data (e.g. /file/artifactg=reticulum|r=lxmf|t=0.9.7) is now parsed and forwarded as var_* request data dicts, matching upstream NomadNet behavior. Previously the raw string was passed and remote nodes could not resolve the artifact.
+- **NomadNet file downloads (cancel)**: Fixed AttributeError when cancelling a download. RequestReceipt has no .cancel(). We now cancel the underlying Resource if present, or mark the receipt FAILED and remove it from the link queue.
+- **NomadNet browser (links)**: Relative /page/ and /file/ URLs from the Micron parser (which include backtick parameters) are now parsed correctly so they no longer show "Unsupported URL".
+- **NomadNet browser (hover)**: Links with data-destination now show the full URL including backtick parameters in the browser hover title.
+- **Docker build**: build-frontend stage now installs python3 so docs generation succeeds in node:24-alpine.
+- **Docs manager**: Markdown tables in generated documentation render with proper borders and padding.
+
+### Added
+
+- **Android notifications**: JavaScript interfaces in MainActivity handle notifications and incoming calls from the web layer. NotificationUtils now covers incoming calls, missed calls, voicemails, and messages on Android, with comprehensive tests across Electron, Android, and browser fallback.
+- **App / Messages**: Unread conversation count updates when new LXMF deliveries arrive, including when the Messages page is not focused.
+- **Telephony**: Voicemail session management and configuration updates. Telephony-related settings are surfaced in the UI.
+- **Toasts**: Swipe-to-dismiss on touch devices. Horizontal swipes past 100px slide the toast out with opacity and transform feedback. Shorter swipes snap back.
+- **Mobile header**: Propagation node sync refresh icon (refresh) visible on small screens, mirroring the desktop button with the same loading spinner state and click handler.
+- **Micron (Nomad)** (thanks to @RFnexus): MicronParser text inputs can upgrade to multiline textareas. Pressing **Enter twice** shows a hint. multiline_hint was added for NomadNet strings across supported locales.
+- **Chat header (LXMF stamps)**: When the peer has an **outbound stamp ticket** (outbound_ticket_expiry from stamp info), a ticket icon appears beside stamp cost. The icon is green while the ticket is still valid, amber after expiry, with localized tooltips.
+- **Connectivity (Android tooling)**: usbserial4a dependency for USB serial support in the stack where used.
+- **FAQ**: Added FAQ.md covering common questions about LXMF reachability, project goals, AI usage, legacy support, and contribution policies.
+- **Password reset**: Added --reset-password CLI flag and MESHCHAT_RESET_PASSWORD environment variable to clear the stored password hash on startup so a new password can be set via the web UI.
+- **Favourites import/export**: Settings page now supports importing and exporting NomadNet favourites, with deduplication and icon handling.
+- **Bulk favourites import**: Server-side bulk import endpoint for favourites with proper validation and merge logic.
+- **Call page flood protection**: Added flood protection settings UI to the call page.
+- **NomadNet file downloads**: Support for query-parameter data in file downloads. URLs like hash:/file/report.pdf?version=2 parse the query string and forward it as request data through the WebSocket to NomadnetFileDownloader, matching upstream NomadNet behavior.
+- **NomadNet query tests**: Frontend and backend tests for parseNomadnetworkUrl with query strings and downloadNomadNetFile data payload handling.
+- **Android RNode protection**: On Android, RNodeInterface, RNodeIPInterface, and RNodeMultiInterface entries in the Reticulum config are automatically disabled before startup to prevent crashes from missing serial/BLE support in Chaquopy.
+- **Android external storage**: On Android, Meshchat neXt now defaults to getExternalFilesDir() (user-accessible via file managers) instead of private internal storage.
+- **CI (Linux packages)**: AppImage, deb, and rpm release assets are now built and tested on every push to dev for both x64 and arm64.
+- **Docker**: Added a hardened image variant (-hardened suffix) with non-root user, read-only rootfs, and restricted capabilities.
+- **Map**: Drag-and-drop import of GeoJSON, KML, and KMZ files directly onto the map window, with localized drop hint overlays.
+
+### Changed
+
+- **Dependencies**: RNS updated to 1.2.5, LXMF to 0.9.7, aiohttp to 3.13.5 in Python, requirements.txt, Chaquopy metadata, and Android build.gradle, micron-parser lockfile refresh, and general pnpm / package bumps for 4.6.2.
+- **Vendored LXMFy**: Refreshed vendor/lxmfy from upstream LXMFy at 0a6ba8c9fd0f306be614d0edce44e4e805c025b0 (LXMF field helpers for structured bot commands, expanded docs, and new tests). Bundled package version remains 1.6.2. vendor/README.txt lists the revision pointer.
+- **CI**: Docker images publish the :latest tag on version tag pushes, main and master branch builds are enabled, and the Bunny Storage release folder is pruned before uploads. Release descriptions now include a SHA256 checksum table for all assets.
+- **async_utils**: Tighter coroutine scheduling limits with **logging when work is dropped**. Removed the **Python 3.13 asyncio** compatibility patch in favor of cleaner scheduling assumptions. Adds regression tests for **HTTPS file responses** (including sendfile-style paths).
+- **reticulum_config**: Default Reticulum configuration is applied via **file-backed writes** instead of embedding large default text only through the previous helper path (tests updated).
+- **Lint tooling**: vue-eslint-parser added/updated (10.4.0) for frontend ESLint alignment.
+- **Contributors**: zenith added to CONTRIBUTORS.
+- **Announce limits**: Default announce_max_stored_* raised from 1000 to 2500 and announce_fetch_limit_* from 500 to 2500 so the API lists everything stored in the database by default, matching public network usage.
+- **Sidebar order**: Reordered sidebar so Telephone appears directly below Messages for faster access.
+- **Telephone announce**: Disabled by default in config_manager.
+- **Dependencies**: Migrated Python dependency management from Poetry to UV (0.11.12) across all CI scripts, Dockerfiles, and dev tooling. poetry.lock replaced with uv.lock.
+
+## [4.6.1] - 2026-05-04
+
+### Fixed
+
+- **Micron pages (JavaScript renderer)**: Long lines on Micron pages now wrap more reliably instead of running off the edge awkwardly.
+- **Nomad browser**: The Micron JavaScript / WebAssembly switch in the toolbar (and switching engines in general) works on every Micron page link, including ones with extra parameters in the address which caused issues.
+- **macOS app (Intel + Apple Silicon in one download)**: Building the combined Mac app could fail with a merge error because some bundled audio pieces looked identical in both halves. The build now trims native add-ons to either Apple Silicon or Intel before they are merged, and install scripts on Mac CI rebuild the miniaudio piece from source when needed so the merge step succeeds.
+
+## [4.6.0] - 2026-05-04
+
+### TL;DR
+
+- **Micron WASM parser**: Go-based WASM parser for Micron pages that falls back to JavaScript when WASM is unavailable or disabled. **Micron Parser JS stays the default renderer**. The **WASM engine** can stay enabled for updates while you choose **JavaScript or WebAssembly** as the default in settings or from the Nomad browser toolbar. The WASM binary is upgradable in settings (GitHub releases or local upload).
+- **Security and integrity**: SRI checks for external scripts (Codec2, RNode Flasher) and Micron WASM with build-time manifests. Release workflows emit **SLSA provenance** for **Android APK** and Flatpak. SECURITY.md explains attestation alongside the SRI notes.
+- **File downloads**: When you save or export things (including from archives), filenames are **cleaned up** so odd characters are less likely to break saves. You get **clearer feedback** when a download wraps up.
+- **NomadNet favourites**: You can import and export your NomadNet favourites list on a new device without retyping everything. **Contact sharing** wording is clearer across several languages.
+- **RNGit Explorer**: New in-app explorer for RNGit.
+- **Android**: **Foreground sync** with notifications, WebSocket bridge hooks, calls and richer audio (including native attachments), **optional camera** manifest wiring, **APK sharing** via the system share sheet, plus Lint in CI and toolchain updates.
+- **LibreTranslate**: Optional **API key** support for self-hosted or public instances with improved configuration persistence.
+- **Bot management**: Subprocess **error tracking**, **log retrieval**, and better lifecycle handling for LXMFy bots.
+- **Map improvements**: Removed MapNoMapWarning component, streamlined **offline mode** handling, and improved coordinate display with tabular formatting.
+- **Telephony**: Call **metadata tracking** with **path hops** and **interface details**, plus **ringtone handling** for browser autoplay restrictions.
+- **Reticulum and announces**: Bootstrap-only defaults for new **outbound TCP** and **backbone connector** interfaces (with discovery and add-interface options), **per-aspect announce storage** toggles in announce_manager and config_manager, and refreshed **community interface** presets (builder script and list cleanup).
+- **Chat UI**: Clearer **outbound propagation** status in threads, clipboard helpers for secure and non-secure contexts, and **Tailwind CSS 4** with the Vite plugin and a slimmer frontend config footprint.
+- **Settings and locales**: Privacy, **message auto-delete**, **community preset** strings, **bootstrap node search** copy, **LibreTranslate API key**, migration copy, identity and sending options, and **outbound propagation** status translations across supported languages.
+- **Storage migration**: Reworked **legacy storage** migration with an API, tutorial choices, automatic **upstream folder** moves where needed, and aligned Docker, Electron, and test paths for old layouts.
+- **Release CI**: Optional **Bunny Storage** uploads for release assets and clearer **tag resolution** in the main release workflow.
+
+### Micron WASM parser (Micron-Parser-Go)
+
+- **Micron-Parser-Go WASM**: Go-based WASM implementation for Micron page parsing with **word wrapping**, **space splitting**, and ForceMonospace CSS injection. **Micron Parser Go** is pinned to v1.0.5.
+- **Configuration**: **Micron WASM engine** toggle (default on) allows loading and updating the WASM build. nomad_micron_default_engine (js or wasm, default js) sets the default Micron renderer separately from the toolbar. micron_parser_go_version pins the WASM binary version.
+- **Dynamic loading**: WASM binary fetched and cached with **SRI verification** against integrity.json manifests.
+- **Fallback behavior**: Graceful fallback to JavaScript parser when WASM is unavailable or fails to load.
+- **Docker support**: Scripts fetch and resolve Micron WASM binaries during Docker builds with version pinning.
+
+### Security and integrity
+
+- **SRI verification**: Subresource Integrity verification for Codec2 and **RNode Flasher** external scripts with integrity.json manifests. Codec2 WASM loading uses locateFile so asset paths resolve reliably next to integrity checks.
+- **Micron WASM integrity**: Generated integrity.json for Micron WASM assets with SHA-384 hashes verified at load time.
+- **Security documentation**: Updated SECURITY.md with SRI details for external code and CI integrity tests plus SLSA notes for APK and Flatpak artifacts.
+- **Community interfaces**: SSRF protection with URL validation and fetch handling for community directory requests.
+
+### Bots and LXMFy
+
+- **Bot error handling**: Subprocess **last error tracking** and **log retrieval** for bot instances via **GET /api/v1/bots/{id}/logs**.
+- **LXMFy vendor integration**: Vendored LXMFy dependency for bot framework functionality.
+- **Configuration**: Improved bot configuration persistence and validation in config_manager.
+
+### LibreTranslate
+
+- **API key support**: Optional **API key** field for LibreTranslate configuration in settings with secure storage.
+- **URL validation**: Loopback-only URL normalization and validation for LibreTranslate service endpoints.
+- **Configuration persistence**: Improved libretranslate_url and libretranslate_api_key handling with live probing.
+
+### Map and visualization
+
+- **Simplified offline handling**: Removed MapNoMapWarning component and streamlined offline mode logic.
+- **Coordinate display**: Improved **tabular formatting** for coordinate readouts in the map UI.
+- **Geolocation permissions**: Android **geolocation permissions** for map and LXMF telemetry functionality.
+
+### Telephony and calls
+
+- **Call metadata tracking**: Real-time display of **path hops**, **interface details**, and RTT during active calls.
+- **Ringtone handling**: Improved **browser autoplay restriction** handling for ringtone playback with fallback strategies.
+- **Telephone announcements**: Configurable **announcement enabling** for telephone functionality.
+
+### Android platform
+
+- **APK sharing**: shareApk method in AndroidBridge for sharing the installed APK via system share sheet.
+- **File sharing utilities**: Native file sharing integration for mesh content.
+- **Geolocation permissions**: Added **fine/coarse location** permissions for map and telemetry features.
+- **Notification improvements**: Better **audio settings permission** handling and **back navigation** responsiveness.
+- **Versioning**: Bumped to 4.6.0 with updated feature flags.
+
+### Tools and path utilities
+
+- **RN path trace**: Improved **error handling** and validation in path trace and probe handlers.
+- **NomadNetwork pathfinding**: Integrated **reticulum pathfinding** into NomadNet downloads for better link establishment.
+- **Failure detection**: Simplified isFailedPageContent method with dedicated tests for page load failure detection.
+
+### Downloads, archives, and frontend utilities
+
+- **Downloads**: File download flow adds persistence, **user notifications**, and **filename sanitization** so exports land predictably and bad names are rejected or normalized safely.
+- **Refactors**: Download helpers and **time formatting** utilities consolidated. UI elements updated where downloads surface.
+- **Tests**: DownloadUtils unit tests. Utils tests updated for formatting helpers. ArchivesPage test accounts for delayed downloadTextAsFile behaviour.
+
+### NomadNet and locales
+
+- **Favourites**: Import/export for NomadNet favourites from the app.
+- **Locales**: **Contact sharing** options and related strings refreshed across supported languages. **RNGit Explorer** strings added and **localization tables** aligned for consistency.
+- **Locales**: **Bootstrap node search** copy and settings strings for privacy, **message auto-delete**, and **community preset** management. **Outbound message propagation status** labels for the conversation UI.
+
+### RNGit Explorer
+
+- **Backend**: rngit_tool introduces the RNGit explorer capability.
+- **Frontend**: **RNGit Explorer** page with sidebar and navigation integration plus a localized experimental footer notice.
+- **Tests**: Coverage for **server behaviour** and **frequency conversion** paths used by the tool. Obsolete **RNGit database announcement conversion** test removed.
+
+### Android
+
+- **Gradle**: **Product flavors** removed. **Python sync** task simplified to match the single packaging path.
+- **Paths**: Taskfile and CI workflows updated for the new APK and Python directory layout.
+- **Docs**: Android README sections updated so they no longer talk about removed flavors.
+- **Sync and notifications**: **Foreground service** for message synchronization with user-facing notification copy. WebSocket integration in meshchat_wrapper and an **Android push bridge** so the UI can react to backend events.
+- **Reliability**: **Server loop control** and clearer **error handling** around the notification bridge.
+- **Calls and media**: **Call handling**, **notification channels**, permissions, and shortcuts. **Native audio attachment** support with improved **message routing** and in-app audio navigation. TelephoneNativeAudioSession and WavPcmAttachmentRecorder encapsulate **record creation** and permission checks.
+- **Manifest**: Camera added as an optional feature where appropriate. Duplicate optional camera and microphone feature declarations removed from AndroidManifest.xml.
+- **Toolchain**: Gradle plugin and SDK bumps, dependency refresh, and Lint configuration.
+- **CI**: **Android Lint** runs in the workflow with **report artifacts** uploaded for review.
+
+### MeshChat UI, conversations, and microphone
+
+- **Conversations**: UUID-based pending message hashing, **viewport resize** handling updates, **date divider** styling for accessibility, and list previews that prefer **display names** with small telemetry polish.
+- **Getting started**: Identity screen added to the onboarding flow.
+- **Audio**: Native WAV attachment availability checks and clearer recording source wiring.
+- **Main shell**: App.vue uses a **polling guard** so refresh work cannot overlap.
+- **Command palette and visualiser**: Visualizer entries trimmed from the command palette and NetworkVisualiser physics simplified.
+- **Outbound status**: meshchat message updates accept a method parameter with method-to-state mapping so propagation outcomes read consistently. ConversationViewer shows clearer **propagation state** titles. Tests cover outbound propagation status behaviour.
+- **Clipboard**: clipboardUtils.js improves copy / read for secure and non-secure contexts when navigator.clipboard is missing or rejects.
+- **Layout**: Responsive height class tweaks on App.vue and AuthPage.vue.
+- **Styling**: z-index values standardized and **class naming** cleaned up across multiple components.
+- **Microphone**: microphoneRecorder can capture via AudioWorklet or ScriptProcessor for better performance and compatibility across environments.
+
+### Desktop (Electron)
+
+- **Storage and quit**: User data directory naming matches the migration layout. Quit handling is more predictable.
+
+### Reticulum config, discovery, and display
+
+- **Bootstrap-only interfaces**: Discovery and **Add Interface** flows can mark new **TCP client** and **backbone connector** interfaces bootstrap_only so Reticulum can detach them after autoconnect_discovered_interfaces is satisfied. Defaults stay configurable under Interfaces.
+- **Announce storage**: announce_manager wires per-aspect persistence (announce_store_*) through config_manager so LXMF, telephony, NomadNet, propagation, and RNGit aspects can be stored or skipped independently.
+- **Interface editor**: coerce_rnode_frequency_hz normalizes frequency values written into Reticulum config.
+- **Discovery helpers**: parseRNodeFrequencyHz interprets frequency fields from API-style payloads.
+- **Formatting**: formatFrequency in Utils rejects or handles non-finite values safely instead of producing garbage output.
+
+### Community interface presets
+
+- **build_community_interfaces**: JSON fetch uses a **dedicated interface builder** instead of a one-off fetch helper.
+- **Preset list**: Removes **stale TCPClientInterface** bootstrap entries and adds user-submitted community interfaces.
+
+### Version source and sync scripts
+
+- **Single source of truth**: Runtime version is read from src/version.py, which is kept in lockstep with root package.json (including __init__.py where applicable).
+- **version:sync**: Script updates **multiple files** in one pass. Follow-up fixes keep README version lines in translated docs consistent and easier to maintain.
+
+### Repository server and bundled wheels
+
+- **Bundling**: Logic to **stage a local Meshchat neXt wheel** into the bundled directory and refreshed download behaviour for repository assets.
+
+### Database
+
+- **Identifiers**: Sanitization for dynamic PRAGMA names and WAL checkpoint modes.
+- **Startup**: Legacy inline migrator removed from default database init in favour of the dedicated migration flow.
+
+### CI, release automation, and supply chain
+
+- **GitHub Actions**: Migrated primary workflows from Gitea. Obsolete Gitea workflow files removed.
+- **Workflow hygiene**: Flatpak CI cleaned up. Deprecated Snap build scripts removed from the tree.
+- **Caching**: Node.js and Poetry caches added where workflows install tooling.
+- **Docker publish**: Workflow gains **Docker Hub** integration, **tag generation**, and a login fix so credential detection output is used consistently.
+- **Android release**: Workflow updates for **tag handling**, **signing secret** detection, **APK upload** behaviour, and Lint (see Android section for product impact). Tighter APK signing and build rules on dev and master.
+- **macOS builds**: Codec2 install path fixes for x64 and improved Homebrew detection plus env setup for cross-arch jobs.
+- **SLSA**: Release workflow generates **SLSA provenance** for **Android APK** and Flatpak artifacts (see Security section for docs).
+- **Benchmarks**: Taskfile default benchmark task and workflow trigger alignment. Expanded benchmark suite covering contacts, config, telemetry, **debug logs**, **map drawings**, voicemail, and **access attempts** with JSON output and results caching.
+- **Alert thresholds**: Updated benchmark alert and fail thresholds for improved variance handling in CI.
+- **Draft releases**: Script sets GH_REPO from GITHUB_REPOSITORY when unset.
+- **Asset attestations**: Workflow **excludes additional file types** from attestation and **disables tlog upload** where that was causing friction.
+- **Trivy**: Build and **security scan** workflows include explicit setup and update steps. Install script gains **upstream verification** and cosign integration.
+- **pip-audit**: CVE-2026-3219 ignored temporarily with a documented rationale until an upstream fix lands.
+- **Tests**: Minor formatting tidy-ups in the test tree. test_app_status_tracking uses 4.6.0 as the example changelog_seen_version stamp so it tracks the release. Added coverage for android_push_bridge, meshchat_wrapper, rngit_tool, and **Micron WASM** (including wrapper server loops, frequency conversion, and WASM loading). http_api_routes.json contract updated for new routes. Transport announce-handler registration test expectation fixed. NomadNetwork regression tests for WebSocket download status. **Telephone initiation** timeout increases for stability. MarkdownRenderer lxmf link detection tests. WebSocketConnection invalid JSON frame handling.
+
+### Docker, compose, and documentation
+
+- **Dockerfile**: Optional **reproducible native build** target wiring. OCI-style metadata and **image source** hints refined. docker-compose.yml image reference and volume layout aligned with README examples. Build context drops unnecessary **legacy Tailwind** config files.
+- **Flatpak**: Custom desktop template, permission tweaks, and removal of the Pipewire socket from the Flatpak config.
+- **Docs**: README and translated READMEs add **Docker Hub** and GHCR guidance plus **copy-paste docker run examples** where helpful. **Browser requirements** called out where relevant. **Official GitHub mirror** links refreshed. **GitHub Actions** references replace Gitea-era wording. **Security policy** and SECURITY formatting polish. **Raspberry Pi** install examples use bash fences consistently.
+
+### Tailwind and Vite frontend
+
+- **Tailwind CSS 4.2.4** with @tailwindcss/vite. Obsolete **Tailwind config** files removed and style.css updated for the new setup.
+
+## [4.5.1] - 2026-04-24
+
+### Identity switching
+
+- **Hotswap API**: Identity switch responses now include **display name** and **identity hash** so the client can refresh state without guessing from partial payloads.
+- **Event handling**: Identity switch events are deduplicated in App.vue and IdentitiesPage.vue so rapid or repeated signals do not stack duplicate work.
+- **Locales**: Confirmation copy for switching identities no longer tells users to restart when that is not required (aligned strings across supported languages).
+- **Tests**: New HTTP coverage for the identity switch API (success paths, validation, and error responses).
+
+### Desktop (Electron)
+
+- **Boot experience**: **Splash screen** on startup and Codec2 loader scripts use retry logic so transient load failures are less likely to strand voice features.
+- **Developer tools**: F12 toggles DevTools. The menu bar auto-hides in main windows for a cleaner ui.
+- **Content Security Policy**: CSP now allows wasm-unsafe-eval and blob: where needed so WebAssembly used by the stack (for example audio codec paths) can run under the hardened policy.
+
+### Microphone and translations
+
+- **Recording**: Microphone capture updates **error handling** and adjusts AudioWorklet import so failures surface more reliably instead of failing silently.
+- **Locales**: New and updated strings for microphone errors so users get clearer guidance when capture or permissions go wrong.
+
+## [4.5.0] - 2026-04-23
+
+### TL;DR
+
+- **Android App!**: Meshchat neXt now has a native Android app you can install (not just for Termux users).
+- **Linux Packaging**: Added Snap and Flatpak initial support.
+- **Copy Messages**: Added right-click context menu item to copy a message.
+- **Sync Messages**: When you tap **Sync Messages**, you’ll just see a simple "Syncing..." label instead of weird technical terms.
+- **Dark Mode Improvements**: The dark theme’s accent colors now look more consistent and easier on the eyes.
+- **Announcements**: The app now handles timed announcements and reminders in a way that's more predictable and easy to understand.
+- **Hot Reload RNS**: You can now restart the Reticulum network stack directly from Meshchat neXt if there’s a problem.
+- **Config Editor Tool**: Added config editor tool to edit within app.
+- **Repository Server Tool**: New Tool for the optional local file shelf to redestribute reticulum and meshchatnext python wheels locally or any file you upload.
+- **Dangerous Links**: The app can warn you before you open links from people you don’t know, if you happen to click on it by mistake.
+- **Message Rules**: New sieve tool for simple patterns. Matching stuff can land in the right folder, quiet the notification bell, or other actions you pick.
+- **Chats, Images and Reactions**: Bigger chats load faster, images are grouped and sized better, styling improvements to reactions.
+- **Looks and Effects**: You can make parts of the UI transparent or enable a "glass effect" look, with clear settings to control these options.
+- **Simpler Internals**: The app’s settings and chat features were reorganized behind the scenes, making it easier to maintain and more stable.
+- **Visualiser Improvements**: The visualiser now handles really big or complex networks much more smoothly. Also added better incremental hop slider and set default to 4 hops for faster and less laggy loading. The slider will also remember what you set.
+- **Easier Device Connections**: Advanced users can now see special codes (IFAC) that help with connecting certain types of interfaces here and via the API.
+- **Better Reliability**: The desktop (Electron) app recovers better from connection problems and crashes.
+- **Audio Without ffmpeg**: Voicemail, ringtones, and microphone capture use in-process encoding (LXST / miniaudio) so containers and minimal installs no longer need an ffmpeg binary for those paths.
+- **Calls and Microphone**: Picking input and output devices is less fiddly, permission edge cases recover more gracefully, and the microphone path through the browser stack has improved.
+- **Bundled Offline Docs**: In-app documentation can include the **Reticulum manual**, fetched at build time and bundled for offline reading. The docs page upload and sharing flow is smoother. Docs will also actually start on proper manual page.
+- **More Languages**: Spanish, French, Dutch, and Chinese options were added to the app’s language selector.
+- **Message Size Limits**: You can now set how big incoming messages can be (from 1MB up to 1GB) with easy presets or custom values.
+- **Interface Options**: The Add Interface page now exposes the full set of options the Reticulum stack supports.
+- **Map**: Another free map style, improve tile caching to show offline, mbtiles take priority, and improved markers.
+- **Nomad Browsing Path Finder**: Path finder tool that shows on failed links to pages, allowing you to manually try a bunch of path finding methods.
+
+### Platform and backend
+
+- **MeshChat utils**: convert_propagation_node_state_to_string maps LXMRouter.PR_PATH_TIMEOUT to path_timeout so the API can report path timeouts distinctly from other failures.
+- **Propagation nodes / sync**: Local propagation node lifecycle (start/stop/restart), stats and sync APIs. Sync path logic for **outbound propagation nodes**, **immediate completion** for local nodes, and peer/unpeered statistics. Settings expose **transfer limits in MB** and related UI/API wiring.
+- **LXMF incoming delivery limit**: **PATCH /api/v1/config** clamps lxmf_delivery_transfer_limit_in_bytes to at most **1 GiB** (was 100 MB). LXMRouter.delivery_per_transfer_limit updates live when the value changes.
+- **Auto-announce / intervals**: Refactor around interval_action_due in meshchat.py to simplify when auto-announce and propagation sync checks run. Add tests for auto-announce behaviour.
+- **Reticulum**: User-triggered **RNS restart** with UI feedback. Reload streamlines teardown, loading indicators, and cleanup of identity state during Reticulum reload.
+- **Notifications**: Filters **silent or non-user-facing** LXMF payloads so the notification bell does not fire on control-only traffic.
+- **LXMF sieve filters**: lxmf_sieve.py with **GET/PUT /api/v1/lxmf/sieve-filters**. Normalize_lxmf_sieve_filters / parse_lxmf_sieve_filters_json. Rules match peer/message text (substring or regex) and can **suppress notifications**, hide peers, **route to folders**, or banish. Wired through ingest, sidebar, and notification paths. Config.lxmf_sieve_filters_json persistence. Tests test_lxmf_sieve.py, test_lxmf_sieve_fuzz.py.
+- **Announce trimming**: trim_announces_for_aspect keeps favourited destinations and **saved contacts** when capping announce noise.
+- **Map**: Deduplication helpers for telemetry markers and discovered map nodes. Geodesy helpers, **tile network** management, OpenFreeMap support, and MBTiles export **tile limit** plus **unique tile** counting in map_manager. Tile caching refactor.
+- **AutoInterface / user guidance**: Detects **bind/listen failures** (e.g. address already in use) and emits clear **operator guidance**.
+- **Interface discovery**: Connect logic honours autoconnect metadata from discovery responses when the stack provides it.
+- **Translation (Argos)**: Refactored **Argos Translate** CLI detection. Integration tests for forwarding behaviour.
+- **Docs bundle**: scripts/build/fetch_reticulum_manual.py (via **pnpm run build-docs**) fetches the **Reticulum manual** for offline docs. Backend wiring serves bundled manual content.
+- **Bots**: bot_handler updates for LXMF address normalization, reading addresses from sidecar files, improved bot names and on-demand announce requests, and tests.
+- **Telephony**: TelephoneManager improvements for path discovery, initiation, polling, and cancellation. Integration tests for LXST classes and WebAudioBridge mocks.
+- **WebAudioBridge**: Adds a client only when a call is actually active.
+- **Codec2 microphone**: Codec2MicrophoneRecorder uses a **silent tap** for processing and resumes the **audio context** reliably.
+- **Microphone (worklet)**: AudioWorklet-based mic processing and audio graph wiring. ESLint AudioWorklet globals for worklet modules.
+- **Repository server**: RepositoryServerManager (repository_server_manager.py) with /api/v1/repository-server/ status, list, upload, delete, refresh-bundled, and HTTP start/stop/restart. Wheel fetch uses urllib only (no pip subprocess). File copy skips existing files only when size matches. Fetch_repository_wheels.py and build wiring for bundled wheels. Repository-server-bundled kept out of generic **package data** where appropriate.
+- **App info / diagnostics**: /api/v1/app/info (and related handlers) with safer memory, network, and database stats. Tests for missing runtime objects and version resolution without the packaging module.
+- **Media conversion**: Voicemail, ringtones, and MicrophoneRecorder capture use WAV/PCM and OGG/Opus via LXST with miniaudio instead of shelling out to ffmpeg (Alpine Docker images drop the ffmpeg package accordingly). Browser-recorded WebM/Opus attachments decode through the same audio_codec path and re-encode to OGG/Opus for LXMF. If conversion fails the original bytes are passed through unchanged. Python JIT status surfaced where applicable. Related tests updated.
+- **Docs manager**: Safer forced directory removal (_remove_tree_force_writable) and writable-directory helpers when replacing tree content. Clearer document sourcing and rendering for in-app docs.
+- **Python / tooling**: Poetry lock updated (e.g. 2.3.4). Rns >=1.1.9 and lxmf >=0.9.6. Lxmfy pinned to a compatible commit. Electron 41.x series. Node engine >=24 with pnpm store integrity verification in .npmrc and CI install scripts. Lockfile/git-URL dependency style updates. Package.json metadata adds desktop entry, vendor, and synopsis where applicable.
+- **Build / unify**: Script to align **per-architecture cx_Freeze** outputs so unified bundles stay consistent across arches. Post-freeze cleanup strips redundant meshchatnext public assets and trims Python bloat. ElectronLanguages lists packaged locales. Cx_setup.py excludes extra modules and bumps optimize.
+- **Android runtime integration**: Added Android app startup hardening for Chaquopy and WebView, including startup retries, in-app startup errors, runtime permission flow (audio/Bluetooth/notifications/microphone), battery optimization exemption, ABI splits, optional local wheel builds (bcrypt/psutil recipes, Rust for bcrypt, PyO3/OpenSSL-related patches), cryptography and WebView media tweaks, and release minification rules for APK builds. Gradle slim / full **product flavors** with repository-bundled wheels for the fuller variant. Chaquopy-synced Python trees ignored in .gitignore / .prettierignore. APK signing glob fix in sign-android-apks.sh.
+- **Licensing**: Relicensed Quad4-owned portions under 0BSD and kept upstream **Reticulum MeshChat** portions under their original MIT notice in LICENSE. SPDX identifiers added across the tree. License_scope_mapper assists SPDX recommendations. Licenses_collector enriches frontend dependency notices (package.json parsing, workspace-root filtering, detailed THIRD_PARTY_NOTICES / licenses_frontend.json generation).
+- **GIFs**: Schema and database.gifs DAO. Gif_utils validation and naming. HTTP /api/v1/gifs CRUD, …/image, import/export, use-from-message, and **DELETE /api/v1/maintenance/gifs**. Configurable limits via config_manager where applicable.
+- **Sticker packs**: database.sticker_packs and sticker_pack_utils. /api/v1/sticker-packs (list, create, install, reorder, delete, export) complementing per-sticker routes. Stickers DAO/schema updates for pack association and animated assets.
+- **Reticulum config file**: **GET/PUT /api/v1/reticulum/config/raw**, **POST …/reset**, with editor-focused tests and safe merge behaviour against config_manager.
+- **Media hardening**: Backend and frontend tests for GIF, sticker, and Lottie paths (fuzzing, HTTP media routes, size/type checks).
+- **LXMF send path**: Clearer handling and diagnostics when **message sending** fails (timeouts, path errors). Tests cover failure modes.
+- **Interfaces API**: Discovery responses include IFAC fields where the stack provides them. Tests for discovery behaviour.
+- **Interfaces API (full options)**: **POST /api/v1/reticulum/interfaces/add** now accepts the full RNS option matrix per interface type. AutoInterface persists group_id, discovery_scope (validated against link/admin/site/organisation/global), discovery_port, data_port, multicast_address_type (temporary/permanent), devices, ignored_devices, and configured_bitrate. TCPClientInterface gains connect_timeout, max_reconnect_tries, and fixed_mtu alongside existing kiss_framing/i2p_tunneled. TCPServerInterface adds i2p_tunneled. BackboneInterface now supports a **listener mode** (listen_ip/listen_port/device/prefer_ipv6) in addition to the existing connector mode. RNodeInterface persists flow_control and id_callsign. KISSInterface/AX25KISSInterface persist flow_control, id_callsign, and id_interval in addition to the existing serial/framing knobs. I2PInterface exposes the connectable flag.
+- **Interfaces port-in-use validation**: New meshchatnext/src/backend/interface_port_check.py module probes the requested host/port before the configuration is written. TCPServerInterface and BackboneInterface (listener mode) listen-port collisions, UDPInterface listen-port collisions, and AutoInterface discovery_port/data_port collisions return **HTTP 409** with a translated message (host, port, and conflicting interface name) so the operator can pick a free port instead of restarting into a broken interface.
+- **Wifi transport**: WifiTransport open paths use simplified signatures and stricter validation.
+
+### Frontend and UX
+
+- **Propagation sync (App header)**: After **GET /api/v1/lxmf/propagation-node/sync**, the client polls propagation status on an interval while the router is in a transfer state, updates a **keyed loading toast** (propagation-sync-status) with translated strings (app.propagation_sync_live, app.propagation_sync_state.*), dismisses it when the transfer ends, then shows the existing success or error summary. Stopping sync clears the poll timer and dismisses the live toast. BeforeUnmount cleans up if you leave the page mid-sync. Removed the old toolbar pattern **Syncing... ({state})** in favour of app.syncing plus the toast.
+- **Link detection**: Updated **Reticulum link detection** to support lxmf: prefix and prevent false positives for bare hashes. link-utils now validates URLs more strictly before rendering.
+- **Propagation nodes UI**: Settings and tools surface propagation node controls, transfer limits (MB), sync, and Material icons for node state. Locales updated.
+- **Incoming message size (Settings / Propagation Nodes)**: Preset selector (**1 MB**, **10 MB**, **25 MB**, **50 MB**, **1 GB**) and custom amount with MB or GB unit. Shared helpers in meshchatnext/src/frontend/js/settings/incomingDeliveryLimit.js. En / de / it / ru strings (app.incoming_message_size*).
+- **Stranger links and sidebar**: Config options for **warning on stranger-originated links** and **Messages sidebar position**. UI and en / de / it / ru strings.
+- **Theme**: Dark theme accent palette updates for consistency. Tests adjusted where they assert colors.
+- **Appearance**: **UI transparency** and **glass effect** settings (with i18n) and related layout tweaks in ConversationViewer and scrolling behaviour.
+- **Message list performance**: @tanstack/vue-virtual-based virtualization, image group display, and shared scroll utilities for long threads.
+- **Links and Markdown**: link-utils hardening (anchor protection, trailing punctuation). Markdown fixes for underscores in links vs italics with expanded tests.
+- **Modularity (settings and messages)**: Config fetch/merge, **PATCH /api/v1/config**, color normalization, transport enable/disable, maintenance HTTP calls, and visualiser localStorage prefs live in meshchatnext/src/frontend/js/settings/ (settingsConfigService, settingsTransportService, settingsMaintenanceClient, settingsVisualiserPrefs). SettingsPage delegates to those modules. Message renderability, telemetry-only detection, image-only detection, and drag/paste image extraction are in conversationMessageHelpers.js with thin ConversationViewer wrappers.
+- **Shell and settings UI**: Emergency and WebSocket status banners extracted to AppShellBanners.vue. Conversation peer chrome to ConversationPeerHeader.vue. Reusable SettingsSectionBlock.vue (used for the stranger-protection section).
+- **Pages polish**: About, Call, **Debug logs**, and Settings pages with clearer layout, app info, environment paths, log copy-to-clipboard, and error handling. Related tests.
+- **Call (audio devices)**: getUserMedia fallback and clearer error handling when inputs/outputs or permissions misbehave.
+- **ConversationViewer**: File input clears after selection and improves image-type detection for uploads. GIF picker and drag/drop upload to the GIF library. Animated stickers and GIFs can use InViewAnimatedImg so heavy animations run only when visible.
+- **Stickers UI**: StickerPacksManager, StickerEditor, StickerView, and tgsDecode (.tgs / Lottie JSON) integrate with the composer and identities settings.
+- **Tools**: ReticulumConfigEditorPage for editing Reticulum configuration from the app with validation feedback. RepositoryServerPage (/tools/repository-server) for status/list, HTTP server start/stop/restart, upload/delete, and refresh-bundled against /api/v1/repository-server/ (command palette + Tools grid). RNode firmware tooling gains expanded diagnostics, **device management**, and i18n for flash and probe flows.
+- **Docs page**: DocsPage upload and sharing behaviour polished alongside offline manual bundling. Reticulum manual links follow the **active locale** where applicable.
+- **Sieve Filters page**: SieveFiltersPage with **GET/PUT /api/v1/lxmf/sieve-filters** wiring and notification-suppression behaviour in the UI. Route and sidebar/tool entry points. I18n for rule copy.
+- **NomadNetwork**: **Path finder** dropdown and improved error handling when a page load fails. Translated strings.
+- **Telemetry**: **Telemetry history** modal with battery sparkline/chart components for timeline review.
+- **Map UI**: OpenFreeMap and tile URL config updates. Bearing mode. **vector exchange** panel. Improved export UX. **map link** utilities on conversation messages. Query-param handling and clearer error toasts. Marker clustering and drawing component refactors. WillReadFrequently on read-heavy canvas paths. ClampFloatingToViewport shared helper so dropdowns stay inside the viewport (DropDownMenu and other surfaces).
+- **Electron shell**: CSP allows OpenFreeMap image/font/connect sources alongside existing tile providers.
+- **Fonts and map deps**: @fontsource/noto-sans, jszip, and pinned/patched ol / ol-mapbox-style for vector map styling.
+- **LXMF reactions**: Reaction controls and message row layout tuned for small screens and long emoji strips.
+- **Add Interface page (full options)**: AddInterfacePage.vue renders type-specific sections for every option the backend now accepts. AutoInterface has a dedicated form (**Group ID**, **Discovery Scope**, **Multicast Address Type**, **Discovery Port**, **Data Port**, allowed and ignored devices, configured bitrate). **TCP Client** exposes **KISS framing**, **I2P tunneled**, **connect timeout**, **max reconnect tries**, and **fixed MTU** toggles/fields. **TCP Server** / UDP add device and **prefer IPv6** controls. **TCP Server** also exposes **I2P tunneled**. BackboneInterface has a **Listener mode** toggle that swaps between connector (remote/target/transport identity) and listener (listen IP/port/device/prefer IPv6) layouts. RNode sections add **spreading factor**, **coding rate**, **flow control**, **ID callsign**, **ID interval**, and **airtime limit long/short**. Serial/KISS/**AX.25 KISS** sections expose **baud rate**, **data bits**, parity, **stop bits**, preamble, **TX tail**, persistence, **slot time**, **flow control**, **beacon callsign/interval**, and **AX.25 callsign/SSID**. I2P gains a connectable toggle. Every new field round-trips through saveInterface, loadInterfaceToEdit, applyConfig, and buildPayloadFromImportedConfig so editing and quick-import flows keep parity with the form.
+- **Network visualiser**: Chunk and icon rendering tuned for large node sets (see TL;DR). Optional **max hops** filter with localStorage persistence alongside the hop slider prefs.
+
+### CI and packaging
+
+- **CI hygiene**: pnpm store caching removed from CI and security-scan workflows. CodeQL for GitHub with **build-mode: none** (no manual build block). Install scripts run **poetry check** and verify pnpm store integrity. Linux runners install libopus / libogg so Opus encode tests pass.
+- **Supply-chain monitoring**: Rekor monitoring workflow plus rekor-cli install helper script.
+- **Release assets**: GitHub release notes generation includes integrity / SBOM-style detail. Per-file SHA256 sidecar checksums removed from the main build-test flow. SECURITY.md points readers at cosign / attestation-style verification instead.
+- **Frontend CI**: Reusable **frontend build** workflow shared across Android, container, and packaging jobs. Default **pnpm test** uses **vitest run** for the web suite plus vitest.electron.config.js for Electron helpers.
+- **Docker**: Git installed for frontend build steps. Corepack replaced with npm-based pnpm install. Python base image refresh (e.g. 3.14-series Alpine), venv runtime tools, pip/setuptools updates. G++ in build deps for miniaudio compile paths. .dockerignore / .gitignore tweaks. Workflow git clone/fetch handling for reproducible image builds. README.md included in the Dockerfile copy context. Container entrypoint path updated. Ffmpeg removed from Alpine package lists now that audio encoding is in-process.
+- **Electron / Linux**: AppImage pipeline builds x64 and arm64 artifacts. **Electron Forge** adds optional Snap and Flatpak makers (see forge.config.js and local packaging scripts). Flatpak 25.08 runtime/base alignment, Flathub remote bootstrap script, and packaging script tweaks. Snap core22 base prep and multi-snap install for destructive-mode builds. Forge temp-dir helper for packaging. ResetAdHocDarwinSignature on Darwin. Platform-specific resource handling fix in the Electron packager path.
+- **Desktop build scripts**: macOS and Windows scripts can consume **prebuilt frontend** output when present to shorten release builds.
+- **Android CI**: Workflow runs Node.js setup and **frontend build** before APK packaging so Web assets stay in sync with the app bundle. Slim/full flavor alignment with bundled repository wheels where applicable. NDK / sdkmanager steps tolerate preinstalled SDK tooling. Taskfile gains flavour/ABI/l10n-test polish and cleanup steps.
+- **Docs**: Raspberry Pi install guide expanded with automated setup scripts and service-oriented instructions. Root README and translated install docs note Poetry 2.3.4 and pnpm v10+ lifecycle behaviour. README APK section calls out slim vs full / ABI packaging. NomadNet browser and **Mesh Server** page documentation added.
+- **Container / compose**: docker-compose.yml and related Docker notes updated. Optional Dockerfile.extra for layered builds where documented.
+
+### Security
+
+- **Android WebView**: MainActivity WebViewClient.shouldOverrideUrlLoading blocks top-level navigations except http/https to loopback hosts (127.0.0.1, localhost, ::1 / [::1]), plus about:blank, blob:, and data:, so external clearnet URLs cannot be opened inside the embedded browser.
+- **Electron shell paths**: showPathInFolder and openPath IPC handlers validate paths against allowed roots (**default storage**, **Reticulum config**, userData, temp, downloads, documents, portable bundle dir when set, and --storage-dir / --reticulum-config-dir from argv) via electron/shellPathGuard.js. Out-of-tree paths are rejected.
+- **LibreTranslate / SSRF**: Client-supplied libretranslate_url (languages query and translate JSON) must target loopback only (http_url_guard.normalize_loopback_http_service_base). Server default LIBRETRANSLATE_URL is unchanged. Outbound LibreTranslate aiohttp calls use allow_redirects=False. Invalid URLs return **HTTP 400** from the translator API routes.
+- **CSP**: Removed 'unsafe-eval' from default script policy. **main SPA** responses use **script-src 'self'** only, while /rnode-flasher/ and /reticulum-docs/ keep 'unsafe-inline' for their inline scripts. **Service worker** registration moved from index.html into main.js so the shell does not rely on an inline script tag. Electron session **fallback CSP** drops 'unsafe-eval' as well.
+- **Electron external URLs**: electron/safeExternalUrl.js normalizeExternalUrlForOpen gates shell.openExternal in electron/main.js (setWindowOpenHandler fallback and context-menu **Open link**) and electron/main-legacy.js, allowing only http:, https:, and mailto:. Javascript:, data:, file:, and other schemes are dropped. tests/electron/safeExternalUrl.test.js adds regression and light fuzz coverage.
+- **Chat link rendering**: meshchatnext/src/frontend/js/LinkUtils.js renderStandardLinks validates detected URLs with the URL constructor (with an **&amp; -> &** retry for HTML-escaped query strings), omits linkification when parsing fails or the scheme is not http/https, excludes ' and " from the autolink detector tail, HTML-escapes link labels, and HTML-escapes data-nomadnet-url attribute values. tests/frontend/LinkUtils.test.js / MarkdownRenderer.test.js updated for canonical href output.
+- **Tests**: tests/backend/test_http_url_guard.py (loopback URL edge cases and rejections), tests/electron/shellPathGuard.test.js, and tests/electron/safeExternalUrl.test.js cover URL and path rules.
+- **Repository uploads**: tests/backend/test_repository_server_manager.py parametrized rejects for save_upload filenames outside _safe_any_upload_filename (repository_server_manager.py).
+- **Map deep links and map ping classification**: meshchatnext/src/frontend/js/mapLinkUtils.js mapLinkKindFromMessage now requires the localized **Meshchat neXt map ping** prefix at the start of the message (after optional whitespace) with a **word boundary**, so a ping cannot be spoofed by embedding that phrase inside HTML or other text. Backend coverage in tests/backend/test_deep_links_security.py for lxm.ingest_uri **meshchatnext://map / meshchat://map** (including XSS-shaped layers / label query values and Hypothesis fuzzing). Frontend coverage in tests/frontend/mapLinkUtils.security.test.js, tests/frontend/deepLinks.protocol.security.test.js, and updates to tests/frontend/mapLinkUtils.test.js.
+- **Interface discovery numerics**: meshchatnext/src/frontend/js/interfaceDiscoveryUtils.js numOrNull only accepts string and number (no Number([]), **Number({ valueOf })**, or other object coercion). tests/frontend/interfaceDiscoveryUtils.security.test.js and tests/frontend/interfaceDiscoveryUtils.test.js cover edge cases.
+- **Discovered interface list payloads (backend)**: tests/backend/test_discovered_interfaces_security.py fuzzes ReticulumMeshChat.discovery_filter_candidates, matches_discovery_pattern, sanitize_discovery_patterns, and filter_discovered_interfaces with very long names, HTML/script-like strings, and arbitrary extra keys, and asserts json.dumps on filtered results.
+- **Stickers, GIFs, and LXMF reactions (backend + frontend)**: tests/backend/test_media_sticker_reaction_gif_security.py Hypothesis-fuzzes meshchatnext/src/backend/sticker_utils.py (sanitize_sticker_name, sanitize_sticker_emoji, normalize_image_type), gif_utils (sanitize_gif_name, normalize_image_type, validate_gif_payload / export documents), sticker_pack_utils pack string sanitizers, and lxmf_utils.convert_lxmf_message_to_dict with hostile app_extensions reaction fields. tests/frontend/lxmfReactions.test.js and tests/frontend/inViewObserver.test.js add reaction-merge and raster-type edge cases.
+
+### Testing and docs
+
+- **Frontend**: AppPropagationSync.test.js covers immediate completion (no stray loading toast), polling with path_requested and live ToastUtils.loading, and no_path end states with translated error text. AppModals / ChangelogModal tests updated where changelog content or expectations shifted.
+- **Frontend (incoming delivery limit)**: tests/frontend/incomingDeliveryLimit.test.js for clamp and preset/custom byte mapping. SettingsPage.config-persistence.test.js covers preset PATCH and debounced custom save.
+- **Backend (config API)**: test_auto_propagation_api.py asserts delivery limit PATCH clamps above **1 GiB** to **1 GiB** and applies delivery_per_transfer_limit on the router.
+- **Frontend (modularization)**: Shared tests/frontend/fixtures/settingsPageTestApi.js for buildFullServerConfig / window.api mocks. Unit tests for settingsConfigService and conversationMessageHelpers. SettingsSectionBlock stubbed in settings-related tests. Overlapping IconButton cases removed from UIComponents.test.js (covered by IconButton.test.js).
+- **E2E**: Keyboard shortcut and conversation scrolling coverage. Navigation assertions aligned with current marketing copy. Onboarding tooltip dismissal hooks where applicable.
+- **Integration**: **Loopback TCP** test fixture used by relevant integration tests.
+- **Backend**: test_lxmf_propagation_full.py adds path_timeout in status mapping, test_convert_propagation_node_state_maps_all_lxmf_transfer_states for LXMF propagation transfer constants, and Hypothesis path_timeout in allowed propagation state strings. Test_app_status_tracking expects changelog_seen_version 4.5.0 in app status tests. Stamp validation test hardened against flaky random workblocks.
+- **Bots / propagation / licenses**: Expanded tests for bot sidecar behaviour, propagation node UI/state, and license rendering collectors.
+- **GIFs and stickers**: Backend tests test_gif_utils, test_gifs_dao, test_sticker_pack_utils, test_sticker_packs_dao. Frontend Gifs.test.js, StickerView.test.js, InViewAnimatedImg.test.js, tgsDecode.test.js, inViewObserver.test.js, mediaLottieStickerGifs.fuzzing.test.js.
+- **Reticulum config editor**: test_reticulum_config_editor.py (backend), ReticulumConfigEditorPage.test.js (frontend).
+- **Interfaces**: test_interface_discovery_ifac.py, InterfacesDiscoveryIfac.test.js.
+- **Interfaces (port-in-use and full options)**: tests/backend/test_interface_port_check.py covers the new socket probe (free port, busy TCP port, busy UDP port, invalid input, wildcard host, unresolvable host, conflict-message formatting). tests/backend/test_interface_options.py drives /api/v1/reticulum/interfaces/add for AutoInterface (full options + invalid discovery_scope/multicast_address_type + busy data_port returning 409), TCPClient (advanced options), TCPServer (optional options + busy listen-port 409), UDP (busy listen-port 409), BackboneInterface (listener-mode persistence + connector mode still requiring remote), RNode (flow control / ID callsign / airtime limits), KISS (full serial + framing + beacon options), **AX.25 KISS** (callsign/SSID), and I2P (connectable=False). tests/frontend/AddInterfaceOptions.test.js asserts each new field is sent through **window.api.post('/api/v1/reticulum/interfaces/add', ...)** and that backend **HTTP 409** "port already in use" responses are surfaced via ToastUtils.error.
+- **Messaging**: test_message_sending_failures.py, MessageSendingFailures.test.js. CJKTextOverflow.test.js for composer/thread overflow.
+- **Media API**: test_media_http_api.py, test_media_fuzzing.py, shared media_test_assets.py fixtures.
+- **AutoInterface guidance**: tests/backend/test_user_guidance_autointerface.py exercises bind-failure detection and user-facing guidance strings.
+- **Translator**: Integration tests for Argos-based forwarding after CLI detection refactor, including network checks for Stanza resource fetching.
+- **LXMF sieve**: test_lxmf_sieve.py and test_lxmf_sieve_fuzz.py.
+- **Repository server**: test_repository_server_manager.py.
+- **Map / audio (frontend)**: Additional Vitest coverage for map components, geodesy utilities, and audio handling paths.
+- **Electron**: Vitest Electron config plus loading/main helper coverage for the desktop shell.
+- **CI stability**: Peering-key rejection integration test avoids flaky peer selection.
+
+## [4.4.0] - 2026-04-15
+
+### TL;DR
+
+- **Chatting**: Pin important conversations, keep draft text when you switch chats (without them disappearing randomly), see clearer send status, paste images straight into the message box, and send one message at a time in order (outbound queue). Deleting a conversation also clears its read state, folder placement, and pins.
+- **Reactions**: Emoji reactions over LXMF are finally here! (field 16: target message hash, emoji, sender identity hash). Send from the message context menu (fixed picker). Reactions render below the bubble, outside it, bottom-right. Hover shows who reacted (you, the open peer, or a known conversation name).
+- **Emoji and stickers**: One place in the composer opens emojis or your own sticker images (per identity). You can import/export sticker libraries in settings, add images by drag-and-drop or upload, and save an image from a message into stickers when it makes sense.
+- **Nomad Network browsing**: Besides Micron pages, the built-in browser can show Markdown, plain text, and simple web-style pages. You can tune what gets rendered, pick a default page when a node has no path, and links are handled more safely so the app stays on the mesh (not opening clearnet or risky URLs). Loading shows clearer phase text and file size. Announces and favourites have richer context menus (rename, banish, lift, sections). Sidebars can collapse on medium-and-up screens with quick previews of recent chats and favourites.
+- **Map**: You can pop out the map in a separate window now.
+- **Look and layout**: Cleaner, more consistent light and dark appearance. Tools is a single list with refreshed pages (Bots, paper message, RN path tools, RNode flasher, About, Interface, Settings, Contacts, App). Third-party licenses sit under About with an API-backed list.
+- **Network noise**: Caps on how many announces are fetched, searched, and shown per aspect (configurable in settings) so busy meshes stay usable.
+- **Security and troubleshooting**: Stricter limits on failed logins from untrusted devices when auth enabled (since there are some exposed meshchatnext instances out there). Optional screens on debug tool to inspect login attempts and search or filter logs.
+- **Working with other mesh apps**: Voice messages use a format that tends to play better elsewhere. Outgoing messages can tell other clients to treat text as Markdown. Messages to saved contacts can include a stamp ticket so they can reply without extra proof-of-work. File transfers and path tools expose clearer status, stop controls, and filters (including max hops and path table by destination).
+- **Blocked peers**: Lift a banishment from the conversation header or sidebar when you want to hear from someone again.
+- **Notifications**: Refined unread handling (finally no more getting tricked with fake notifications, hopefully) and a toggle for bell history.
+- **Checking reachability**: Ping destination shows a clear working state while the request runs.
+- **Archives**: Export saved snapshots as Micron (.mu) files. Multi-export avoids filename clashes.
+- **Large Nomad Micron pages**: Smoother scrolling and resizing on big .mu pages (including a faster path for ordinary Latin/Cyrillic monospace text).
+- **Network visualizer**: Toolbar, legend, and loading state are clearer. Path table and graph behaviour use shared helpers for trails, bounds, and layout constants.
+- **Connections**: The app WebSocket client heartbeats, reconnects, and handles ping/pong more predictably when the link drops or stalls.
+- **Theming**: Semantic design tokens feed Tailwind and Vuetify so light/dark surfaces and accents stay aligned across pages.
+- **Desktop app (Electron)**: Right-click menus in text fields (cut/copy/paste, spellcheck, add to dictionary), sensible behaviour for links, and file/folder pickers wired through the desktop shell where applicable.
+
+### Platform and backend
+
+- Split meshchat.py startup into path_utils, ssl_self_signed, and env_utils (re-exported from meshchat.py for compatibility).
+- **HTTP**: docs_manager, map_manager, and translator_handler use aiohttp. Requests removed. Stricter request validation and clearer API errors. Tests/backend/fixtures/http_api_routes.json kept in sync.
+- **CLI**: Prefer meshchatnext (python -m meshchatnext.meshchat, Docker, Make, Taskfile). Meshchat remains an alias. --rns-log-level / MESHCHAT_RNS_LOG_LEVEL. Optional --ssl-cert / --ssl-key (both required if used).
+- Auth (schema 42): access_attempts, trusted_login_clients, rate limits and lockout for untrusted clients, **GET /api/v1/debug/access-attempts**. **DELETE conversation** clears read state, folder mapping, and pins.
+- **AsyncUtils**: thread-safe scheduling. Pending coroutines flushed when the main event loop is set.
+- **NomadNet downloader**: thread-safe link cache, get_cached_active_link, phased WebSocket progress, faster polling, safer UTF-8 and cancel handling.
+- RNCP (file transfer): receive-completed handling and error reporting. Transfer start callbacks. Status / stop API and websocket broadcast. Listener destination setup/teardown and tests.
+- **RNPath / RNStatus**: interface discovery. Optional geo fields on interfaces. **Network visualizer**: lxmf.delivery / nomadnetwork.node only. **POST /api/v1/path-table** filters by destination hashes. **max hops** filter in the UI. Refactored trail/bounds utilities and constants for the graph view.
+- **Licenses**: collector for Python and Node dependencies. **GET /api/v1/licenses**. Licenses_frontend.json included in package data.
+- **CI / packaging**: Gitea shell-based jobs, optional **SLSA v1** cosign attestations. GitHub Actions for Windows/macOS. Priv.sh / exec-priv.sh. MacOS universal build avoids duplicate backend-manifest.json. Stripped Python bytecode in backend bundle.
+- **CI**: Node dependency scanning uses Trivy (scripts/ci/trivy-fs-scan.sh) instead of **pnpm audit**, after npm retired the legacy registry audit API used by pnpm.
+- **Container**: non-root meshchat. HEALTHCHECK on /api/v1/status (TLS verify relaxed for default self-signed). Podman/OCI: no Docker-style HEALTHCHECK unless **--format docker**. /config bind mounts may need uid alignment.
+- **Debug Logs**: Logs and **Access attempts** tabs (search, filters, pagination).
+- **scripts/ci/setup-python.sh**: Sigstore verification and cosign download by architecture.
+- **Stickers**: per-identity image library (schema, validation, DAO), /api/v1/stickers CRUD and **GET …/image**, settings import/export, **DELETE /api/v1/maintenance/stickers**. Tests/backend/fixtures/http_api_routes.json updated when routes change.
+- **Community packaging (cx_setup.py)**: Optional lxmfy and websockets dependencies. Scripts/build_community_interfaces_json.py, scripts/move_wheels.py, and scripts/ci/slsa-predicate.py refinements for clearer outputs and metadata.
+
+### Frontend and UX
+
+- **Vite 8**, **@vitejs/plugin-vue 6**, Rolldown-oriented chunking. Fetch via apiClient.js instead of axios.
+- **Announce limits**: per-aspect cap with trim. Configurable fetch/search/discovered caps. Settings and locales.
+- **Conversations**: serial **outbound send queue**. Optional **detailed outbound status** (settings + i18n). **conversation pins**. **Lift banishment** from viewer/sidebar. **clipboard image paste** into compose. Fix for **empty thread** when switching chats while a fetch is in flight. **compose drafts** persisted in localStorage (including on unmount). Responsive ConversationViewer and dropdown actions.
+- **Conversation ping**: **Ping Destination** shows a loading toast while the request runs. ToastUtils.dismiss(key) and a toast-dismiss event remove keyed toasts (e.g. dismiss after fetch).
+- **Emoji and stickers (composer)**: single emoticon control at the end of the message field opens a tabbed popup (Emojis | Stickers). Emojis use emoji-picker-element with **emoji-picker-element-data bundled** via Vite (?url) so emoji metadata loads same-origin and satisfies strict CSP with no reliance on any CDNs. Stickers tab: library grid, drag/drop and file upload, **save image to stickers** from the message menu where applicable.
+- **Notifications**: bell history toggle. Refined unread handling.
+- **NomadNet**: phase-based loading copy. Duration/size in header. Context menus on announces/favourites (rename, banish, lift, sections). Collapsible Messages and Nomad list sidebars on sm+ (chevron). When collapsed, Messages shows tab icons plus up to five conversation avatars (Conversations tab, pinned/recent order) and no extra strip on Announces. Nomad collapsed rail shows up to five favourites (section order) on Favourites and up to five nodes (latest announce order) on Announces.
+- **NomadNet browser page formats**: In addition to Micron (.mu), the built-in browser renders Markdown (.md), **plain text** (.txt), and **static HTML with CSS** (.html). Markdown uses CommonMark-style headings (a space after # is required unless the viewer normalizes shorthand). HTML is sanitized (no script, no external URLs in CSS, no off-mesh links in href/src except safe patterns). **Mesh servers** register the same extensions under /page/. Unknown extensions are rejected by the API.
+- **NomadNet browser renderer settings**: Settings include a **NomadNet browser renderer** section (under Browsing): toggles to disable extra rendering for Markdown, HTML, and **plain text** (Micron is always rendered). **default page path** when opening a node without a path (/page/index.mu, /page/index.html, /page/index.md, or /page/index.txt), also used for hash-only Nomad links and the **Smart Crawler** homepage fetch.
+- **NomadNet link isolation and Reticulum-only navigation**: Relative and mesh-style links in HTML, Markdown, and Micron output are rewritten to href="#" with data-nomadnet-url so the SPA does not navigate the browser to /page/... or off-app URLs. The Nomad browser and Archives viewer handle .nomadnet-link clicks in-app. In-page #fragment links scroll within the viewer. href sanitization explicitly rejects http, https, protocol-relative //, mailto, ftp, file, data, javascript, and similar schemes so clearnet and dangerous URLs are not preserved as navigable links.
+- **Tools**: Removed the duplicate **Third-party licenses** entry from the Tools grid (licenses remain under About).
+- **Shell chrome**: Opaque white / dark zinc-950 surfaces aligned across the top bar, navigation drawer, Messages/Nomad sidebars, conversation header, message list, and composer (replacing mixed translucent, backdrop-blur, and gradient backgrounds for consistent light/dark appearance).
+- **Theme (designTokens.js)**: Semantic tokens integrated with Tailwind (tailwind.config.js) and Vuetify theme overrides. Optional theme-variable injection for integrators using cx_setup.
+- **Network visualiser (UI)**: Dedicated toolbar, legend, and **loading overlay** components. Internal modules for trail placement, **view bounds**, and shared constants (cleaner layout and future work).
+- **NomadNetwork**: Separate AbortController instances for the node list and node detail fetches so navigation cancels the right request.
+- **WebSocket (WebSocketConnection.js)**: Heartbeat, backoff/reconnect, and ping/pong handling with shared helpers in wsConnectionSupport.js.
+- **Context menus (Vue)**: Shared ContextMenuPanel, ContextMenuItem, ContextMenuDivider, and ContextMenuSectionLabel (components/contextmenu/). Styling tokens in style.css. Wired into Contacts, Messages sidebar, ConversationViewer message menu, NomadNetwork sidebar (favourites, sections, announces), and Map (optional header slot for the title row).
+- **LXMF emoji reactions (UI)**: React section in the message context menu (Columba-aligned emoji set). Inbound/outbound websocket paths merge reactions onto the target message instead of a separate row. MergeLxmfReactionRowsIntoMessages when loading history. Chips below the bubble with title tooltips via reactionReactorLabel (self, selected peer, sidebar conversations, else short hash).
+- **Vue lint**: vue/no-reserved-keys: internal data() fields renamed (peer header ResizeObserver, Nomad Micron partial scheduling requestAnimationFrame handle) so ESLint passes without reserved _ prefixes.
+- **Map**: pop-out window.
+- **Tools**: list-style ToolsPage. Refreshed Bots, **Paper message**, **RN path**, **RN path trace**, **RNode flasher**. About, Interface, Settings, Contacts, App polish (loading overlays, display names, license links). Many tool and settings pages use adjusted **backgrounds and padding** for alignment with the global shell.
+- **Electron**: default **context menu** for editable fields (cut/copy/paste, spellcheck suggestions, add to dictionary), links, and related actions. **pick file** / **pick directory** / **open path** / notifications and related preload helpers. Loading screen refresh. CSP and **backend HTTP-only** IPC where applicable.
+- /robots.txt in public/. SECURITY.md crawler note.
+- **Locales**: import.meta.glob discovery. New strings for outbound status, archives, NomadNet, RNCP (including browse/folder/web hints), max hops, stickers, emoji picker tabs, **message reactions** (react / you / send failed), and **backend connection status** copy in en / de / it / ru, etc.
+
+### Micron and archives
+
+- **MicronParser**: fault-tolerant line and document fallbacks. Safer monospace and sanitization. **monospace fast path** for Latin and Cyrillic (and other non-CJK text) using grouped spans instead of one DOM node per character when the line does not need CJK or box-drawing cell alignment, improving scroll and resize performance on large .mu pages.
+- **NomadNet Micron viewer**: v-memo on the rendered page HTML, **contain: layout paint** on the scroll container, and **early exit** in partial processing when the page source has no partial placeholders. Messages and Nomad sidebars use **matchMedia(min-width: 640px)** instead of window.resize so the sm breakpoint updates only when crossing the threshold (smoother responsive / DevTools resizing).
+- **Archives**: export snapshots as .mu (multi-export avoids name collisions).
+
+### Removed
+
+- axios (replaced by fetch), legacy PR vulnerability workflow, Nix flakes, obsolete scripts.
+- **LegacyMigrator**: Removed legacy database migration system from startup to streamline initialization.
+
+### LXMF interoperability
+
+- **Markdown renderer field**: Outbound messages now set FIELD_RENDERER to RENDERER_MARKDOWN, so receiving clients (Sideband, etc.) know to render content as Markdown.
+- **Stamp tickets for contacts**: Outbound messages to saved contacts automatically include a FIELD_TICKET (include_ticket), allowing trusted peers to reply without generating a proof-of-work stamp.
+- **Opus voice messages**: Browser-recorded Opus audio (WebM container) is converted to OGG/Opus via ffmpeg before sending, fixing playback on Sideband and reducing file size (~24 kbps VBR).
+- **Emoji reactions (Columba-compatible)**: Reactions are separate LXMF messages with empty body and **field 16** (reaction_to message hash, emoji, sender as hex identity hash), opportunistic delivery, no markdown renderer / ticket / icon field on reaction-only sends. **POST /api/v1/lxmf-messages/reactions**. Send_reaction / app_extensions on send_message. Lxmf_fields_are_columba_reaction for delivery (spam keywords skipped for reaction frames. Title/content decoded safely). Alias forwarding passes field 16 through. convert_lxmf_message_to_dict / convert_db_lxmf_message_to_dict expose is_reaction, reaction_to, reaction_emoji, reaction_sender, and fields.app_extensions (field 16 with reply_to stays a normal message, not a reaction).
+
+### Testing and docs
+
+- **Frontend**: Vitest expanded for ConversationViewer (outbound bubble styling, clipboard images vs non-images, paste toolbar, file attachments, translation, conversation fetch ordering, compose drafts, stickers / emoji picker). Toast (toast-dismiss). **RNCP handler** listener/status tests. **HTTP route contract** (tests/backend/fixtures/http_api_routes.json). Tests/frontend/setup.js: fake-indexeddb, fetch stub for bundled emoji JSON. Console noise suppressed in CI. MicronParser tests for Cyrillic/CJK monospace paths. NomadNetwork sidebar/page tests aligned with collapse and Micron behavior. I18n parity for RNCP keys (de / it / ru). SettingsPage visibility test updated for three message bubble color pickers. ContextMenuStyles.test.js asserts shared CSS classes and ContextMenu component usage across pages (sidebar/button tests updated for .context-menu-panel selectors). LxmfReactions.test.js for mergeLxmfReactionRowsIntoMessages (merge + dedupe). WebSocket unit tests for connection helpers. **Load-time / large-list sidebar** tests (tests/frontend/LoadTimePerformance.test.js) are not run in default **pnpm test** or CI. Run **pnpm run test:loadtime** or **task test:fe:loadtime** locally when you need that check.
+- **Backend**: access attempts, announce limits, downloader, Micron, SSL CLI, memory-leak regressions (message state updates, etc.), sticker utils/DAO/API tests, fuzzing where applicable. WebM-to-OGG conversion unit tests. Test_lxmf_reactions.py (field 16 reaction shape, DB round-trip, reply_to in app extensions without treating as reaction). **incoming-call policy** tests (DND, contacts-only, blocking). Conversation and announce search integration tests. JSON **API response** schema/contract coverage on selected handlers.
+- **E2E**: Playwright (tests/e2e/, **pnpm run test:e2e**) smoke, navigation, shell chrome.
+- **Docs**: README / docs/meshchatnext.md and docs/nomadmesh_pages.md (Nomad/Mesh Server page formats). README section **Linux desktop: emoji fonts** (e.g. noto-fonts-emoji on Arch/Artix, Debian/Fedora equivalents) when glyphs show as tofu. Dependency bumps via pnpm / Poetry (Electron, Vue, Vuetify, Playwright, emoji-picker-element, emoji-picker-element-data, fake-indexeddb, cryptography 46.0.7, hypothesis, pytest, ruff, rns 1.1.5, Python 3.14 in CI, etc.).
+
+## [4.3.1] - 2026-03-10
+
+### Fixes
+
+- **Message retry**: Added per-message retry button to the context menu and inline on failed/cancelled outbound messages, allowing individual message resend without bulk retry.
+- **Sender display name**: Fixed outgoing messages showing "Unknown Peer" by resolving display names from conversations and announces when composing to a new peer.
+- **Conversation refresh on send**: Added lxmf_message_created and lxmf_message_state_updated websocket handlers to MessagesPage so the sidebar updates after sending without requiring an incoming message to trigger a refresh.
+- **No-flash sidebar updates**: Outbound message state transitions (outbound, sending, sent, delivered) now update the sidebar in-place without API calls. New messages trigger a background merge that patches existing conversation objects rather than replacing the array, preventing full sidebar re-renders.
+- **Received message outbound flag**: Incoming messages now explicitly set is_outbound: false instead of relying on an undefined default.
+
+### Testing
+
+- **Frontend**: New tests for message retry context menu visibility, retry click behavior, is_outbound on received messages, in-place conversation updates on send, display name merge from API, failed message count tracking, and zero API calls during state transitions.
+- **Backend**: New tests for MessageHandler covering failed_count in conversations, filter_failed query, search_messages, and after_id/before_id pagination.
+
+## [4.3.0] - 2026-03-09
+
+### New Features
+
+- **Mesh Server**: Serve Micron pages and files directly over Reticulum. Each server gets its own RNS identity and destination address with the nomadnetwork.node aspect, making it compatible with the standard NomadNet page browsing protocol. Supports dynamic per-page and per-file request handler registration, announce broadcasting, and full lifecycle management (create, start, stop, delete, rename).
+- **Mesh Server management UI**: New tool page for creating and managing Mesh Servers with start/stop controls, announce button, page CRUD (add, edit, delete), file upload/delete, and a "View" button that opens the server's content in the built-in NomadNet browser.
+- **Micron Editor publish integration**: "Publish to Mesh Server" button in the Micron Editor allows publishing the current tab or all tabs directly to a selected Mesh Server.
+- **Local page serving**: Pages and files hosted on local Mesh Servers are served directly from disk when browsed locally, bypassing RNS link establishment. This provides instant page loads for your own content.
+- **Local announce injection**: Mesh Server announces are injected directly into the MeshChat announce database on startup, node start, and manual announce, ensuring they appear in the NomadNet announces list without depending on RNS loopback processing.
+- **Stranger protection**: Settings to block attachments and messages from non-contacts. Message handling strips attachments from strangers when configured. Database schema extended to track stripped attachments. Localization and UI for stranger protection options.
+
+### Improvements
+
+- **NomadNet downloader**: Added identity recall validation before link establishment to provide clearer error messages when a destination identity cannot be resolved.
+- **NomadNet partials**: Fixed partial page loading when partials include field data. PARTIAL_LINE_REGEX captures optional fields, WebSocket allows partial responses when callback registered, partial DOM updates via innerHTML. Auto-refresh behavior improved.
+- **PageNodesPage**: Refactored error handling.
+- **MessagesSidebar**: Time-ago functionality for message timestamps.
+- **InterfacesPage**: Removed bounce and disconnected animation logic and related properties.
+- **Status indication**: Removed redundant status indication from UI.
+
+### Testing
+
+- **Mesh Server tests**: 66 new tests covering PageNode (setup, teardown, announce, page/file CRUD, responder closures, config persistence, status, link callbacks, path traversal protection, edge cases) and PageNodeManager (create, delete, start/stop, announce, rename, get/list, disk persistence, teardown).
+- **Notification and LXMF**: Extensive tests for notification reliability and LXMF field hardening.
+- **Frontend**: Comprehensive tests for MicronParser and NotificationBell.
+- **Performance**: Updated performance tests and expectations for rendering times.
+
+### Developer / Docs
+
+- Makefile added for common build/run targets.
+- README updates.
+
+## [4.2.1] - 2026-03-06
+
+### New Features
+
+- **DOMPurify for NomadNet**: Added dompurify dependency and global DOMPurify in frontend entry so MicronParser sanitizes content when browsing Nomad Network nodes. Removes "DOMPurify is not installed" warning in AppImage and packaged builds.
+- **Identities page**: Import and Export all identities in header (next to New Identity). Per-identity key actions: export key file and copy Base32 shown on hover for the current identity card only. Import modal with upload key file and paste Base32. Backend GET /api/v1/identities/export-all returns a ZIP of all identity key files.
+- **Contacts page**: Contacts management UI with routing, localization (en, de, it, ru), and LXMA contact handling. Public key retrieval and tests for LXMA URI handling.
+
+### Security
+
+- **SQL injection hardening**: All raw SQL queries audited and confirmed parameterized. Added _validate_identifier() for dynamic table/column names in schema migrations. Legacy migrator ATTACH DATABASE path properly escaped. Column names from untrusted legacy DBs filtered with regex whitelist.
+
+### Diagnostics
+
+- **Adaptive Diagnostics Engine**: Crash recovery upgraded from static heuristics to a lightweight adaptive system that learns from crash history.
+  - **Crash history persistence**: New crash_history table (migration 40) stores crash events with error type, diagnosed cause, symptoms (JSON), probability, entropy, and divergence. Capped at 200 entries.
+  - **Bayesian weight learning**: Root-cause probabilities refined over time using a conjugate Beta-Binomial model. After 3+ crashes, learned priors replace hardcoded defaults and are persisted in config. Weights clamped to [0.01, 0.99] to prevent degenerate priors.
+  - **Log entropy**: Shannon entropy computed over log-level distribution in a 60-second sliding window from in-memory deques (zero DB queries). Error rate tracking exposed as current_error_rate property.
+  - **Predictive health monitor**: New HealthMonitor daemon thread checks every 5 minutes for entropy climbing (3 consecutive rising readings above threshold), elevated error rate, and low available memory. Warnings broadcast via WebSocket. No DB queries in the monitor loop.
+- **Integrity & crash recovery hardening**: Fixed platform.release() regex safety in legacy kernel detection. Fixed IntegrityManager path handling when database is outside storage directory. Added latitude clamping in map tile calculations to prevent division by zero at geographic poles.
+
+### Performance
+
+- **Database indexes**: Added 8 new indexes in schema migration 39 covering contacts JOIN columns (lxmf_address, lxst_address), notification filters (is_viewed), map drawings (identity_hash), voicemails (is_read), archived pages (created_at), and a composite index on lxmf_messages(state, peer_hash) for the failed-count subquery.
+- **SQLite PRAGMAs at startup**: journal_mode=WAL, synchronous=NORMAL, cache_size=8MB, mmap_size=64MB, temp_store=MEMORY, busy_timeout=5s applied on every database initialization.
+- **Bounded queries**: search_messages(), get_conversations(), and get_filtered_announces() now enforce default LIMIT (500) to prevent unbounded result sets. get_all_lxmf_messages() paginated (5000 per page). Export endpoint iterates pages.
+- **Slim conversation list queries**: Conversation list queries (MessageDAO.get_conversations, MessageHandler.get_conversations) now select only the columns needed for the list view, skipping large content and fields blobs.
+- **Bulk database operations**: Batch methods (mark_conversations_as_read, mark_all_notifications_as_viewed, move_conversations_to_folder) converted from per-row execute loops to single executemany calls inside transactions. delete_all_lxmf_messages wrapped in a transaction for atomicity. Added DatabaseProvider.executemany().
+
+### Improvements
+
+- **Micron editor**: Button label changed from "Download" to "Save" on the micron editor page (en: Save. De: Speichern. It: Salva. Ru: Сохранить).
+- **MicronParser**: Overlay style stripping and improved event handling in NomadNetworkPage.
+- **Release workflow**: Include meshchatnext-frontend.zip in release assets (was generated and checksummed but not uploaded). Add Linux arm64 build step (AppImage + deb) via dist:linux-arm64. Release files list now includes *.zip.
+- **Community interfaces**: Replaced RNS Testnet Amsterdam and BetweenTheBorders with Quad4 hub (62.151.179.77:45657 TCP). Removed outbound health checks: suggested community interfaces are now a static list with no TCP probes to the internet.
+- **Identities**: Removed top key-control card. Key actions moved to per-card hover. Message count and LXMF/LXST addresses on identity list. Backend message_count for current identity.
+- **About page**: Security & Integrity section: signed (shield-check) icon and "No integrity violations" badge use green styling in dark mode. Status pill has dark-mode emerald variants.
+- **Version management**: Single source of truth is package.json. Run pnpm run version:sync to update meshchatnext/src/version.py. Build runs sync automatically.
+
+### Testing
+
+- **SQL injection tests**: Unit tests for _validate_identifier, integration tests for _ensure_column with malicious identifiers, property-based tests for ATTACH DATABASE path escaping and identifier regex.
+- **DAO fuzzing**: Hypothesis property-based fuzzing across ContactsDAO, ConfigDAO, MiscDAO, TelephoneDAO, VoicemailDAO, DebugLogsDAO, RingtoneDAO, MapDrawingsDAO, MessageDAO folders, MessageHandler search, _safe_href, and utility functions.
+- **Performance regression benchmarks**: Latency (p50/p95/p99) and throughput (ops/sec) benchmarks for announce loading/search, message loading/search/upsert, favourites, and conversation operations. EXPLAIN QUERY PLAN assertions verify index usage. Concurrent read/write contention tests. LIKE search scaling tests across data sizes. Index existence and PRAGMA verification tests.
+- **Diagnostics tests**: CrashHistoryDAO CRUD and cleanup tests. Bayesian weight learning correctness (prior defaults, learned priors, clamping, minimum crash threshold, config persistence). HealthMonitor detection logic (entropy climb, error rate, memory pressure, edge cases). Log entropy math (zero/uniform/single-level distributions, sliding window expiry). Hypothesis property tests for Beta-Binomial posterior bounds.
+- **Integrity & recovery tests**: Corrupt/empty/missing-key manifest handling. Direct hash-file and DB integrity checks. Entropy threshold boundary tests. Database-outside-storage-dir handling. CrashRecovery system entropy edge cases, legacy kernel regex safety, Reticulum diagnosis isolation, and keyboard interrupt passthrough.
+
+## [4.2.0] - 2026-03-05
+
+### New Features
+
+- **Micron partials**: Support for partial content in Nomad Network pages. Partial handling in NomadNetworkPage with processing/clearing, dynamic page updates, and MicronParser integration. Tests for partial handling, regex matching, content injection, and state management.
+- **LXMF quoted replies**: Full support for reply_quoted_content in message parsing, sending, and rendering. Reply flow in ReticulumMeshChat with quoted content in LXMF message construction.
+- **Reply in messages**: Reply functionality for messages in ReticulumMeshChat.
+- **Discovery filters and quick actions**: Added discovery whitelist/blacklist configuration and per-announce quick actions in Recently Heard Announces (three-dots menu) to allowlist or blacklist announces directly from each card.
+- **Security tooling**: Added eslint-plugin-security. Pip-audit and pnpm audit steps in CI. ESLint disable comments for regex patterns in MarkdownRenderer, DocsPage, and ConversationViewer where required.
+- **Vitest UI**: Vitest UI support and configuration updates for frontend testing.
+- **Lint task**: Central lint task in Taskfile to run all linters.
+- **Translations**: Added translations for ingest_paper_message in German, English, Italian, and Russian.
+- **Build and CI**: cx_Freeze build dependencies in build-test workflow. Wine environment setup for Windows builds. Multi-architecture build support (e.g. arm64 on Linux/Windows).
+
+### Improvements
+
+- **MicronParser**: DOMPurify integration and general improvements. DOMPurify initialization in frontend test setup.
+- **NetworkVisualiser**: Level of Detail (LOD) management and icon cache optimization.
+- **AudioWaveformPlayer**: Adjusted height, improved waveform rendering for dark mode, MutationObserver for responsive updates.
+- **Interface discovery UX**: Discovery settings now include whitelist and blacklist fields in interface pages, and discovered announce overlays now show Blacklisted when matching blacklist patterns.
+- **ConversationViewer**: unknown state for message delivery checks. Animation direction control for syncing indicator.
+- **Interface and MessagesSidebar**: Component improvements.
+- **Propagation sync and markdown**: Improved propagation sync and markdown rendering.
+- **Integrity management**: Advanced checks and metadata support. Identity manager metadata loading and legacy migrator column handling.
+- **Database backup and health**: Backup data-loss guards: baseline file (message count and total bytes) after each successful backup. Detection of suspicious state (e.g. DB was non-empty and now empty, or size collapsed). When suspicious, backups written as backup-SUSPICIOUS-*.zip without overwriting good backups, rotation and baseline update skipped. Rotation only applies to normal backup-*.zip. Database health checks at app start and close (integrity plus baseline comparison) with logging. Issues exposed as database_health_issues on app and in /api/v1/app/info. Toast notification when issues are present. Websocket message type database_health_warning for real-time alert. Integrity result handling fixed for provider returning dict rows.
+- **Vite**: API and WebSocket proxy configuration. Sourcemaps disabled in build.
+- **Node and tooling**: Node.js engine requirement set to >=24. Node 24 in Raspberry Pi install guide. Pnpm 10.32.1. Node and pnpm version updates in Dockerfile and workflows. Pip 26.0 in Dockerfile. Pip install with --no-cache-dir.
+- **Dependencies**: rns 1.1.3, Vuetify 3.12.1, Electron 39.7.0, autoprefixer 10.4.27, axios 1.13.6, Vue 3.5.29, serialize-javascript. Ajv removed in favour of fast-json-stable-stringify and json-schema-traverse. Various package and lockfile updates.
+- **CI**: pnpm installation step in CI and test workflows. Pnpm cache removed from CI/test workflows. ESLint security rule tuning.
+- **Docs and legal**: README and TODO updates. LICENSE copyright holder updated from Sudo-Ivan to Quad4. Docker arch builder removed.
+
+### Testing
+
+- **Frontend**: Unit tests for multiple frontend components. AppPropagationSync and ConfirmDialog tests. Accessibility tests for keyboard navigation and ARIA labels. MicronParser and NomadNetworkPage tests for partial handling.
+- **Backend**: Backend test refactor. Database backup and health: unit tests for backup baseline, suspicious detection, rotation skip, and health checks (open/close, no baseline, baseline suspicious, integrity fail). Property-based test for _is_backup_suspicious. Mock test that database_health_issues is set on identity context setup when health check returns issues. Tests to ensure health checks do not mistrigger (empty baseline, legitimate empty DB, small DB). Added discovery tests for whitelist/blacklist persistence, filtering behavior, and sanitization.
+- **Security and fuzzing**: Extended fuzzing and security tests for messages and NomadNet browser: WebSocket handlers (nomadnet.download.cancel, nomadnet.page.archives.get, nomadnet.page.archive.load/add, nomadnet.file.download, nomadnet.page.download, lxmf.forwarding.rule add/delete/toggle, keyboard_shortcuts.set), NomadNet path variable parsing (convert_nomadnet_string_data_to_map), archived page lookup, and message get/delete by hash (single and bulk). Ensures robustness against malformed or adversarial input from the mesh.
+- **Discovery fuzzing/security**: Added property-based and security fuzzing tests to validate discovery pattern sanitization and robustness of interface filtering under malformed or adversarial inputs.
+- **HTTPS/WSS side-sniffing**: New tests in test_https_wss_side_sniffing.py to verify that when HTTPS is enabled, the server speaks TLS only on the API/WS port. Plain HTTP connections receive no plaintext HTTP response so other local apps cannot sniff Meshchat neXt traffic. WSS over the same port is verified.
+- **Scan workflow**: Trivy integration moved to unified scan.yml. Docker workflow Trivy exit code adjusted for successful builds. ZIP artifact build step removed from Gitea release flow.
+
+## [4.1.0] - 2026-01-16
+
+### New Features
+
+- **Advanced Diagnostic Engine**:
+    - Mathematically grounded crash recovery system using **Probabilistic Active Inference**, **Shannon Entropy**, and KL-Divergence.
+    - **Deterministic Manifold Constraints**: Actively monitors structural system laws (V1: Version Integrity, V4: Resource Capacity).
+    - **Failure Manifold Mapping**: Identifies "Failure Manifolds" across the vertical stack, including RNS identity failures, LXMF storage issues, and interface offline states.
+    - **Intelligent Integrity Monitoring**:
+        - Implemented **Shannon Entropy Analysis** for critical files and databases to detect non-linear content shifts (e.g., unauthorized encryption or random data injection).
+        - Integrated **SQLite Structural Verification** via PRAGMA integrity_check to distinguish between binary hash changes (dirty shutdowns) and actual database corruption.
+        - Refined ignore logic for volatile LXMF/RNS files to eliminate false positives in tampering detection.
+        - Added advanced security alerts for content anomalies, signature mismatches, and critical component compromises.
+- **RNS Auto-Configuration**:
+    - Automatic creation and repair of the Reticulum configuration file (~/.reticulum/config) if it is missing, invalid, or corrupt.
+- **Expanded Security Pipeline**:
+    - Integrated Trivy for both filesystem (codebase) and container image scanning.
+    - Consolidated security scans into a unified scan.yml workflow for better visibility.
+    - Updated container workflows to include fail-fast filesystem checks.
+- **Network Visualiser Optimization**:
+    - Implemented AbortController support to cancel pending API requests on component unmount.
+    - Added high-performance batch fetching for path tables and announces (up to 1000 items per request).
+- **Announce Pagination**:
+    - Added backend and database-level pagination for announces to improve UI responsiveness in large networks.
+- **Improved Installation**:
+    - Added support and documentation for installing via **Pre-built Wheels (.whl)** from releases, which bundle the built frontend for a simpler setup experience.
+
+### Improvements
+
+- **Reliability & Memory Management**:
+    - Fixed a major concurrency issue where in-memory SQLite databases (:memory:) were not shared across background threads, causing "no such table" errors.
+    - Resolved asyncio event loop race conditions in WebAudioBridge using a lazy-loading loop property with fallback.
+    - Refactored IdentityContext teardown to ensure all managers are properly nullified and callbacks cleared, preventing memory leaks and reference cycles.
+    - Added client list cleanup in WebAudioBridge when calls end.
+- **UI/UX**:
+    - Enhanced **LXMF link handling** with better rendering logic for lxmf:// and rns:// URIs.
+    - Fixed a critical hang in the **Startup Wizard** where "Finish" or "Skip" buttons could become unresponsive.
+    - Improved UI navigation safety by automatically closing the tutorial modal when navigating away.
+    - Refined MarkdownRenderer regex patterns to prevent empty bold/italic tags and improved matching for single delimiters.
+- **Infrastructure & CI**:
+    - Added dedicated build scripts for **Arch Linux** packaging to handle permissions and makepkg execution.
+    - Updated Docker dev-image workflows to trigger on master branch pushes.
+    - Refactored telemetry data packing for more efficient location transmission.
+    - Updated dependencies including **Electron Forge (7.11.1)**, **Prettier (3.8.0)**, and ESLint plugins for better stability and formatting.
+- **Testing**:
+    - **Frontend UI Test Suite Expansion**: Added comprehensive Vitest suites for all diagnostic and utility tools (Ping, Trace, Probe, RNode Flasher, Micron Editor, etc.).
+    - **Property-Based Testing**: Significant expansion with hypothesis to ensure robustness of the diagnostic engine, identity restoration, and markdown renderer.
+    - **Integrity Validation Suite**: Added extensive property-based tests for entropy mathematical bounds and simulated corruption scenarios (SQLite b-tree breakage, content type shifts).
+    - Added automated verification for Python version and legacy kernel compatibility diagnostics.
+    - Configured temporary log directory management for tests to improve portability.
+
+### [4.0.0] - 2026-01-03
+
+Season 1 Episode 1 - A MASSIVE REFACTOR
+
+### New Features
+
+- **Banishment System (formerly Blocked):**
+    - Renamed all instances of "Blocked" to "Banished", you can now banish really annoying people to the shadow realm.
+    - **Blackhole Integration:** Automatically blackholes identities at the RNS transport layer when they are banished in Meshchat neXt. This prevents their traffic from being relayed through your node and publishes the update to your interfaces (trusted interfaces will pull and enforce the banishment).
+    - Integrated RNS 1.1.0 Blackhole to display publishing status, sources, and current blackhole counts in the RNStatus page.
+- **RNPath Management Tool:** New UI tool to manage the Reticulum path table, monitor announce rates (with rate-limit detection), and perform manual path requests or purges directly from the app.
+- Maps: You can now draw and doodle directly on the map to mark locations or plan routes.
+- **Calls & Audio:**
+    - Added support for custom ringtones and a brand-new ringtone editor.
+    - New **Audio Waveform Visualization** for voice messages, providing interactive playback with a visual waveform representation.
+- **Paper Messages:** Introduced a tool for generating and scanning paper-based messages with built-in QR code generation for easy sharing.
+- **LXMF Telemetry & Live Tracking**:
+    - Full implementation of Sideband-compatible (Still need to test Columba) telemetry (FIELD_TELEMETRY & FIELD_TELEMETRY_STREAM).
+    - Live tracking with real-time map updates, distinct blue pulsing animations, and historical path tracing (breadcrumb trails).
+    - Mini-chat integrated into map markers for quick communication with telemetry peers.
+    - Privacy controls with global telemetry toggle and per-peer "Trust for Telemetry" settings.
+    - Detailed telemetry history timeline with interactive battery voltage/percentage sparkline charts.
+- Documentation: You can now read all the project guides and help docs directly inside the app.
+- Reliability:
+    - If the app ever crashes, it's now much better at picking up right where it left off without losing your data.
+    - Added **Identity Switch Recovery**: mechanism to restore previous identities or create emergency failsafes if a switch fails.
+    - Multi-Identity "Keep-Alive": Identities can now be kept active in the background when switching, ensuring you still receive messages and calls across all your personas.
+    - Added **Database Snapshotting & Auto-Backups**: You can now create named snapshots of your database and the app will perform automatic backups every 12 hours.
+    - Added **Emergency Comms Mode**: A lightweight mode that bypasses database storage and non-essential managers, useful for recovering from corrupted data or running in restricted environments. Can be engaged via UI, CLI flag (--emergency), or environment variable (MESHCHAT_EMERGENCY=1).
+    - Added **Snapshot Restoration**: Ability to restore from a specific snapshot on startup via --restore-from-snapshot or MESHCHAT_RESTORE_SNAPSHOT environment variable.
+- Diagnostics:
+    - New **Debug Logs Screen**: View and export internal system logs directly from the UI for easier troubleshooting.
+- Community: Better support for community-run network interfaces and checking TCP ping status of suggested interfaces.
+- **UI Tweaks:** Added a new confirmation box for important actions and a better sidebar for browsing your archived messages.
+- **Micron Editor:** Added multi-tab support with IndexedDB persistence, tab renaming, and a full editor reset button.
+- **Desktop Enhancements (Electron):**
+    *   **Multi-Window Calls:** Optional support for popping active calls into a focused 2nd window.
+    *   **System Tray Integration:** The app now minimizes to the system tray, keeping you connected to the mesh in the background.
+    *   **Native Notifications:** Switched to system-native notifications with deep-linking (click to focus conversation).
+    *   **Protocol Handling:** Register as default handler for lxmf:// and rns:// links for seamless cross-app navigation.
+    *   **Hardware Acceleration Toggle:** Power-user setting to disable GPU acceleration if flickering or glitches occur.
+    *   **Power Management:** Automatically prevents system sleep during active audio calls to maintain RNS path stability.
+- **Added Web Audio Bridge** which allows web/electron to hook into LXST backend for passing microphone and audio streams to active telephone calls.
+- **Added LXMFy** for running bots.
+- **Added RNS Discoverable Interfaces** https://markqvist.github.io/Reticulum/manual/interfaces.html#discoverable-interfaces and ability to map them (ones with a location).
+
+### Improvements
+
+- **Blazingly Fast Performance:**
+    - **Network Rendering:** The Network Visualizer now uses intelligent batching to handle hundreds of nodes without freezing your screen.
+    - **Memory Optimization:** Added a smart icon cache that automatically clears itself to keep the app's memory footprint low.
+    - **Parallel Loading:** The app now fetches network data in parallel, cutting down startup and refresh times significantly.
+    - **Lazy Loading:** Documentation and other heavy components now load only when you need them, making the initial app launch much faster.
+    - **Smoother Settings:** Changing settings now uses "smart saving" (debouncing) to prevent unnecessary disk work and keep the interface responsive.
+    - **Backend Efficiency:** A massive core refactor and new database optimizations make message handling and search nearly instantaneous. Added pagination to announce and discovery lists to improve performance in large networks.
+- Calling: The call screen and overlays have been completely redesigned to look better and work more smoothly.
+- Messaging:
+    - Polished the message lists and archive views to make them easier to navigate.
+    - Added "Retry All" functionality for failed or cancelled messages in conversation views.
+    - Improved handling of lxm.ingest_uri.result with detailed notifications for success/error/warning states.
+- **Maintenance Tools:** Added new maintenance utilities to clear LXMF user icon caches and manage backup configurations.
+- **Network View:** The visualizer that shows your network connections is now much clearer and easier to understand.
+- Languages: Updated translations for English, German, and Russian. Added **Italian (it-IT)** localization. Added a toggle to easily enable or disable translation services.
+- Search: The command palette (quick search) and notification bell are now more useful.
+- **CartoDB Tiles** - some more styles if OSM is not enough for you, MBtiles will export tiles from the selected one.
+- **Basic Markdown in Messages** - Support for basic markdown in messages
+
+### Bug Fixes
+
+- Fixed issues where switching between different identities could sometimes cause glitches.
+- Fixed several small bugs that could cause messages to get stuck or out of order.
+- Lots of small UI fixes to make buttons and menus look right on different screens.
+- Fixed glitchy message page
+
+### Technical
+
+    - **Backend Architecture:**
+    - Decoupled logic into new specialized managers: community_interfaces.py, docs_manager.py, identity_manager.py, voicemail_manager.py, and nomadnet_utils.py.
+    - Added specialized utility modules: meshchat_utils.py, lxmf_utils.py, async_utils.py, and identity_context.py.
+    - Implemented a robust state-based crash recovery system in src/backend/recovery/.
+    - **Self-Healing Database Schema**: Enhanced DatabaseSchema with automatic column synchronization to prevent crashes when upgrading from older versions with missing columns.
+    - Enhanced database layer with map_drawings.py and improved telephone.py schema for call logging.
+    - Standardized markdown processing with a new markdown_renderer.py.
+        - Added pagination support for announce queries in AnnounceManager.
+    - **Performance Engineering & Memory Profiling:**
+        - Integrated a comprehensive backend benchmarking suite (tests/backend/run_comprehensive_benchmarks.py) with high-precision timing and memory delta tracking.
+        - Added an **EXTREME Stress Mode** to simulate ultra-high load scenarios (100,000+ messages and 50,000+ announces).
+        - Implemented automated memory leak detection and profiling tests using psutil and custom MemoryTracker utilities.
+    - **Full-Stack Integrity & Anti-Tampering:**
+        - Implemented **Backend Binary Verification**: The app now generates a SHA-256 manifest of the unpacked Python backend during build and verifies it on every startup in Electron.
+        - Added **Data-at-Rest Integrity Monitoring**: The backend now snapshots the state of identities and database files on clean shutdown and warns if they were modified while the app was closed.
+        - New **Security Integrity Modal**: Notifies the user via a persistent modal if any tampering is detected, with a version-specific "do not show again" option.
+- **Frontend Refactor:**
+    - Migrated complex call logic into CallOverlay.vue and CallPage.vue with improved state management.
+    - Implemented modular UI components: ArchiveSidebar.vue, RingtoneEditor.vue, ConfirmDialog.vue, and AudioWaveformPlayer.vue.
+    - Integrated a new documentation browsing system in src/frontend/components/docs/.
+    - Added custom Leaflet integration for map drawing persistence in MapPage.vue.
+- Infrastructure:
+    - Added Dockerfile.build for multi-stage container builds.
+    - Introduced gen_checksums.sh for release artifact integrity.
+    - **Comprehensive Testing Suite:**
+        - Added 80+ new unit, integration, and fuzz tests across tests/backend/ and tests/frontend/.
+        - Implemented property-based fuzzing for LXMF message parsing and telemetry packing using hypothesis.
+        - Updated CI coverage for telemetry and network interface logic.
+    - Updated core dependencies: rns, lxmf, aiohttp, and websockets.
+    - **Developer Tools & CI:**
+        - New task commands: bench-backend (Standard suite), bench-extreme (Breaking Time and Space), profile-memory (Leak testing), and bench (Full run).
+        - Added Gitea Actions workflow (bench.yml) for automated performance regression tracking on every push.
+- **Utilize Electron 39 features:**
+    - Enabled **ASAR Integrity Validation** (Stable in E39) to protect the application against tampering.
+    - Hardened security by disabling runAsNode and nodeOptions environment variables via Electron Fuses.
+    - Implemented **3-Layer CSP Hardening**: Multi-layered Content Security Policy protection across the entire application stack:
+        1. **Backend Server CSP** (meshchatnext/meshchat.py): Applied via security_middleware to all HTTP responses, allowing localhost connections, websockets, and required external resources (OpenStreetMap tiles, etc.).
+        2. **Electron Session CSP** (electron/main.js): Shell-level fallback CSP applied via webRequest.onHeadersReceived handler to ensure coverage before the backend starts and for all Electron-rendered content.
+        3. **Loading Screen CSP** (electron/loading.html): Bootloader CSP defined in HTML meta tag to protect the initial loading screen while waiting for the backend API to come online.
+    - Added hardware acceleration monitoring to ensure the Network Visualiser and UI are performing optimally.

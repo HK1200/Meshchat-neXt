@@ -1,0 +1,238 @@
+# SPDX-License-Identifier: 0BSD
+
+import time
+from unittest.mock import MagicMock
+
+import pytest
+
+from meshchatnext.meshchat import ReticulumMeshChat
+from meshchatnext.src.backend.database.telemetry import (
+    TELEMETRY_MAX_FUTURE_SEC,
+    TELEMETRY_MAX_PAST_SEC,
+)
+from meshchatnext.src.backend.telemetry_utils import Telemeter
+
+
+@pytest.fixture
+def mock_app():
+    # We create a simple mock object that has the methods/attributes
+    # needed by process_incoming_telemetry and other telemetry logic.
+    app = MagicMock(spec=ReticulumMeshChat)
+
+    # Mock database
+    app.database = MagicMock()
+    app.database.telemetry = MagicMock()
+
+    # Mock context
+    app.current_context = MagicMock()
+    app.current_context.database = app.database
+    app.current_context.local_lxmf_destination = MagicMock()
+    app.current_context.local_lxmf_destination.hexhash = "local_hash"
+
+    # Mock reticulum
+    app.reticulum = MagicMock()
+    app.reticulum.get_packet_rssi.return_value = -70
+    app.reticulum.get_packet_snr.return_value = 12.5
+    app.reticulum.get_packet_q.return_value = 85
+
+    # Mock websocket_broadcast
+    app.websocket_broadcast = MagicMock()
+
+    # Required attribute for on_lxmf_delivery flood protection
+    app._lxmf_incoming_timestamps = []
+
+    # Attach the actual method we want to test if possible,
+    # but since it's an instance method, we might need to bind it.
+    app.process_incoming_telemetry = (
+        ReticulumMeshChat.process_incoming_telemetry.__get__(app, ReticulumMeshChat)
+    )
+    app._resolve_location_for_telemetry = (
+        ReticulumMeshChat._resolve_location_for_telemetry.__get__(
+            app,
+            ReticulumMeshChat,
+        )
+    )
+
+    return app
+
+
+@pytest.mark.asyncio
+async def test_process_incoming_telemetry_single(mock_app):
+    source_hash = "source_hash"
+    location = {"latitude": 50.0, "longitude": 10.0}
+    packed_telemetry = Telemeter.pack(location=location)
+
+    mock_lxmf_message = MagicMock()
+    mock_lxmf_message.hash = b"msg_hash"
+
+    mock_app.process_incoming_telemetry(
+        source_hash,
+        packed_telemetry,
+        mock_lxmf_message,
+    )
+
+    # Verify database call
+    mock_app.database.telemetry.upsert_telemetry.assert_called()
+    call_args = mock_app.database.telemetry.upsert_telemetry.call_args[1]
+    assert call_args["destination_hash"] == source_hash
+    assert call_args["data"] == packed_telemetry
+
+
+@pytest.mark.asyncio
+async def test_process_incoming_telemetry_stream(mock_app):
+    entries = [
+        (
+            "peer1",
+            int(time.time()) - 60,
+            Telemeter.pack(location={"latitude": 1.0, "longitude": 1.0}),
+        ),
+        (
+            "peer2",
+            int(time.time()),
+            Telemeter.pack(location={"latitude": 2.0, "longitude": 2.0}),
+        ),
+    ]
+
+    mock_lxmf_message = MagicMock()
+    mock_lxmf_message.hash = b"stream_msg_hash"
+
+    # We call it directly for each entry as process_incoming_telemetry is refactored
+    # to handle single entries, and on_lxmf_delivery loops over streams.
+    for entry_source, entry_timestamp, entry_data in entries:
+        mock_app.process_incoming_telemetry(
+            entry_source,
+            entry_data,
+            mock_lxmf_message,
+            timestamp_override=entry_timestamp,
+        )
+
+    assert mock_app.database.telemetry.upsert_telemetry.call_count == 2
+
+
+def test_process_incoming_telemetry_clamps_remote_timestamp(mock_app):
+    """Remote-controlled timestamps must be clamped near time.time()."""
+    source_hash = "source_hash"
+    packed_telemetry = Telemeter.pack(
+        location={"latitude": 1.0, "longitude": 1.0},
+    )
+    mock_lxmf_message = MagicMock()
+    mock_lxmf_message.hash = b"msg_hash"
+
+    now = time.time()
+    mock_app.process_incoming_telemetry(
+        source_hash,
+        packed_telemetry,
+        mock_lxmf_message,
+        timestamp_override=int(now + 10 * 24 * 3600),
+    )
+    ts = mock_app.database.telemetry.upsert_telemetry.call_args.kwargs["timestamp"]
+    assert ts <= now + TELEMETRY_MAX_FUTURE_SEC + 5
+    assert ts > now
+
+    mock_app.process_incoming_telemetry(
+        source_hash,
+        packed_telemetry,
+        mock_lxmf_message,
+        timestamp_override=int(now - 365 * 24 * 3600),
+    )
+    ts = mock_app.database.telemetry.upsert_telemetry.call_args.kwargs["timestamp"]
+    assert ts >= now - TELEMETRY_MAX_PAST_SEC - 5
+    assert ts < now
+
+
+@pytest.mark.asyncio
+async def test_telemetry_request_browser_location_does_not_auto_reply(mock_app):
+    """Browser GPS is client-only. Map defaults must not go out over LXMF."""
+    mock_lxmf_message = MagicMock()
+    mock_lxmf_message.get_fields.return_value = {0x01: [{0x01: int(time.time())}]}
+    mock_lxmf_message.source_hash = b"source_hash_bytes"
+    mock_lxmf_message.hash = b"msg_hash"
+    mock_lxmf_message.destination_hash = b"dest_hash"
+
+    mock_app.handle_telemetry_request = MagicMock()
+    mock_app.config = MagicMock()
+    mock_app.config.location_source.get.return_value = "browser"
+    mock_app.config.telemetry_enabled = (
+        mock_app.current_context.config.telemetry_enabled
+    )
+
+    mock_app.on_lxmf_delivery = ReticulumMeshChat.on_lxmf_delivery.__get__(
+        mock_app,
+        ReticulumMeshChat,
+    )
+
+    mock_app.is_destination_blocked.return_value = False
+    mock_app.current_context.config.telemetry_enabled.set(True)
+    mock_app.database.contacts.get_contact_by_identity_hash.return_value = {
+        "is_telemetry_trusted": True,
+    }
+    mock_app.database.messages.get_lxmf_message_by_hash.return_value = {}
+    mock_app.database.config.get.side_effect = lambda key, default=None: {
+        "map_default_lat": 50.0,
+        "map_default_lon": 10.0,
+    }.get(key, default)
+    mock_app.current_context.config.location_source.get.return_value = "browser"
+    mock_lxmf_message.signature_validated = True
+    mock_lxmf_message.unverified_reason = None
+
+    mock_app.on_lxmf_delivery(mock_lxmf_message)
+
+    mock_app.handle_telemetry_request.assert_not_called()
+
+
+def test_resolve_location_for_telemetry_manual_only():
+    app = MagicMock(spec=ReticulumMeshChat)
+    app.config = MagicMock()
+    app.config.location_manual_lat.get.return_value = "51.5"
+    app.config.location_manual_lon.get.return_value = "-0.1"
+    app.database = MagicMock()
+    app.database.config.get.side_effect = lambda key, default=None: {
+        "map_default_lat": "40.7128",
+        "map_default_lon": "-74.0060",
+    }.get(key, default)
+
+    resolve = ReticulumMeshChat._resolve_location_for_telemetry.__get__(
+        app,
+        ReticulumMeshChat,
+    )
+
+    app.config.location_source.get.return_value = "browser"
+    assert resolve() == (None, None)
+
+    app.config.location_source.get.return_value = "disabled"
+    assert resolve() == (None, None)
+
+    app.config.location_source.get.return_value = "manual"
+    assert resolve() == ("51.5", "-0.1")
+
+
+@pytest.mark.asyncio
+async def test_telemetry_request_no_location_does_not_call_handler(mock_app):
+    mock_lxmf_message = MagicMock()
+    mock_lxmf_message.get_fields.return_value = {0x01: [{0x01: int(time.time())}]}
+    mock_lxmf_message.source_hash = b"source_hash_bytes"
+    mock_lxmf_message.hash = b"msg_hash"
+    mock_lxmf_message.destination_hash = b"dest_hash"
+
+    mock_app.handle_telemetry_request = MagicMock()
+
+    mock_app.on_lxmf_delivery = ReticulumMeshChat.on_lxmf_delivery.__get__(
+        mock_app,
+        ReticulumMeshChat,
+    )
+
+    mock_app.is_destination_blocked.return_value = False
+    mock_app.current_context.config.telemetry_enabled.set(True)
+    mock_app.database.contacts.get_contact_by_identity_hash.return_value = {
+        "is_telemetry_trusted": True,
+    }
+    mock_app.database.messages.get_lxmf_message_by_hash.return_value = {}
+    mock_app.database.config.get.side_effect = lambda key, default=None: None
+    mock_app.current_context.config.location_source.get.return_value = "disabled"
+
+    mock_app.on_lxmf_delivery(mock_lxmf_message)
+
+    mock_app.handle_telemetry_request.assert_not_called()
+
+    # We can't easily test the web endpoint here without more setup,
+    # but we can test the logic it calls if it was refactored into a method.

@@ -1,0 +1,205 @@
+# SPDX-License-Identifier: 0BSD
+
+import os
+import tempfile
+
+import pytest
+
+from meshchatnext.src.backend.database.announces import AnnounceDAO
+from meshchatnext.src.backend.database.provider import DatabaseProvider
+from meshchatnext.src.backend.database.schema import DatabaseSchema
+
+
+@pytest.fixture
+def temp_db():
+    fd, path = tempfile.mkstemp()
+    os.close(fd)
+    yield path
+    if os.path.exists(path):
+        os.remove(path)
+
+
+@pytest.fixture
+def announce_dao(temp_db):
+    provider = DatabaseProvider(temp_db)
+    schema = DatabaseSchema(provider)
+    schema.initialize()
+    dao = AnnounceDAO(provider)
+    yield dao
+    provider.close()
+
+
+def test_get_filtered_announces_identity_hash(announce_dao):
+    # Setup: Insert some dummy announces
+    announce_dao.upsert_announce(
+        {
+            "destination_hash": "dest1",
+            "aspect": "lxmf.propagation",
+            "identity_hash": "ident1",
+            "identity_public_key": "pub1",
+            "app_data": "data1",
+            "rssi": -50,
+            "snr": 10,
+            "quality": 1.0,
+        },
+    )
+    announce_dao.upsert_announce(
+        {
+            "destination_hash": "dest2",
+            "aspect": "lxmf.delivery",
+            "identity_hash": "ident1",
+            "identity_public_key": "pub1",
+            "app_data": "data2",
+            "rssi": -50,
+            "snr": 10,
+            "quality": 1.0,
+        },
+    )
+    announce_dao.upsert_announce(
+        {
+            "destination_hash": "dest3",
+            "aspect": "lxmf.delivery",
+            "identity_hash": "ident2",
+            "identity_public_key": "pub2",
+            "app_data": "data3",
+            "rssi": -50,
+            "snr": 10,
+            "quality": 1.0,
+        },
+    )
+
+    # Test filtering by identity_hash
+    results = announce_dao.get_filtered_announces(identity_hash="ident1")
+    assert len(results) == 2
+    assert all(r["identity_hash"] == "ident1" for r in results)
+
+    # Test filtering by identity_hash and aspect
+    results = announce_dao.get_filtered_announces(
+        identity_hash="ident1",
+        aspect="lxmf.propagation",
+    )
+    assert len(results) == 1
+    assert results[0]["destination_hash"] == "dest1"
+
+    # Test filtering by destination_hash
+    results = announce_dao.get_filtered_announces(destination_hash="dest2")
+    assert len(results) == 1
+    assert results[0]["identity_hash"] == "ident1"
+
+
+def test_get_filtered_announces_robustness(announce_dao):
+    # Test with non-existent identity_hash
+    results = announce_dao.get_filtered_announces(identity_hash="non_existent")
+    assert len(results) == 0
+
+    # Test with multiple filters that yield no results
+    results = announce_dao.get_filtered_announces(
+        identity_hash="ident1",
+        aspect="non_existent_aspect",
+    )
+    assert len(results) == 0
+
+
+def test_get_announce_count_by_aspect(announce_dao):
+    announce_dao.upsert_announce(
+        {
+            "destination_hash": "d1",
+            "aspect": "lxmf.delivery",
+            "identity_hash": "i1",
+            "identity_public_key": "p1",
+            "app_data": None,
+            "rssi": -50,
+            "snr": 10,
+            "quality": 1.0,
+        },
+    )
+    announce_dao.upsert_announce(
+        {
+            "destination_hash": "d2",
+            "aspect": "lxmf.delivery",
+            "identity_hash": "i2",
+            "identity_public_key": "p2",
+            "app_data": None,
+            "rssi": -50,
+            "snr": 10,
+            "quality": 1.0,
+        },
+    )
+    announce_dao.upsert_announce(
+        {
+            "destination_hash": "d3",
+            "aspect": "nomadnetwork.node",
+            "identity_hash": "i3",
+            "identity_public_key": "p3",
+            "app_data": None,
+            "rssi": -50,
+            "snr": 10,
+            "quality": 1.0,
+        },
+    )
+
+    assert announce_dao.get_announce_count_by_aspect("lxmf.delivery") == 2
+    assert announce_dao.get_announce_count_by_aspect("nomadnetwork.node") == 1
+    assert announce_dao.get_announce_count_by_aspect("lxmf.propagation") == 0
+
+
+def test_get_favourite_by_destination_hash(announce_dao):
+    assert announce_dao.get_favourite_by_destination_hash("missing") is None
+    announce_dao.upsert_favourite("dh1", "Original", "nomadnetwork.node")
+    row = announce_dao.get_favourite_by_destination_hash("dh1")
+    assert row["destination_hash"] == "dh1"
+    assert row["display_name"] == "Original"
+    assert row["aspect"] == "nomadnetwork.node"
+    announce_dao.upsert_custom_display_name("dh1", "Renamed")
+    announce_dao.upsert_favourite("dh1", "Renamed", row["aspect"])
+    row2 = announce_dao.get_favourite_by_destination_hash("dh1")
+    assert row2["display_name"] == "Renamed"
+
+
+def test_upsert_favourite_preserves_name_for_unknown_sentinel(announce_dao):
+    announce_dao.upsert_favourite("dh1", "Kept Name", "nomadnetwork.node")
+    announce_dao.upsert_favourite("dh1", "Unknown Node", "nomadnetwork.node")
+    row = announce_dao.get_favourite_by_destination_hash("dh1")
+    assert row["display_name"] == "Kept Name"
+    announce_dao.upsert_favourite("dh1", "New Real Name", "nomadnetwork.node")
+    row2 = announce_dao.get_favourite_by_destination_hash("dh1")
+    assert row2["display_name"] == "New Real Name"
+
+
+def test_upsert_favourite_preserves_name_for_localized_unknown(announce_dao):
+    announce_dao.upsert_favourite("dh1", "Kept Name", "nomadnetwork.node")
+    for sentinel in (
+        "Unbekannter Knoten",
+        "未知节点",
+        "Anonymous Node",
+        "Неизвестный узел",
+    ):
+        announce_dao.upsert_favourite("dh1", sentinel, "nomadnetwork.node")
+        row = announce_dao.get_favourite_by_destination_hash("dh1")
+        assert row["display_name"] == "Kept Name", sentinel
+
+
+def test_upsert_announce_counts_repeated_announces(announce_dao):
+    data = {
+        "destination_hash": "dest1",
+        "aspect": "nomadnetwork.node",
+        "identity_hash": "ident1",
+        "identity_public_key": "pub1",
+        "app_data": "data1",
+        "rssi": -50,
+        "snr": 10,
+        "quality": 1.0,
+    }
+    announce_dao.upsert_announce(data)
+    row = announce_dao.get_announces(aspect="nomadnetwork.node")[0]
+    assert row["announce_count"] == 1
+    first_seen = row["created_at"]
+
+    announce_dao.upsert_announce({**data, "app_data": "data2"})
+    announce_dao.upsert_announce(data)
+    rows = announce_dao.get_announces(aspect="nomadnetwork.node")
+    assert len(rows) == 1
+    assert rows[0]["announce_count"] == 3
+    # first-seen timestamp survives re-announces so "newest discovered"
+    # sorting does not churn on re-announce
+    assert rows[0]["created_at"] == first_seen

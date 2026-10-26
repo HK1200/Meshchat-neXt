@@ -1,0 +1,87 @@
+name: Set up development environment
+description: Python/UV, Node/pnpm, and project dependencies for CI jobs
+
+inputs:
+    python-version:
+        description: Python version (used when install-python is true)
+        required: false
+        default: "3.14"
+    python-allow-prereleases:
+        description: Allow pre-release Python versions via setup-python
+        required: false
+        default: "false"
+    uv-version:
+        description: UV version installed from GitHub releases
+        required: false
+        default: "0.11.15"
+    node-version:
+        description: Node.js version (used when install-node is true)
+        required: false
+        default: "24"
+    pnpm-version:
+        description: pnpm version activated through corepack
+        required: false
+        default: "12.7.0"
+    task-version:
+        description: go-task version installed from GitHub releases
+        required: false
+        default: "3.49.1"
+    install-task:
+        description: Install go-task for Taskfile.yml targets
+        required: false
+        default: "true"
+    install-python:
+        description: Set up Python/UV and sync the project virtualenv
+        required: false
+        default: "true"
+    install-node:
+        description: Set up Node/pnpm and install frontend dependencies
+        required: false
+        default: "true"
+    skip_tree_verify:
+        description: Set to true to skip meshchatnext.rsm byte-level verify
+        required: false
+        default: "false"
+
+runs:
+    using: composite
+    steps:
+        - name: Set up Python and UV
+          if: inputs.install-python == 'true'
+          uses: ./.github/actions/setup-python-uv
+          with:
+              python-version: ${{ inputs.python-version }}
+              python-allow-prereleases: ${{ inputs.python-allow-prereleases }}
+              uv-version: ${{ inputs.uv-version }}
+
+        - name: Set up Node and pnpm
+          if: inputs.install-node == 'true'
+          uses: ./.github/actions/setup-node-pnpm
+          with:
+              node-version: ${{ inputs.node-version }}
+              pnpm-version: ${{ inputs.pnpm-version }}
+
+        - name: Install dependencies
+          shell: bash
+          env:
+              MESHCHATNEXT_INSTALL_PYTHON: ${{ inputs.install-python }}
+              MESHCHATNEXT_INSTALL_NODE: ${{ inputs.install-node }}
+          run: bash scripts/ci/github-install-deps.sh
+
+        - name: Verify tree RSM
+          if: >-
+              inputs.skip_tree_verify != 'true' &&
+              inputs.install-python == 'true'
+          shell: bash
+          env:
+              RNS_REQUIRED_SIGNER: ${{ vars.NEXT_TREE_SIGNER_HASH }}
+              RNS_INVENTORY_OUT: ${{ runner.temp }}/meshchatnext-tree-inventory.txt
+          run: sh scripts/ci/verify-tree-rsm.sh
+
+        - name: Setup Task
+          if: inputs.install-task == 'true'
+          shell: bash
+          env:
+              GITHUB_TOKEN: ${{ github.token }}
+              TASK_VERSION: ${{ inputs.task-version }}
+          run: sh scripts/ci/setup-task.sh "${TASK_VERSION}"

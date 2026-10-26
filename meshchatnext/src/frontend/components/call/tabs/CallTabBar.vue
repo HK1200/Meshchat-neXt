@@ -1,0 +1,76 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+
+<template>
+    <div class="flex flex-wrap justify-center border-b border-sem-border shrink-0">
+        <button
+            :class="tabClass('phone')"
+            class="py-2 px-4 border-b-2 font-medium text-sm transition-all"
+            @click="$emit('update:activeTab', 'phone')"
+        >
+            Phone
+        </button>
+        <button
+            :class="tabClass('phonebook')"
+            class="py-2 px-4 border-b-2 font-medium text-sm transition-all"
+            @click="$emit('update:activeTab', 'phonebook')"
+        >
+            Phonebook
+        </button>
+        <button
+            v-if="appFeatures.reticulum"
+            :class="tabClass('voicemail')"
+            class="py-2 px-4 border-b-2 font-medium text-sm flex items-center gap-2 transition-all"
+            @click="$emit('update:activeTab', 'voicemail')"
+        >
+            Voicemail
+            <span
+                v-if="unreadVoicemailsCount > 0"
+                class="bg-sem-danger text-white text-[10px] px-1.5 py-0.5 rounded-full animate-pulse"
+                >{{ unreadVoicemailsCount }}</span
+            >
+        </button>
+        <button
+            :class="tabClass('contacts')"
+            class="py-2 px-4 border-b-2 font-medium text-sm transition-all"
+            @click="$emit('update:activeTab', 'contacts')"
+        >
+            Contacts
+        </button>
+        <button
+            v-if="appFeatures.reticulum"
+            :class="tabClass('ringtone')"
+            class="py-2 px-4 border-b-2 font-medium text-sm transition-all"
+            @click="$emit('update:activeTab', 'ringtone')"
+        >
+            {{ $t("call.ringtone") }}
+        </button>
+    </div>
+</template>
+
+<script>
+import { appFeatures } from "../../../js/appFeatures";
+export default {
+    name: "CallTabBar",
+    props: {
+        activeTab: {
+            type: String,
+            required: true,
+        },
+        unreadVoicemailsCount: {
+            type: Number,
+            default: 0,
+        },
+    },
+    emits: ["update:activeTab"],
+    setup() {
+        return { appFeatures };
+    },
+    methods: {
+        tabClass(tab) {
+            return this.activeTab === tab
+                ? "border-sem-accent text-sem-accent"
+                : "border-transparent text-sem-fg-muted hover:text-sem-fg-muted hover:text-sem-fg hover:border-sem-border";
+        },
+    },
+};
+</script>

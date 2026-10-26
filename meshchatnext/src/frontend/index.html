@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+        <meta name="theme-color" content="#f8fafc" />
+        <link rel="manifest" href="/manifest.json" />
+        <link rel="icon" type="image/png" href="favicons/favicon-512x512.png" />
+        <title>Meshchat neXt</title>
+        <script src="/boot-theme.js"></script>
+        <style>
+            #meshchatnext-boot-splash {
+                box-sizing: border-box;
+                position: fixed;
+                inset: 0;
+                z-index: 2147483000;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                gap: 0.75rem;
+                padding: 1.5rem;
+                font:
+                    0.95rem/1.5 system-ui,
+                    -apple-system,
+                    "Segoe UI",
+                    sans-serif;
+                color: #f1f5f9;
+                background: linear-gradient(160deg, #0f172a 0%, #18181b 50%, #27272a 100%);
+            }
+            html[data-boot-theme="light"] #meshchatnext-boot-splash {
+                color: #0f172a;
+                background: linear-gradient(160deg, #f1f5f9 0%, #e2e8f0 45%, #cbd5e1 100%);
+            }
+            #meshchatnext-boot-splash[data-state="error"] {
+                background: #450a0a;
+                color: #fecaca;
+            }
+            #meshchatnext-boot-splash .meshchatnext-boot-logo-wrap {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                width: 4.5rem;
+                height: 4.5rem;
+                padding: 0.4rem;
+                border-radius: 1rem;
+                background: rgba(24, 24, 27, 0.85);
+            }
+            html[data-boot-theme="light"] #meshchatnext-boot-splash .meshchatnext-boot-logo-wrap {
+                background: rgba(255, 255, 255, 0.72);
+            }
+            #meshchatnext-boot-splash .meshchatnext-boot-logo {
+                width: 3.25rem;
+                height: 3.25rem;
+                object-fit: contain;
+                display: block;
+            }
+            #meshchatnext-boot-splash .meshchatnext-boot-title {
+                font-weight: 600;
+                font-size: 1.05rem;
+                letter-spacing: -0.02em;
+            }
+            #meshchatnext-boot-splash .meshchatnext-boot-line {
+                max-width: 20rem;
+                text-align: center;
+                opacity: 0.85;
+                font-size: 0.875rem;
+            }
+            #meshchatnext-boot-splash .meshchatnext-boot-error-title {
+                font-weight: 700;
+                font-size: 1.15rem;
+                letter-spacing: -0.02em;
+                text-align: center;
+            }
+            #meshchatnext-boot-splash .meshchatnext-boot-details {
+                max-width: 28rem;
+                width: 100%;
+                margin: 0;
+                padding: 0.75rem 1rem;
+                border-radius: 0.75rem;
+                background: rgba(0, 0, 0, 0.18);
+                font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+                font-size: 0.75rem;
+                line-height: 1.45;
+                white-space: pre-wrap;
+                word-break: break-word;
+                max-height: 9rem;
+                overflow: auto;
+            }
+            html[data-boot-theme="light"] #meshchatnext-boot-splash .meshchatnext-boot-details {
+                background: rgba(255, 255, 255, 0.55);
+            }
+            #meshchatnext-boot-splash .meshchatnext-boot-actions {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 0.5rem;
+                justify-content: center;
+                margin-top: 0.25rem;
+            }
+            #meshchatnext-boot-splash .meshchatnext-boot-btn {
+                display: inline-flex;
+                align-items: center;
+                gap: 0.4rem;
+                border: 1px solid rgba(255, 255, 255, 0.24);
+                border-radius: 999px;
+                background: rgba(255, 255, 255, 0.12);
+                color: inherit;
+                cursor: pointer;
+                font: inherit;
+                font-size: 0.875rem;
+                font-weight: 600;
+                padding: 0.55rem 1rem;
+            }
+            #meshchatnext-boot-splash .meshchatnext-boot-btn:hover {
+                background: rgba(255, 255, 255, 0.2);
+            }
+            html[data-boot-theme="light"] #meshchatnext-boot-splash .meshchatnext-boot-btn {
+                border-color: rgba(15, 23, 42, 0.12);
+                background: rgba(255, 255, 255, 0.72);
+            }
+            html,
+            body {
+                margin: 0;
+                min-height: 100%;
+                background-color: #09090b;
+            }
+            html[data-boot-theme="light"],
+            html[data-boot-theme="light"] body {
+                background-color: #f8fafc;
+            }
+            #app {
+                min-height: 100dvh;
+                background-color: inherit;
+            }
+        </style>
+    </head>
+    <body>
+        <noscript>
+            <div
+                style="
+                    box-sizing: border-box;
+                    margin: 1rem auto;
+                    padding: 1rem 1.25rem;
+                    max-width: 40rem;
+                    border: 1px solid #f59e0b;
+                    border-radius: 0.5rem;
+                    background: #fffbeb;
+                    color: #78350f;
+                    font:
+                        0.95rem/1.5 system-ui,
+                        -apple-system,
+                        Segoe UI,
+                        sans-serif;
+                "
+            >
+                <strong style="display: block; margin-bottom: 0.35rem">JavaScript is required</strong>
+                Meshchat neXt needs JavaScript enabled for the user interface. Enable JavaScript in your browser
+                settings and reload this page.
+            </div>
+        </noscript>
+        <div id="meshchatnext-boot-splash" role="status" aria-live="polite" aria-busy="true">
+            <div class="meshchatnext-boot-logo-wrap">
+                <img class="meshchatnext-boot-logo" src="favicons/favicon-512x512.png" alt="" width="52" height="52" />
+            </div>
+            <div class="meshchatnext-boot-title">Meshchat neXt</div>
+            <div class="meshchatnext-boot-error-title" data-boot-title hidden>Startup failed</div>
+            <div class="meshchatnext-boot-line" data-boot-line>Getting things ready…</div>
+            <pre class="meshchatnext-boot-details" data-boot-details hidden></pre>
+            <div class="meshchatnext-boot-actions" data-boot-actions hidden>
+                <button type="button" class="meshchatnext-boot-btn" data-boot-reload>Reload page</button>
+                <button type="button" class="meshchatnext-boot-btn" data-boot-copy>
+                    <span data-boot-copy-label data-copied-label="Copied">Copy error details</span>
+                </button>
+            </div>
+        </div>
+        <div id="app"></div>
+        <script type="module" src="main.js"></script>
+    </body>
+</html>

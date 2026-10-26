@@ -1,0 +1,694 @@
+# SPDX-License-Identifier: 0BSD
+
+"""aiohttp middleware factories for Meshchat neXt HTTP.
+
+Factories take the live app instance and return middleware callables.
+Order returned by register_all_routes / _define_routes must remain:
+bad_request, sqlite_unavailable, auth, mime_type, cache_control, security,
+csrf, ip_allowlist, demo_mode.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+from urllib.parse import urlparse
+
+from aiohttp import web
+from aiohttp_session import get_session
+
+from meshchatnext.src.backend.app_security_settings import (
+    get_trusted_proxy_cidrs,
+    get_web_ui_ip_allowlist,
+)
+from meshchatnext.src.backend.constants import API_V1_PREFIX
+from meshchatnext.src.backend.csrf import validate_csrf_header
+from meshchatnext.src.backend.database.sqlite_errors import sqlite_error_is_retryable
+from meshchatnext.src.backend.demo_mode import demo_frame_ancestors
+from meshchatnext.src.backend.http.db_availability import (
+    DB_TEMPORARILY_UNAVAILABLE,
+    exception_looks_like_missing_database,
+)
+from meshchatnext.src.backend.http.errors import (
+    http_bad_request,
+    http_forbidden,
+    http_payload_too_large,
+    http_unauthorized,
+    http_unavailable,
+)
+from meshchatnext.src.backend.http.uploads import JsonBodyError, PayloadTooLargeError
+from meshchatnext.src.backend.ip_allowlist import client_ip_allowed
+from meshchatnext.src.backend.privacy_mode import privacy_mode_enabled
+from meshchatnext.src.env_utils import env_bool
+from meshchatnext.src.path_utils import request_client_ip
+
+
+def csrf_exempt_path(path: str) -> bool:
+    return path == API_V1_PREFIX + "/auth/csrf"
+
+
+def is_nomad_crash_tab_resource(path: str) -> bool:
+    """Crash-tab HTML/JS is framed without allow-same-origin (opaque null Origin)."""
+    if path == "/nomad-crash-tab.html":
+        return True
+    if path.startswith("/assets/") and "nomad-crash-tab" in path:
+        return True
+    return False
+
+
+def is_opaque_frame_cors_resource(path: str) -> bool:
+    """Static assets fetched by the sandboxed crash-tab (null Origin) need CORS.
+
+    Vite splits the crash-tab entry across hashed /assets/ chunks that do not
+    contain "nomad-crash-tab" in the filename (shared-async, rolldown-runtime,
+    vendor-vue, Micron, fonts, CSS). Opaque-origin module scripts require ACAO.
+    """
+    if is_nomad_crash_tab_resource(path):
+        return True
+    if path.startswith("/vendor/micron-parser-go/"):
+        return True
+    if path.startswith("/assets/"):
+        return True
+    return False
+
+
+# Tokens we deliberately omit from Permissions-Policy (defaults keep them working
+# on same-origin top-level documents):
+# - bluetooth, serial, usb, hid: default allowlist is self (MDN / Web Bluetooth,
+#   Web Serial, WebUSB). Listing them triggers Brave "Unrecognized feature"
+#   warnings when the API is disabled or behind a flag (brave-web-bluetooth-api,
+#   no Web Serial). Firefox does not implement bluetooth/usb policy tokens.
+# - speaker-selection: default allowlist is self. Chromium only recognizes the
+#   token when the SpeakerSelection runtime flag is on. Brave and some Chrome
+#   builds log "Unrecognized feature: speaker-selection" otherwise. CallPage
+#   setSinkId still works under the default.
+# Never send the legacy Feature-Policy header alongside Permissions-Policy.
+_PERMISSIONS_POLICY_CORE = (
+    "microphone=(self)",
+    "camera=(self)",
+    "autoplay=(self)",
+)
+
+
+def build_permissions_policy() -> str:
+    """Permissions-Policy for Chrome, Edge, Brave, Firefox, and Safari.
+
+    Only declare tokens that major engines parse without console noise.
+    microphone/camera: Chrome, Firefox FeaturePolicyUtils, Brave, Safari prompts.
+    autoplay: Chromium family. Firefox treats autoplay as experimental and
+    ignores unknown tokens quietly in practice. Default autoplay is also self.
+    """
+    return ", ".join(_PERMISSIONS_POLICY_CORE)
+
+
+def build_nomad_crash_tab_csp(request_host: str | None = None) -> str:
+    """CSP for /nomad-crash-tab.html only.
+
+    Keeps Micron JS, Micron WASM (fetch + blob: wasm_exec inject), fonts, and
+    inline styles. Drops map tiles, websocket, and other shell clearnet sources
+    so CSS network paints cannot beacon even if style scrub misses.
+
+    The frame is sandboxed without allow-same-origin, so the document runs in
+    an opaque origin where 'self' never matches. Emit the request host as a
+    literal source for both schemes so same-host asset URLs still load.
+    """
+    same_origin = "'self'"
+    if request_host:
+        same_origin = f"'self' http://{request_host} https://{request_host}"
+    return (
+        "default-src 'none'; "
+        f"script-src {same_origin} 'wasm-unsafe-eval' blob:; "
+        f"style-src {same_origin} 'unsafe-inline'; "
+        f"font-src {same_origin} data:; "
+        f"img-src {same_origin} data: blob:; "
+        f"connect-src {same_origin}; "
+        "worker-src 'none'; "
+        "media-src 'none'; "
+        "frame-src 'none'; "
+        "object-src 'none'; "
+        "base-uri 'none'; "
+        "form-action 'none'"
+    )
+
+
+def create_bad_request_middleware(app):
+    """Map malformed request bodies on /api to HTTP 400.
+
+    Handlers that already catch JSONDecodeError keep their custom error
+    payloads. This only covers the sites without a local guard. The catch
+    list is deliberately narrow so real handler bugs still surface as 500.
+    """
+
+    @web.middleware
+    async def bad_request_middleware(request, handler):
+        try:
+            return await handler(request)
+        except PayloadTooLargeError:
+            if not request.path.startswith("/api/"):
+                raise
+            return http_payload_too_large()
+        except (json.JSONDecodeError, UnicodeDecodeError, JsonBodyError):
+            if not request.path.startswith("/api/"):
+                raise
+            return http_bad_request("invalid request body")
+
+    return bad_request_middleware
+
+
+def create_sqlite_unavailable_middleware(app):
+    """Map uncaught SQLite / missing-DB races on /api to HTTP 503."""
+
+    @web.middleware
+    async def sqlite_unavailable_middleware(request, handler):
+        try:
+            return await handler(request)
+        except Exception as exc:
+            if not request.path.startswith("/api/"):
+                raise
+            if sqlite_error_is_retryable(exc) or exception_looks_like_missing_database(
+                exc,
+                app,
+            ):
+                return http_unavailable(DB_TEMPORARILY_UNAVAILABLE)
+            raise
+
+    return sqlite_unavailable_middleware
+
+
+def create_ip_allowlist_middleware(app):
+    @web.middleware
+    async def ip_allowlist_middleware(request, handler):
+        path = request.path
+        if path == API_V1_PREFIX + "/status":
+            return await handler(request)
+        allowlist = get_web_ui_ip_allowlist(app.storage_dir)
+        if allowlist:
+            ip = request_client_ip(request, get_trusted_proxy_cidrs(app.storage_dir))
+            if not client_ip_allowed(ip, allowlist):
+                if path.startswith("/api/"):
+                    return http_forbidden("Forbidden: client IP not on allowlist")
+                return web.Response(
+                    text="Forbidden",
+                    status=403,
+                    headers={"Content-Type": "text/html"},
+                )
+        return await handler(request)
+
+    return ip_allowlist_middleware
+
+
+def create_csrf_middleware(app):
+    @web.middleware
+    async def csrf_middleware(request, handler):
+        if env_bool("MESHCHAT_DISABLE_CSRF", False):
+            return await handler(request)
+        if request.method in ("GET", "HEAD", "OPTIONS"):
+            return await handler(request)
+        path = request.path
+        if not path.startswith("/api/"):
+            return await handler(request)
+        if csrf_exempt_path(path):
+            return await handler(request)
+        try:
+            session = await get_session(request)
+        except Exception:
+            return http_forbidden("Session required for CSRF validation")
+        if not validate_csrf_header(request, session):
+            return http_forbidden(
+                "Invalid or missing CSRF token",
+                code="csrf_invalid",
+            )
+        return await handler(request)
+
+    return csrf_middleware
+
+
+def create_auth_middleware(app):
+    @web.middleware
+    async def auth_middleware(request, handler):
+        path = request.path
+
+        # Health check for startup probes (Electron loading page, monitors).
+        if path == API_V1_PREFIX + "/status":
+            return await handler(request)
+
+        # Allow CSRF bootstrap and auth status while the network stack starts so the
+        # Vue shell can load and show an in-app waiting state.
+        if path in (
+            API_V1_PREFIX + "/auth/csrf",
+            API_V1_PREFIX + "/auth/status",
+        ):
+            return await handler(request)
+
+        # Serve the web UI shell and static files while an identity context is still
+        # starting, so the browser can load assets and show in-app loading state.
+        if not path.startswith("/api/"):
+            if (
+                path == "/"
+                or path.startswith(
+                    (
+                        "/assets/",
+                        "/favicons/",
+                        "/reticulum-docs/",
+                        "/meshchatnext-docs/",
+                    ),
+                )
+                or path in ("/manifest.json", "/service-worker.js")
+                or path.endswith(
+                    (
+                        ".js",
+                        ".css",
+                        ".json",
+                        ".wasm",
+                        ".png",
+                        ".jpg",
+                        ".jpeg",
+                        ".ico",
+                        ".svg",
+                    ),
+                )
+            ):
+                return await handler(request)
+
+        # Recovery endpoints exist precisely for the failed-context state, so
+        # they must be reachable while the context is down.
+        recover_paths = (
+            API_V1_PREFIX + "/reticulum/recover",
+            API_V1_PREFIX + "/status",
+        )
+        if not app.current_context or not app.current_context.running:
+            if path in recover_paths:
+                return await handler(request)
+            return http_unavailable(
+                "Application is initializing or switching identity",
+                code="starting",
+                status="starting",
+                stage=app._startup_stage,
+                network_ready=False,
+            )
+
+        if not app.auth_enabled:
+            return await handler(request)
+
+        # allow access to auth endpoints and setup page
+        public_paths = [
+            API_V1_PREFIX + "/status",
+            API_V1_PREFIX + "/auth/csrf",
+            API_V1_PREFIX + "/auth/setup",
+            API_V1_PREFIX + "/auth/login",
+            API_V1_PREFIX + "/auth/status",
+            API_V1_PREFIX + "/auth/logout",
+            API_V1_PREFIX + "/auth/oidc/login",
+            API_V1_PREFIX + "/auth/oidc/callback",
+            "/manifest.json",
+            "/service-worker.js",
+        ]
+
+        # Exact public API paths only. startswith would treat
+        # /api/v1/status.json as public because it prefixes /api/v1/status.
+        is_public = path in public_paths
+        if path.startswith(("/reticulum-docs/", "/meshchatnext-docs/")):
+            is_public = True
+
+        # Static UI files are public. API paths are not, even when they end
+        # in .js/.json/.wasm (plugin assets live at /api/v1/plugins/.../asset/).
+        if (
+            path == "/"
+            or path.startswith(
+                ("/assets/", "/favicons/", "/reticulum-docs/", "/meshchatnext-docs/"),
+            )
+            or (
+                not path.startswith("/api/")
+                and not path.startswith("/translation-packs/")
+                and path.endswith(
+                    (
+                        ".js",
+                        ".css",
+                        ".json",
+                        ".wasm",
+                        ".png",
+                        ".jpg",
+                        ".jpeg",
+                        ".ico",
+                        ".svg",
+                    ),
+                )
+            )
+        ):
+            is_public = True
+
+        if is_public:
+            return await handler(request)
+
+        # check authentication
+        try:
+            session = await get_session(request)
+        except Exception as e:
+            print(f"Session decryption failed: {e}")
+            # If decryption fails, we must treat as unauthenticated
+            if path.startswith("/api/"):
+                return http_unauthorized(
+                    "Session expired or invalid. Please login again.",
+                )
+            return web.Response(
+                text="Authentication required",
+                status=401,
+                headers={"Content-Type": "text/html"},
+            )
+
+        is_authenticated = session.get("authenticated", False)
+        session_identity = session.get("identity_hash")
+
+        # Check if authenticated AND matches current identity and session epoch
+        if (
+            not is_authenticated
+            or session_identity != app.identity.hash.hex()
+            or not app._auth_session_epoch_valid(session)
+        ):
+            if path.startswith("/api/"):
+                return http_unauthorized("Authentication required")
+            return web.Response(
+                text="Authentication required",
+                status=401,
+                headers={"Content-Type": "text/html"},
+            )
+
+        return await handler(request)
+
+    return auth_middleware
+
+
+def create_mime_type_middleware(app):
+    @web.middleware
+    async def mime_type_middleware(request, handler):
+        response = await handler(request)
+        if response is None:
+            return None
+        path = request.path
+        if path.startswith("/api/"):
+            return response
+        if path.endswith((".js", ".mjs")):
+            response.headers["Content-Type"] = "application/javascript; charset=utf-8"
+        elif path.endswith(".css"):
+            response.headers["Content-Type"] = "text/css; charset=utf-8"
+        elif path.endswith(".json"):
+            response.headers["Content-Type"] = "application/json; charset=utf-8"
+        elif path.endswith(".wasm"):
+            response.headers["Content-Type"] = "application/wasm"
+        elif path.endswith(".html"):
+            response.headers["Content-Type"] = "text/html; charset=utf-8"
+        elif path.endswith(".md"):
+            response.headers["Content-Type"] = "text/markdown; charset=utf-8"
+        elif path.endswith(".txt"):
+            response.headers["Content-Type"] = "text/plain; charset=utf-8"
+        elif path.endswith(".opus"):
+            response.headers["Content-Type"] = "audio/opus"
+        elif path.endswith(".ogg"):
+            response.headers["Content-Type"] = "audio/ogg"
+        elif path.endswith(".wav"):
+            response.headers["Content-Type"] = "audio/wav"
+        elif path.endswith(".mp3"):
+            response.headers["Content-Type"] = "audio/mpeg"
+        return response
+
+    return mime_type_middleware
+
+
+# Rolldown/Vite emit content-hashed bundles as name-<hash>.<ext>. The hash is
+# a long base64url-ish segment directly before the extension dot.
+_HASHED_ASSET_NAME = re.compile(r"-[0-9A-Za-z_-]{8,}\.")
+
+
+def create_cache_control_middleware(app):
+    """Freshness policy for non-API responses.
+
+    add_static only sends ETag + Last-Modified, which lets browsers and the
+    Electron disk cache heuristically cache non-hashed subdocuments (for
+    example /nomad-crash-tab.html) for days past an update. The stale HTML
+    then references deleted hashed bundles and the frame dies silently.
+    Hashed bundles are immutable, everything else must revalidate. Routes
+    that set their own Cache-Control keep it.
+    """
+
+    @web.middleware
+    async def cache_control_middleware(request, handler):
+        response = await handler(request)
+        if response is None:
+            return None
+        path = request.path
+        if path.startswith("/api/"):
+            # API payloads carry private data. Shared/browser disk caches must
+            # not retain them past the session. Routes that set their own
+            # header (for example immutable attachment responses) keep it.
+            if "Cache-Control" not in response.headers:
+                response.headers["Cache-Control"] = "no-store"
+            return response
+        if "Cache-Control" in response.headers:
+            return response
+        basename = path.rsplit("/", 1)[-1]
+        if path.startswith("/assets/") and _HASHED_ASSET_NAME.search(basename):
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        else:
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+
+    return cache_control_middleware
+
+
+def create_security_middleware(app):
+    @web.middleware
+    async def security_middleware(request, handler):
+        response = await handler(request)
+        if response is None:
+            return None
+        # Add security headers to all responses
+        response.headers["X-Content-Type-Options"] = "nosniff"
+
+        # Allow framing for docs, rnode flasher, and Nomad crash-tab renderer.
+        frame_ancestors = demo_frame_ancestors(app)
+        if frame_ancestors:
+            # CSP frame-ancestors carries the allowlist. X-Frame-Options DENY
+            # would override it in browsers that honour both headers.
+            pass
+        elif (
+            request.path.startswith("/reticulum-docs/")
+            or request.path.startswith("/rnode-flasher/")
+            or is_nomad_crash_tab_resource(request.path)
+        ):
+            response.headers["X-Frame-Options"] = "SAMEORIGIN"
+        else:
+            response.headers["X-Frame-Options"] = "DENY"
+
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = build_permissions_policy()
+
+        # CSP base configuration
+        privacy_mode = privacy_mode_enabled(app.config)
+        path = request.path
+
+        # Crash-tab document: tight policy. Do not inherit shell tile/WS extras.
+        if path == "/nomad-crash-tab.html":
+            if is_opaque_frame_cors_resource(path):
+                response.headers["Access-Control-Allow-Origin"] = "*"
+                response.headers["Cross-Origin-Resource-Policy"] = "cross-origin"
+            response.headers["Content-Security-Policy"] = build_nomad_crash_tab_csp(
+                request.host
+            )
+            return response
+
+        # IPv6 loopback with a port wildcard is not a valid CSP source
+        # (ws://[::1]:* is ignored). Same-origin WS is covered by 'self'.
+        connect_sources = [
+            "'self'",
+            "ws://localhost:*",
+            "wss://localhost:*",
+            "ws://127.0.0.1:*",
+            "wss://127.0.0.1:*",
+            "blob:",
+        ]
+        img_sources = [
+            "'self'",
+            "data:",
+            "blob:",
+        ]
+        # Public demo keeps privacy_mode (no backend clearnet) but still needs
+        # browser basemap tiles for the map showcase.
+        allow_map_tile_origins = (not privacy_mode) or bool(
+            getattr(app, "demo_mode", False)
+        )
+        if allow_map_tile_origins:
+            connect_sources.extend(
+                [
+                    "https://*.tile.openstreetmap.org",
+                    "https://tile.openstreetmap.org",
+                    "https://nominatim.openstreetmap.org",
+                    "https://*.cartocdn.com",
+                    "https://tiles.openfreemap.org",
+                    "https://*.openfreemap.org",
+                ],
+            )
+            img_sources.extend(
+                [
+                    "https://*.tile.openstreetmap.org",
+                    "https://tile.openstreetmap.org",
+                    "https://*.cartocdn.com",
+                    "https://tiles.openfreemap.org",
+                    "https://*.openfreemap.org",
+                ],
+            )
+
+        frame_sources = [
+            "'self'",
+        ]
+
+        if path.startswith("/rnode-flasher/") or is_opaque_frame_cors_resource(path):
+            # Crash-tab iframe is sandboxed without allow-same-origin so its
+            # effective Origin is null. Module scripts and Micron WASM fetches
+            # need CORS + CORP.
+            response.headers["Access-Control-Allow-Origin"] = "*"
+            response.headers["Cross-Origin-Resource-Policy"] = "cross-origin"
+        if path.startswith("/rnode-flasher/"):
+            # Standalone RNode Flasher uses Vue in-DOM templates. The compileToFunction
+            # relies on new Function(), which requires unsafe-eval.
+            script_sources = [
+                "'self'",
+                "'unsafe-inline'",
+                "'unsafe-eval'",
+                "'wasm-unsafe-eval'",
+                "blob:",
+            ]
+        elif path.startswith("/reticulum-docs/"):
+            # blob: AudioWorklet addModule(blob:...) and similar dynamic scripts
+            script_sources = [
+                "'self'",
+                "'unsafe-inline'",
+                "'wasm-unsafe-eval'",
+                "blob:",
+            ]
+        else:
+            # wasm-unsafe-eval: Codec2 / sox Emscripten WASM, and blob: worklets from object URLs
+            script_sources = ["'self'", "'wasm-unsafe-eval'", "blob:"]
+        style_sources = ["'self'", "'unsafe-inline'"]
+
+        if app.current_context and app.current_context.config:
+            # Configured endpoints are explicit opt-ins and stay allowed in
+            # privacy mode: mesh-hosted tile/search servers are the main reason
+            # privacy mode users set them. Only the default public origins are
+            # gated.
+            def add_domain_from_url(url, target_list):
+                if not url:
+                    return None
+                try:
+                    raw = url.strip()
+                    if not raw:
+                        return None
+                    # Users may enter scheme-less hosts or //host paths.
+                    if "://" not in raw:
+                        raw = f"https://{raw.lstrip('/')}"
+                    parsed = urlparse(raw)
+                    # Tile URL templates can carry {s}-style subdomain
+                    # placeholders that urlparse keeps literally.
+                    if parsed.netloc:
+                        netloc = re.sub(r"\{[^}]*\}", "*", parsed.netloc)
+                        scheme = (
+                            parsed.scheme
+                            if parsed.scheme in ("http", "https")
+                            else "https"
+                        )
+                        domain = f"{scheme}://{netloc}"
+                        if domain not in target_list:
+                            target_list.append(domain)
+                        return domain
+                except Exception:
+                    pass
+                return None
+
+            # Add configured Gitea base URL
+            add_domain_from_url(
+                app.current_context.config.gitea_base_url.get(),
+                connect_sources,
+            )
+
+            # Add map tile server domain. The shipped public default is still
+            # gated by privacy mode. Anything else is a deliberate user opt-in.
+            map_tile_url = app.current_context.config.map_tile_server_url.get()
+            if not privacy_mode or (
+                map_tile_url
+                and map_tile_url.strip()
+                != "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+            ):
+                add_domain_from_url(map_tile_url, img_sources)
+                add_domain_from_url(map_tile_url, connect_sources)
+
+            # Add nominatim API domain under the same default-vs-custom split.
+            nominatim_url = app.current_context.config.map_nominatim_api_url.get()
+            if not privacy_mode or (
+                nominatim_url
+                and nominatim_url.strip() != "https://nominatim.openstreetmap.org"
+            ):
+                add_domain_from_url(nominatim_url, connect_sources)
+
+            # Add custom CSP sources from config
+            def add_extra_sources(extra_str, target_list):
+                if not extra_str:
+                    return
+                sources = [
+                    s.strip()
+                    for s in extra_str.replace("\n", ",").replace(";", ",").split(",")
+                    if s.strip()
+                ]
+                for s in sources:
+                    if s not in target_list:
+                        target_list.append(s)
+
+            add_extra_sources(
+                app.current_context.config.csp_extra_connect_src.get(),
+                connect_sources,
+            )
+            add_extra_sources(
+                app.current_context.config.csp_extra_img_src.get(),
+                img_sources,
+            )
+            add_extra_sources(
+                app.current_context.config.csp_extra_frame_src.get(),
+                frame_sources,
+            )
+            add_extra_sources(
+                app.current_context.config.csp_extra_script_src.get(),
+                script_sources,
+            )
+            add_extra_sources(
+                app.current_context.config.csp_extra_style_src.get(),
+                style_sources,
+            )
+
+        csp = (
+            "default-src 'self'; "
+            f"script-src {' '.join(script_sources)}; "
+            f"style-src {' '.join(style_sources)}; "
+            f"img-src {' '.join(img_sources)}; "
+            + (
+                "font-src 'self' data:; "
+                if privacy_mode
+                else "font-src 'self' data: https://tiles.openfreemap.org https://*.openfreemap.org; "
+            )
+            + f"connect-src {' '.join(connect_sources)}; "
+            "media-src 'self' blob:; "
+            "worker-src 'self' blob:; "
+            f"frame-src {' '.join(frame_sources)}; "
+            "object-src 'none'; "
+            "base-uri 'self';"
+        )
+        if frame_ancestors:
+            csp += f" frame-ancestors {' '.join(frame_ancestors)};"
+        if path.startswith("/reticulum-docs/"):
+            # Uploaded manuals are user-supplied HTML. The sandbox directive
+            # forces an opaque origin even when a doc is opened top-level via
+            # the open-external link, so embedded scripts cannot reach the
+            # app session or API.
+            csp += " sandbox allow-scripts allow-forms allow-modals;"
+        response.headers["Content-Security-Policy"] = csp
+        return response
+
+    return security_middleware

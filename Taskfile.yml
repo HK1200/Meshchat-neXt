@@ -1,0 +1,1018 @@
+version: "3"
+
+output: prefixed
+
+vars:
+    PYTHON:
+        sh: echo "${PYTHON:-python}"
+    NPM:
+        sh: echo "${NPM:-pnpm}"
+    NPM_INSTALL_FLAGS:
+        sh: 'if [ "${MESHCHATNEXT_OFFLINE_BUILD}" = "1" ]; then echo "--offline"; else echo ""; fi'
+    UV_SYNC_FLAGS:
+        sh: 'if [ "${MESHCHATNEXT_OFFLINE_BUILD}" = "1" ]; then echo "--offline"; else echo ""; fi'
+    LEGACY_ELECTRON_VERSION:
+        sh: echo "${LEGACY_ELECTRON_VERSION:-30.0.8}"
+    WINE_PYTHON:
+        sh: echo "${WINE_PYTHON:-wine C:/Python314/python.exe}"
+    DOCKER_COMPOSE_CMD:
+        sh: echo "${DOCKER_COMPOSE_CMD:-docker compose}"
+    DOCKER_COMPOSE_FILE:
+        sh: echo "${DOCKER_COMPOSE_FILE:-docker/docker-compose.yml}"
+    DOCKER_IMAGE:
+        sh: echo "${DOCKER_IMAGE:-meshchat-next:local}"
+    DOCKER_BUILDER:
+        sh: echo "${DOCKER_BUILDER:-meshchatnext-builder}"
+    DOCKER_PLATFORMS:
+        sh: echo "${DOCKER_PLATFORMS:-linux/amd64}"
+    DOCKER_BUILD_FLAGS:
+        sh: echo "${DOCKER_BUILD_FLAGS:---load}"
+    DOCKER_BUILD_ARGS:
+        sh: echo "${DOCKER_BUILD_ARGS:-}"
+    DOCKER_CONTEXT:
+        sh: echo "${DOCKER_CONTEXT:-.}"
+    DOCKERFILE:
+        sh: echo "${DOCKERFILE:-docker/Dockerfile}"
+    DOCKER_BUILD_IMAGE:
+        sh: echo "${DOCKER_BUILD_IMAGE:-meshchat-next-build:local}"
+    DOCKER_BUILD_FILE:
+        sh: echo "${DOCKER_BUILD_FILE:-docker/Dockerfile.build}"
+    DOCKER_ELECTRON_WINE_IMAGE:
+        sh: echo "${MESHCHATNEXT_ELECTRON_WINE_IMAGE:-meshchatnext-electron-wine:local}"
+    DOCKER_ELECTRON_WINE_FILE:
+        sh: echo "${MESHCHATNEXT_ELECTRON_WINE_DOCKERFILE:-docker/Dockerfile.electron-wine}"
+    DOCKER_ELECTRON_WINE_TARGETS:
+        sh: echo "${MESHCHATNEXT_ELECTRON_WINE_TARGETS:-win}"
+    DOCKER_ELECTRON_WINE_OUT:
+        sh: echo "${MESHCHATNEXT_ELECTRON_WINE_OUT:-./meshchatnext-artifacts-win}"
+    ANDROID_DIR:
+        sh: echo "${ANDROID_DIR:-android}"
+    PYTHON_SRC_DIR:
+        sh: echo "${PYTHON_SRC_DIR:-${ANDROID_DIR}/app/src/main/python}"
+    JNI_LIBS_DIR:
+        sh: echo "${JNI_LIBS_DIR:-${ANDROID_DIR}/app/src/main/jniLibs}"
+    RETICULUM_RNS_SRC:
+        sh: echo "${RETICULUM_RNS_SRC:-./misc/RNS}"
+    RETICULUM_LXMF_SRC:
+        sh: echo "${RETICULUM_LXMF_SRC:-./misc/LXMF}"
+    RETICULUM_LXST_SRC:
+        sh: echo "${RETICULUM_LXST_SRC:-./misc/LXST}"
+    SIDEBAND_CODEC2_WHL:
+        sh: echo "${SIDEBAND_CODEC2_WHL:-./misc/pycodec2-3.0.1-cp311-cp311-linux_aarch64.whl}"
+    SIDEBAND_LIB_ARM64:
+        sh: echo "${SIDEBAND_LIB_ARM64:-./misc/libcodec2-arm64-v8a.so}"
+    SIDEBAND_LIB_ARMEABI:
+        sh: echo "${SIDEBAND_LIB_ARMEABI:-./misc/libcodec2-armeabi-v7a.so}"
+
+tasks:
+    default:
+        desc: Show available tasks
+        cmds:
+            - task --list
+
+    # --- Initialization & Dependencies ---
+
+    install:
+        desc: Install all dependencies (frontend and backend)
+        deps: [deps:frontend, deps:backend]
+
+    install:offline:
+        desc: Install from offline bundle (air-gapped machine)
+        cmds:
+            - bash scripts/install-offline.sh
+
+    bundle:offline:
+        desc: Create offline bundle for air-gapped builds (online machine only)
+        cmds:
+            - bash scripts/create-offline-bundle.sh
+
+    setup:wine:
+        desc: Setup Wine environment for Windows cross-builds
+        cmds:
+            - ./scripts/setup_wine_env.sh
+
+    deps:frontend:
+        aliases: [deps:fe]
+        desc: Install Node.js dependencies
+        cmds:
+            - '{{.NPM}} install{{if ne .NPM_INSTALL_FLAGS ""}} {{.NPM_INSTALL_FLAGS}}{{end}}'
+
+    deps:backend:
+        aliases: [deps:be]
+        desc: Install Python dependencies using UV
+        cmds:
+            - 'uv sync --group dev{{if ne .UV_SYNC_FLAGS ""}} {{.UV_SYNC_FLAGS}}{{end}}'
+            - uv run python scripts/patch_lxst_pyogg_ogg_ctypes.py
+            - uv run python scripts/patch_lxst_codec2_optional.py
+            - uv run python scripts/build-lxst-filterlib.py
+
+    deps:backend:rns:
+        aliases: [deps:be:rns, pip-rns]
+        desc: Install rns/lxmf/lxst over RNS via pip-rns (Optional, slow, PyPI is default)
+        cmds:
+            - echo "Warning - Installing packages over RNS via pip-rns is slow. Use for mesh-only environments."
+            - bash scripts/pip-rns-deps.sh {{.CLI_ARGS}}
+
+    deps:sync:
+        desc: Sync dep pins from versions.toml into pyproject, gradle, uv.lock, requirements.txt
+        cmds:
+            - "{{.PYTHON}} scripts/sync_deps.py {{.CLI_ARGS}}"
+
+    deps:git-pins:
+        aliases: [deps:pins]
+        desc: Fail if github/git deps or WASM download URLs drift from scripts/deps-allowlist.json
+        cmds:
+            - node scripts/check-git-deps.mjs
+
+    deps:why:
+        desc: Explain why a package is installed (pnpm why and uv tree --package)
+        cmds:
+            - |
+                PKG="{{.CLI_ARGS}}"
+                if [ -z "$PKG" ]; then
+                  echo "Usage: task deps:why -- <package>" >&2
+                  exit 1
+                fi
+                echo "=== pnpm why ${PKG} ==="
+                {{.NPM}} why "$PKG" || true
+                echo
+                echo "=== uv tree --package ${PKG} --invert ==="
+                uv tree --package "$PKG" --invert || true
+
+    check:format-tokens:
+        desc: Fail if formatDate/meshDate patterns use unsupported datetime tokens
+        cmds:
+            - node scripts/check-format-tokens.mjs
+
+    licenses:refresh:
+        desc: Regenerate embedded license artifacts and fail if the tree is dirty afterward
+        cmds:
+            - uv run python -m meshchatnext.src.backend.licenses_collector --write-artifacts
+            - |
+                if ! git diff --quiet -- \
+                  meshchatnext/src/backend/data/licenses_frontend.json \
+                  meshchatnext/src/backend/data/licenses_backend.json \
+                  meshchatnext/src/backend/data/THIRD_PARTY_NOTICES.txt
+                then
+                  echo "licenses:refresh left a dirty tree. Commit the updated license artifacts." >&2
+                  git status --short -- \
+                    meshchatnext/src/backend/data/licenses_frontend.json \
+                    meshchatnext/src/backend/data/licenses_backend.json \
+                    meshchatnext/src/backend/data/THIRD_PARTY_NOTICES.txt >&2
+                  exit 1
+                fi
+                echo "licenses:refresh: artifacts up to date"
+
+    docs:rns:
+        aliases: [build-docs:rns]
+        desc: Force-refresh Reticulum manual from rngit website remote over RNS
+        cmds:
+            - >-
+                uv run python scripts/build/fetch_reticulum_manual.py
+                --force
+                {{.CLI_ARGS}}
+
+    setup:be:
+        desc: Full backend environment setup
+        cmds:
+            - 'uv sync --group dev{{if ne .UV_SYNC_FLAGS ""}} {{.UV_SYNC_FLAGS}}{{end}}'
+            - uv run python scripts/patch_lxst_pyogg_ogg_ctypes.py
+            - uv run python scripts/patch_lxst_codec2_optional.py
+            - uv run python scripts/build-lxst-filterlib.py
+            - uv run pip install ruff
+
+    # --- Execution ---
+
+    run:
+        desc: Run the application
+        deps: [install]
+        cmds:
+            - uv run python -m meshchatnext.meshchat
+
+    dev:
+        desc: Vite HMR + backend (http://127.0.0.1:5173) with Vue DevTools
+        cmds:
+            - bash scripts/dev-local.sh
+
+    debug:
+        desc: task dev plus Python debugpy on 127.0.0.1:5678 (debugger attach)
+        cmds:
+            - MESHCHAT_DEBUGPY=1 bash scripts/dev-local.sh
+
+    debug:wait:
+        desc: task debug, pause backend until a debugger attaches
+        cmds:
+            - MESHCHAT_DEBUGPY=1 MESHCHAT_DEBUGPY_WAIT=1 bash scripts/dev-local.sh
+
+    dev-fe:
+        desc: Vite dev server only (pair with task run)
+        cmds:
+            - "{{.NPM}} run dev -- --host 127.0.0.1 --port 5173"
+
+    start:
+        desc: Run the application via Electron Forge
+        cmds:
+            - "{{.NPM}} run start"
+
+    package:
+        desc: Package the application with Electron Forge
+        cmds:
+            - "{{.NPM}} run package"
+
+    make:
+        desc: Generate distributables with Electron Forge
+        cmds:
+            - "{{.NPM}} run make"
+
+    # --- Code Quality ---
+
+    format:
+        desc: Format all code (Prettier/ESLint, Ruff)
+        aliases: [fmt, fmt:all]
+        deps: [format:frontend, format:backend]
+
+    format:frontend:
+        aliases: [fmt:fe, format:fe]
+        desc: Format frontend code (Prettier/ESLint)
+        cmds:
+            - "{{.NPM}} run format"
+            - "{{.NPM}} run lint:fix"
+
+    format:backend:
+        aliases: [fmt:be, format:be]
+        desc: Format Python code (Ruff)
+        cmds:
+            - uv run ruff format .
+            - uv run ruff check --fix .
+
+    lint:
+        desc: Run all linters (ESLint, vue-tsc, knip, Ruff, basedpyright)
+        aliases: [lint:all]
+        deps: [lint:frontend, lint:backend]
+
+    lint:frontend:
+        aliases: [lint:fe]
+        desc: Lint frontend code (ESLint, vue-tsc, knip, format-token and git-dep pin checks)
+        cmds:
+            - "{{.NPM}} run lint"
+            - "{{.NPM}} run typecheck"
+            - "{{.NPM}} exec vue-tsc --noEmit -p tsconfig.libs.json"
+            - "{{.NPM}} exec knip"
+            - task: check:format-tokens
+            - task: deps:git-pins
+
+    lint:backend:
+        aliases: [lint:be]
+        desc: Lint Python code (Ruff + basedpyright)
+        cmds:
+            - uv run python scripts/ci/check_schema_migrations.py
+            - uv run ruff check .
+            - uv run ruff format --check .
+            - uv run basedpyright -p pyrightconfig.json --level error
+
+    schema-fixtures:
+        desc: Regenerate schema_v{N}.db migration test fixtures when LATEST_VERSION bumps
+        cmds:
+            - uv run python scripts/ci/schema_fixture_generate.py
+
+    # --- Testing & Analysis ---
+
+    test:
+        desc: Run all tests
+        aliases: [test:all]
+        deps: [test:backend, test:frontend, test:lang]
+
+    test:e2e:
+        desc: Playwright E2E (starts MeshChat backend + Vite, requires uv, curl, pnpm exec playwright install chromium)
+        cmds:
+            - "{{.NPM}} run test:e2e"
+
+    test:ui:all:
+        desc: UI page smoke + Lighthouse audits with simulated data (Playwright)
+        cmds:
+            - "{{.NPM}} run test:ui:all"
+
+    test:ui:pages:
+        desc: UI page-ready smoke with seeded contacts/messages/favourites
+        cmds:
+            - "{{.NPM}} run test:ui:pages"
+
+    test:ui:selfcheck:
+        desc: Fast UI selfcheck - crawls every route and menu against a running dev server
+        cmds:
+            - node scripts/ui/selfcheck.mjs --url {{.UI_URL | default "http://127.0.0.1:5173"}} --backend {{.BACKEND_URL | default "https://127.0.0.1:8000"}}
+
+    test:ui:screenshots:
+        desc: Capture desktop + mobile screenshots of UI pages with seeded demo data
+        cmds:
+            - "{{.NPM}} run test:ui:screenshots"
+
+    test:ui:lighthouse:
+        desc: Lighthouse scores on production-built UI (blocks /ws so LCP/TTI are real, set MESHCHAT_UI_CI=1 for core subset)
+        cmds:
+            - "{{.NPM}} run test:ui:lighthouse"
+
+    test:ui:lighthouse:ci:
+        desc: CI subset of Lighthouse page budgets on production-built UI with simulated data
+        cmds:
+            - "{{.NPM}} run test:ui:lighthouse:ci"
+
+    test:quick:
+        desc: Fast dev loop - focused backend subset + full frontend unit suite (set E2E=1 for Playwright smoke)
+        cmds:
+            - task: test:quick:be
+            - task: test:quick:fe
+            - |
+                if [ "${E2E:-0}" = "1" ]; then
+                  {{.NPM}} exec playwright test tests/e2e/smoke.spec.js
+                fi
+
+    test:quick:be:
+        desc: Backend regression subset (auth/CSRF, LXMF/nomad/RNS link, filesync, EECT packs, privacy references)
+        cmds:
+            - >-
+                uv run pytest
+                tests/backend/test_interface_stats_endpoint.py
+                tests/backend/test_http_auth_security.py
+                tests/backend/test_meshchat_coverage.py
+                tests/backend/test_meshchat_image_file_grant.py
+                tests/backend/test_nomadnet_downloader.py
+                tests/backend/test_rns_link_manager.py
+                tests/backend/test_rns_link_fuzzing.py
+                tests/backend/test_rns_link_plugin.py
+                tests/backend/test_rns_filesync_security.py
+                tests/backend/test_sensitive_export_csrf_methods.py
+                tests/backend/test_management_identities.py
+                tests/backend/test_telemetry_integration.py
+                tests/backend/test_websocket_config_guard.py
+                tests/backend/test_log_redaction.py
+                -q --tb=short
+            - task: test:eect
+
+    test:eect:
+        desc: Extended Edge Case Tester packs (seeded identity/path/auth/hostile/scarcity scenarios)
+        cmds:
+            - uv run pytest tests/backend/eect/packs -m eect -q --tb=short
+
+    test:filesync:security:
+        desc: Adversarial and Hypothesis fuzz tests for RNS FileSync
+        cmds:
+            - uv run pytest tests/backend/test_rns_filesync_security.py tests/backend/test_rns_filesync_handler.py -q --tb=short
+
+    test:lxmf:live:local:
+        desc: Live two-peer LXMF over 127.0.0.1 TCP (MESHCHAT_LIVE_RETICULUM=1)
+        cmds:
+            - >-
+                MESHCHAT_LIVE_RETICULUM=1 uv run pytest
+                tests/backend/test_lxmf_live_local_network.py
+                -m integration -q --tb=short
+
+    test:lxmf:live:
+        desc: Live LXMF suites (local TCP + pack/reject references, MESHCHAT_LIVE_RETICULUM=1)
+        cmds:
+            - >-
+                MESHCHAT_LIVE_RETICULUM=1 uv run pytest
+                tests/backend/test_lxmf_live_local_network.py
+                tests/backend/test_lxmf_live_rejection.py
+                tests/backend/test_lxmf_tools_live.py
+                -m integration -q --tb=short
+
+    test:lv:
+        desc: Live Validation ladder (set MESHCHAT_LIVE_VALIDATION=1 for L2-L3)
+        cmds:
+            - MESHCHAT_LIVE_VALIDATION=1 uv run pytest tests/backend/eect/live -m live_validation -q --tb=short
+
+    test:lv:l0:
+        desc: Live Validation L0 only (imports/sqlite/unicode, CI-safe)
+        cmds:
+            - uv run pytest tests/backend/eect/live/test_lv_ladder.py -m live_validation -k "l0" -q --tb=short
+
+    test:quick:fe:
+        desc: Full frontend unit suite without coverage (excludes LoadTimePerformance and i18n, see test:lang)
+        cmds:
+            - >-
+                {{.NPM}} exec vitest run
+                --exclude tests/frontend/LoadTimePerformance.test.js
+                --exclude tests/frontend/i18n.test.js
+
+    test:backend:
+        aliases: [test:be, test:be:full]
+        desc: Run Python tests (pytest, includes perf/memory profiling, same as GitHub CI)
+        cmds:
+            - task: schema-fixtures
+            - uv run pytest tests/backend -n auto {{.PYTEST_ARGS | default ""}}
+
+    diagnostics:bundle:
+        desc: Export sanitized diagnostics tarball for support (STORAGE_DIR required, OUT_DIR optional)
+        cmds:
+            - 'uv run python scripts/diagnostics-bundle.py --storage-dir "${STORAGE_DIR:?set STORAGE_DIR to the app storage dir}" --out-dir "{{.OUT_DIR | default "."}}"'
+
+    changelog:
+        desc: Generate a changelog draft from conventional commits (needs git-cliff)
+        cmds:
+            - sh -c 'command -v git-cliff >/dev/null 2>&1 || { echo "install git-cliff (https://git-cliff.org) to use this task"; exit 1; }; git cliff --unreleased --strip header'
+            - 'echo "To prepend to CHANGELOG.md: git cliff --latest --prepend CHANGELOG.md"'
+
+    test:be:cov:
+        desc: Backend tests with coverage floor (xdist worker data merged from temp-tests/coverage)
+        vars:
+            # task env templates cannot see OS env vars; vars can
+            MESHCHAT_COVERAGE_FLOOR: "{{.COVERAGE_FLOOR | default 60}}"
+        cmds:
+            - rm -f .coverage temp-tests/coverage/.coverage*
+            - uv run pytest tests/backend -n auto {{.PYTEST_ARGS | default ""}} --cov=meshchatnext/src/backend --cov-report=
+            - uv run coverage combine temp-tests/coverage
+            - uv run coverage xml -o coverage.xml
+            - uv run coverage report --include="meshchatnext/src/backend/*" --fail-under={{.MESHCHAT_COVERAGE_FLOOR}}
+            - uv run python scripts/ci/coverage-floors.py
+
+    test:soak:
+        desc: Soak run with resource slope oracle (SOAK_MINUTES=30 default)
+        cmds:
+            - uv run python scripts/soak/soak.py --minutes "${SOAK_MINUTES:-30}" --interval "${SOAK_INTERVAL:-15}" --out soak-out
+
+    test:be:perf:
+        desc: Backend performance regression tests only (hot paths + bottlenecks)
+        cmds:
+            - uv run pytest tests/backend/test_performance_hotpaths.py tests/backend/test_performance_bottlenecks.py
+
+    test:mutation:
+        desc: Mutation testing (backend mutmut + frontend MeshMut, slow, optional)
+        cmds:
+            - task test:mutation:backend
+            - task test:mutation:frontend
+
+    test:mutation:backend:
+        desc: Backend mutation testing with mutmut (default meshchat_utils)
+        cmds:
+            - bash scripts/ci/mutation-backend.sh
+
+    test:mutation:frontend:
+        desc: Frontend mutation testing with in-repo MeshMut
+        cmds:
+            - bash scripts/ci/mutation-frontend.sh
+
+    test:mutation:frontend:sample:
+        desc: Quick MeshMut sample on Capabilities.js (capped mutants)
+        cmds:
+            - node scripts/mutation/run.mjs --source meshchatnext/src/frontend/js/rnode/Capabilities.js --max-per-file 20
+
+    test:mutation:frontend:libs:
+        desc: MeshMut on meshchatnext/src/frontend/libs (emitter uuid datetime clickOutside)
+        cmds:
+            - >-
+                node scripts/mutation/run.mjs
+                --source meshchatnext/src/frontend/libs/emitter.js
+                --source meshchatnext/src/frontend/libs/uuid.js
+                --source meshchatnext/src/frontend/libs/datetime.js
+                --source meshchatnext/src/frontend/libs/clickOutside.js
+                {{.CLI_ARGS}}
+
+    test:libs:
+        aliases: [test:fe:libs]
+        desc: Run in-repo frontend libs tests with coverage gate
+        cmds:
+            - >-
+                {{.NPM}} exec vitest run
+                tests/frontend/libs.core.test.js
+                tests/frontend/libs.test.js
+                --coverage
+                --coverage.include=meshchatnext/src/frontend/libs/**
+            - node scripts/check-format-tokens.mjs
+
+    test:frontend:
+        aliases: [test:fe]
+        desc: Run frontend + Electron shell unit tests (vitest with coverage, excludes i18n, see test:lang, excludes LoadTimePerformance, use test:fe:loadtime locally)
+        cmds:
+            - "{{.NPM}} exec vitest run --coverage --exclude tests/frontend/LoadTimePerformance.test.js --exclude tests/frontend/i18n.test.js"
+            - "{{.NPM}} exec vitest run --config vitest.electron.config.mjs --coverage"
+
+    test:fe:ui:
+        desc: Vitest UI runner for frontend unit tests
+        cmds:
+            - "{{.NPM}} run test:ui"
+
+    test:fe:loadtime:
+        desc: Optional frontend load-time / sidebar performance tests (not run in CI)
+        cmds:
+            - "{{.NPM}} run test:loadtime"
+
+    test:be:media-fuzz:
+        desc: Hypothesis fuzz tests for stickers, TGS/Lottie JSON, WebM, GIFs, pack exports
+        cmds:
+            - uv run pytest tests/backend/test_media_fuzzing.py -q
+
+    test:be:media-http:
+        desc: aiohttp integration tests for /api/v1/stickers, sticker-packs, and /api/v1/gifs
+        cmds:
+            - uv run pytest tests/backend/test_media_http_api.py -q
+
+    test:fuzz:all:
+        desc: Vitest fuzzing tag plus backend media Hypothesis fuzz
+        deps: [test:be:media-fuzz]
+        cmds:
+            - "{{.NPM}} run test:fuzz"
+
+    test:fe:cov:
+        desc: Run frontend tests with line coverage (Vitest v8)
+        cmds:
+            - "{{.NPM}} run test:coverage"
+
+    test:lang:
+        desc: Run localization tests
+        cmds:
+            - "{{.NPM}} exec vitest run tests/frontend/i18n.test.js"
+
+    test:integrity:
+        desc: Run data integrity tests
+        cmds:
+            - uv run pytest tests/backend/test_integrity.py tests/backend/test_backend_integrity.py
+
+    test:cov:
+        desc: Run all tests with coverage (Python + frontend JS/Vue + translation pytest)
+        deps: [test:be:cov, test:fe:cov]
+        cmds:
+            - "uv run pytest tests/backend/test_translation_http.py tests/backend/test_translation_pack_manager.py"
+
+    bench:
+        desc: Default benchmark run (backend comprehensive suite, same as bench:be)
+        cmds:
+            - task: bench:be
+
+    bench:be:
+        desc: Run backend benchmarks
+        cmds:
+            - uv run python tests/backend/run_comprehensive_benchmarks.py
+
+    bench:be:ci:
+        desc: Run backend benchmarks the way CI does (3 suite runs + smart gate)
+        cmds:
+            - >
+                uv run python tests/backend/run_comprehensive_benchmarks.py
+                --runs 3 --json-output bench_results.json
+            - >
+                uv run python tests/backend/compare_benchmarks.py
+                --current bench_results.json
+                --previous ./cache/benchmark-data.json
+                --baseline-out ./cache/benchmark-data.json
+                --summary bench_gate_summary.txt
+
+    bench:be:extreme:
+        desc: Run extreme stress benchmarks
+        cmds:
+            - uv run python tests/backend/run_comprehensive_benchmarks.py --extreme
+
+    profile:mem:
+        desc: Run memory profiling
+        cmds:
+            - uv run pytest tests/backend/test_memory_profiling.py
+
+    check:
+        desc: Format, lint, and test sequentially (full pre-push gate)
+        cmds:
+            - task: format
+            - task: lint
+            - task: test
+
+    compile:
+        desc: Compile Python to check for syntax errors
+        cmds:
+            - uv run python -m compileall meshchatnext/
+
+    # --- Build & Packaging ---
+
+    build:
+        desc: Build frontend and prepare backend
+        aliases: [build:all]
+        deps: [install]
+        cmds:
+            - "{{.NPM}} run build"
+
+    build:frontend:
+        aliases: [build:fe]
+        desc: Build frontend assets
+        deps: [deps:frontend, build:visualiser-wasm, build:geo-wasm, fetch:starter-mbtiles]
+        cmds:
+            - "{{.NPM}} run build-frontend"
+
+    build:visualiser-wasm:
+        aliases: [build:viz-wasm]
+        desc: Build Go network visualiser WASM into frontend public vendor/
+        cmds:
+            - node scripts/build-visualiser-wasm.mjs
+
+    build:geo-wasm:
+        desc: Build Go map geo WASM (MGRS/OLC) into frontend public vendor/
+        cmds:
+            - node scripts/build-geo-wasm.mjs
+
+    fetch:starter-mbtiles:
+        desc: Generate or download starter world MBTiles into package data
+        cmds:
+            - node scripts/fetch-starter-mbtiles.mjs
+
+    test:geo-wasm:
+        desc: Run Go unit tests for geo-wasm
+        dir: geo-wasm
+        env:
+            GOCACHE: "{{.ROOT_DIR}}/.gocache"
+            GOTMPDIR: "{{.ROOT_DIR}}/.gotmp"
+        cmds:
+            - mkdir -p "{{.ROOT_DIR}}/.gocache" "{{.ROOT_DIR}}/.gotmp"
+            - go test ./mgrs ./olc ./internal/...
+
+    test:visualiser-wasm:
+        aliases: [test:viz-wasm]
+        desc: Run Go unit tests for visualiser-wasm
+        dir: visualiser-wasm
+        env:
+            GOCACHE: "{{.ROOT_DIR}}/.gocache"
+            GOTMPDIR: "{{.ROOT_DIR}}/.gotmp"
+        cmds:
+            - mkdir -p "{{.ROOT_DIR}}/.gocache" "{{.ROOT_DIR}}/.gotmp"
+            - go test ./internal/...
+
+    test:visualiser-wasm:race:
+        aliases: [test:viz-wasm:race]
+        desc: Run visualiser-wasm tests with the race detector
+        dir: visualiser-wasm
+        env:
+            GOCACHE: "{{.ROOT_DIR}}/.gocache"
+            GOTMPDIR: "{{.ROOT_DIR}}/.gotmp"
+            CGO_ENABLED: "1"
+        cmds:
+            - mkdir -p "{{.ROOT_DIR}}/.gocache" "{{.ROOT_DIR}}/.gotmp"
+            - go test -race -count=1 ./internal/...
+
+    test:visualiser-wasm:fuzz:
+        aliases: [test:viz-wasm:fuzz]
+        desc: Run short visualiser-wasm fuzz targets
+        dir: visualiser-wasm
+        env:
+            GOCACHE: "{{.ROOT_DIR}}/.gocache"
+            GOTMPDIR: "{{.ROOT_DIR}}/.gotmp"
+        cmds:
+            - mkdir -p "{{.ROOT_DIR}}/.gocache" "{{.ROOT_DIR}}/.gotmp"
+            - go test ./internal/hashpos -fuzz=FuzzAngle01 -fuzztime=5s
+            - go test ./internal/filter -fuzz=FuzzPathHashesWithinHopFilter -fuzztime=5s
+            - go test ./internal/filter -fuzz=FuzzMatchesSearch -fuzztime=3s
+            - go test ./internal/icon -fuzz=FuzzDedupeQueueEntries -fuzztime=5s
+            - go test ./internal/lod -fuzz=FuzzLevelFromScale -fuzztime=3s
+            - go test ./internal/lod -fuzz=FuzzComputeUpdates -fuzztime=5s
+            - go test ./internal/graph -fuzz=FuzzBuildPathGraph -fuzztime=8s
+
+    bench:visualiser-wasm:
+        aliases: [bench:viz-wasm]
+        desc: Run visualiser-wasm benchmarks with allocation reporting
+        dir: visualiser-wasm
+        env:
+            GOCACHE: "{{.ROOT_DIR}}/.gocache"
+            GOTMPDIR: "{{.ROOT_DIR}}/.gotmp"
+        cmds:
+            - mkdir -p "{{.ROOT_DIR}}/.gocache" "{{.ROOT_DIR}}/.gotmp"
+            - go test ./internal/... -run='^$' -bench=. -benchmem -count=1
+
+    build:wheel:
+        desc: Build Python wheel package
+        deps: [install]
+        cmds:
+            # setuptools merges package-data into build/lib; a stale tree piles
+            # old hashed Vite chunks and leftovers into every subsequent wheel.
+            - rm -rf build/lib build/bdist.* meshchat_next.egg-info
+            - "{{.PYTHON}} scripts/ci/check-public-packaging.py"
+            - uv build --wheel
+            - "{{.PYTHON}} scripts/move_wheels.py"
+            - |
+                whl="$(ls -1 python-dist/meshchat_next-*-py3-none-any.whl | sort -V | tail -1)"
+                "{{.PYTHON}}" scripts/ci/check-public-packaging.py --wheel "$whl"
+
+    build:pyz:
+        desc: Build single-file Python zipapp (PYZ)
+        deps: [install]
+        cmds:
+            - bash scripts/build-pyz.sh
+
+    # --- Electron Distribution ---
+
+    dist:linux:appimage:
+        desc: Build Linux AppImage (x64 + arm64 only)
+        deps: [build:frontend]
+        cmds:
+            - "{{.NPM}} run electron-postinstall"
+            - "PLATFORM=linux ARCH=x64 {{.NPM}} run build-backend"
+            - "pnpm exec electron-builder --linux AppImage --x64 --publish=never"
+            - "PLATFORM=linux ARCH=arm64 {{.NPM}} run build-backend"
+            - "pnpm exec electron-builder --linux AppImage --arm64 --publish=never"
+
+    dist:linux:arm64:
+        desc: Build Linux arm64 AppImage
+        deps: [build:frontend]
+        cmds:
+            - "{{.NPM}} run electron-postinstall"
+            - "PLATFORM=linux ARCH=arm64 {{.NPM}} run build-backend"
+            - "{{.NPM}} run dist -- --linux AppImage --arm64"
+
+    dist:win:exe:
+        desc: Build Windows portable EXE
+        deps: [build:frontend]
+        cmds:
+            - "{{.NPM}} run electron-postinstall"
+            - "PLATFORM=win32 {{.NPM}} run build-backend"
+            - "{{.NPM}} run dist -- --win portable"
+
+    dist:win:arm64:
+        desc: Build Windows arm64 portable EXE
+        deps: [build:frontend]
+        cmds:
+            - "{{.NPM}} run electron-postinstall"
+            - "PLATFORM=win32 ARCH=arm64 {{.NPM}} run build-backend"
+            - "{{.NPM}} run dist -- --win portable --arm64"
+
+    dist:win:wine:
+        desc: Build Windows EXE/Installer via Wine
+        deps: [build:frontend]
+        cmds:
+            - "{{.NPM}} run electron-postinstall"
+            - "PLATFORM=win32 PYTHON_CMD='{{.WINE_PYTHON}}' {{.NPM}} run build-backend"
+            - "npx electron-builder --win portable nsis --publish=never"
+
+    dist:fe:linux:
+        desc: Build Linux Electron app (prebuilt backend)
+        deps: [build:frontend]
+        cmds:
+            - "{{.NPM}} run dist:linux"
+
+    dist:linux:
+        desc: Alias for dist:fe:linux (AppImage + deb)
+        cmds:
+            - task: dist:fe:linux
+
+    dist:linux-x64:
+        desc: Build Linux x64 AppImage + deb
+        deps: [build:frontend]
+        cmds:
+            - "{{.NPM}} run dist:linux-x64"
+
+    dist:fe:rpm:
+        desc: Build RPM package
+        deps: [build:frontend]
+        cmds:
+            - "{{.NPM}} run dist:rpm"
+
+    dist:fe:apk:
+        desc: Build Alpine APK package
+        deps: [build:frontend]
+        cmds:
+            - "{{.NPM}} run dist:apk"
+
+    dist:fe:flatpak:
+        desc: Build Flatpak package
+        deps: [build:frontend]
+        cmds:
+            - "{{.NPM}} run dist:flatpak"
+
+    dist:fe:win:
+        desc: Build Windows Electron apps
+        deps: [build:frontend]
+        cmds:
+            - "{{.NPM}} run dist:windows"
+
+    dist:fe:zip:
+        desc: Build Electron ZIP (Linux)
+        deps: [build:frontend]
+        cmds:
+            - "PLATFORM=linux {{.NPM}} run build-backend"
+            - "{{.NPM}} run dist:zip"
+
+    dist:all:
+        desc: Build all Electron apps (Linux + Win)
+        deps: [build:frontend]
+        cmds:
+            - "{{.NPM}} run electron-postinstall"
+            - "PLATFORM=linux {{.NPM}} run build-backend"
+            - "PLATFORM=win32 {{.NPM}} run build-backend"
+            - "{{.NPM}} run dist -- --linux AppImage deb --win portable nsis"
+
+    dist:all:wine:
+        desc: Build all Electron apps (Linux + Win via Wine)
+        deps: [build:frontend]
+        cmds:
+            - "{{.NPM}} run electron-postinstall"
+            - "PLATFORM=linux {{.NPM}} run build-backend"
+            - "PLATFORM=win32 PYTHON_CMD='{{.WINE_PYTHON}}' {{.NPM}} run build-backend"
+            - "npx electron-builder --linux AppImage deb --win portable nsis --publish=never"
+
+    # --- Docker ---
+
+    docker:build:
+        desc: Build Docker image (buildx)
+        cmds:
+            - |
+                if ! docker buildx inspect {{.DOCKER_BUILDER}} >/dev/null 2>&1; then
+                  docker buildx create --name {{.DOCKER_BUILDER}} --use >/dev/null
+                else
+                  docker buildx use {{.DOCKER_BUILDER}}
+                fi
+            - |
+                docker buildx build --builder {{.DOCKER_BUILDER}} --platform {{.DOCKER_PLATFORMS}} \
+                  {{.DOCKER_BUILD_FLAGS}} \
+                  -t {{.DOCKER_IMAGE}} \
+                  {{.DOCKER_BUILD_ARGS}} \
+                  -f {{.DOCKERFILE}} \
+                  {{.DOCKER_CONTEXT}}
+
+    docker:run:
+        desc: Run Docker container (compose)
+        cmds:
+            - 'MESHCHAT_IMAGE="{{.DOCKER_IMAGE}}" {{.DOCKER_COMPOSE_CMD}} -f {{.DOCKER_COMPOSE_FILE}} up --remove-orphans --pull never meshchat-next'
+
+    docker:run:dev:
+        desc: Run Docker container (dev compose)
+        cmds:
+            - 'MESHCHAT_IMAGE="{{.DOCKER_IMAGE}}" {{.DOCKER_COMPOSE_CMD}} -f docker/docker-compose.dev.yml up --build --remove-orphans meshchat-next'
+
+    docker:build:env:
+        desc: Build containerized build environment
+        cmds:
+            - docker build -t {{.DOCKER_BUILD_IMAGE}} -f {{.DOCKER_BUILD_FILE}} .
+
+    docker:build:artifacts:
+        desc: Build and export artifacts from container
+        cmds:
+            - docker rm -f meshchat-build-temp || true
+            - docker run --name meshchat-build-temp {{.DOCKER_BUILD_IMAGE}}
+            - mkdir -p dist python-dist
+            - docker cp meshchat-build-temp:/app/dist/. ./dist/
+            - docker cp meshchat-build-temp:/app/python-dist/. ./python-dist/
+            - docker rm meshchat-build-temp
+
+    docker:dist:win:
+        desc: Optional Windows Electron build via electronuserland/builder Wine image (not a GH Actions replacement)
+        cmds:
+            - chmod +x scripts/docker/electron-wine-build.sh scripts/ci/docker-electron-wine-entry.sh scripts/setup_wine_env.sh
+            - MESHCHATNEXT_ELECTRON_WINE_IMAGE="{{.DOCKER_ELECTRON_WINE_IMAGE}}" MESHCHATNEXT_ELECTRON_WINE_DOCKERFILE="{{.DOCKER_ELECTRON_WINE_FILE}}" MESHCHATNEXT_ELECTRON_WINE_TARGETS="{{.DOCKER_ELECTRON_WINE_TARGETS}}" MESHCHATNEXT_ELECTRON_WINE_OUT="{{.DOCKER_ELECTRON_WINE_OUT}}" bash scripts/docker/electron-wine-build.sh
+
+    docker:dist:win:smoke:
+        desc: Smoke-test electron-wine Docker toolchain (node/wine/python only)
+        cmds:
+            - task: docker:dist:win
+              vars:
+                  DOCKER_ELECTRON_WINE_TARGETS: smoke
+                  DOCKER_ELECTRON_WINE_IMAGE: meshchatnext-electron-wine:smoke
+                  DOCKER_ELECTRON_WINE_OUT: ./meshchatnext-artifacts-win-smoke
+
+    # --- Android ---
+
+    android:init:
+        desc: Initialize Gradle wrapper
+        cmds:
+            - |
+                if [ ! -f "{{.ANDROID_DIR}}/gradle/wrapper/gradle-wrapper.jar" ]; then
+                    echo "Downloading Gradle wrapper jar..."
+                    mkdir -p "{{.ANDROID_DIR}}/gradle/wrapper"
+                    curl -L -o "{{.ANDROID_DIR}}/gradle/wrapper/gradle-wrapper.jar" \
+                        https://raw.githubusercontent.com/gradle/gradle/v8.12.1/gradle/wrapper/gradle-wrapper.jar || \
+                        echo "Failed to download. Please run: cd {{.ANDROID_DIR}} && gradle wrapper --gradle-version 8.12.1"
+                else
+                    echo "Gradle wrapper already initialized."
+                fi
+
+    android:prepare:
+        desc: Prepare Android source assets
+        deps: [build:fe, android:init]
+        cmds:
+            - |
+                echo "Preparing Android assets..."
+                mkdir -p "{{.PYTHON_SRC_DIR}}"
+                rm -rf "{{.PYTHON_SRC_DIR}}/meshchatnext"
+                echo "Meshchat neXt Python tree is synced by Gradle into app/src/main/python/meshchatnext (see android/app/build.gradle)."
+
+    android:wheels:
+        desc: Build the Android (Chaquopy) wheels into android/vendor/. Mirrors CI.
+        vars:
+            ANDROID_WHEEL_PYTHON: '{{.ANDROID_WHEEL_PYTHON | default "3.11"}}'
+            ANDROID_WHEEL_ABIS: '{{.ANDROID_WHEEL_ABIS | default "arm64-v8a,x86_64,armeabi-v7a"}}'
+            ANDROID_WHEEL_CHAQUOPY_REF: '{{.ANDROID_WHEEL_CHAQUOPY_REF | default "9f563f45108a873d7feb363e1f754c0173f1114e"}}'
+        cmds:
+            - |
+                bash scripts/build-android-wheels-local.sh \
+                    --python-minor "{{.ANDROID_WHEEL_PYTHON}}" \
+                    --chaquopy-ref "{{.ANDROID_WHEEL_CHAQUOPY_REF}}" \
+                    --abis "{{.ANDROID_WHEEL_ABIS}}"
+
+    android:build:
+        desc: Build Debug APK (universal ABI packaging, arm64-v8a only unless overridden)
+        deps: [android:prepare]
+        vars:
+            MESHCHATNEXT_ABIS: '{{.MESHCHATNEXT_ABIS | default "arm64-v8a"}}'
+            MESHCHATNEXT_ABI_PACKAGING: '{{.MESHCHATNEXT_ABI_PACKAGING | default "universal"}}'
+        cmds:
+            - cd "{{.ANDROID_DIR}}" && ./gradlew :app:assembleDebug -PmeshchatnextAbis={{.MESHCHATNEXT_ABIS}} -PmeshchatnextAbiPackaging={{.MESHCHATNEXT_ABI_PACKAGING}}
+
+    android:build:release:
+        desc: Build Release APK (same ABI defaults as android:build unless overridden)
+        deps: [android:prepare]
+        vars:
+            MESHCHATNEXT_ABIS: '{{.MESHCHATNEXT_ABIS | default "arm64-v8a"}}'
+            MESHCHATNEXT_ABI_PACKAGING: '{{.MESHCHATNEXT_ABI_PACKAGING | default "universal"}}'
+        cmds:
+            - cd "{{.ANDROID_DIR}}" && ./gradlew :app:assembleRelease -PmeshchatnextAbis={{.MESHCHATNEXT_ABIS}} -PmeshchatnextAbiPackaging={{.MESHCHATNEXT_ABI_PACKAGING}}
+
+    android:clean:
+        desc: Clean Android artifacts
+        cmds:
+            - cd "{{.ANDROID_DIR}}" && ./gradlew clean
+            - rm -rf "{{.PYTHON_SRC_DIR}}/meshchatnext" "{{.ANDROID_DIR}}/app/src/main/python/meshchatnext"
+
+    tree-manifest:
+        desc: Print SHA-256 inventory of git-tracked files (excludes meshchatnext.rsm and vendor/)
+        cmds:
+            - sh scripts/ci/tree-manifest.sh generate
+
+    tree-rsm-sign:
+        desc: Sign tree inventory into meshchatnext.rsm (requires RNS_ID_PATH)
+        cmds:
+            - sh scripts/ci/sign-tree-rsm.sh
+
+    tree-rsm-verify:
+        desc: Verify meshchatnext.rsm signature and hashes (warn by default, RNS_TREE_VERIFY_STRICT=1 to fail)
+        cmds:
+            - sh scripts/ci/verify-tree-rsm.sh
+
+    check:commits:
+        desc: Validate commit messages (COMMITLINT_FROM defaults to origin/master)
+        cmds:
+            - ./node_modules/.bin/commitlint --from ${COMMITLINT_FROM:-origin/master} --to ${COMMITLINT_TO:-HEAD}
+
+    tree-workspace-clean:
+        desc: Recheck inventory (warn by default, RNS_TREE_VERIFY_STRICT=1 to fail)
+        cmds:
+            - sh scripts/ci/verify-workspace-clean.sh "${RNS_INVENTORY_OUT:-/tmp/meshchatnext-tree-inventory.txt}"
+
+    verify:package:frozen:
+        desc: Fail if frozen backend contains forbidden bloat paths
+        cmds:
+            - bash scripts/ci/verify-package-contents.sh frozen "{{.CLI_ARGS}}"
+
+    verify:package:wheel:
+        desc: Fail if Python wheel contains forbidden bloat paths
+        cmds:
+            - bash scripts/ci/verify-package-contents.sh wheel "{{.CLI_ARGS}}"
+
+    verify:package:docker:
+        desc: Fail if Docker image contains forbidden bloat paths (pass image as CLI_ARGS)
+        cmds:
+            - bash scripts/ci/verify-package-contents.sh docker "{{.CLI_ARGS}}"
+
+    verify:package:smoke:
+        desc: Self-test the package bloat checker with temp trees
+        cmds:
+            - bash scripts/ci/verify-package-contents-smoke.sh
+
+    verify:frozen:codec2:
+        desc: Fail if frozen pycodec2 cannot resolve libcodec2
+        cmds:
+            - bash scripts/ci/github-verify-frozen-codec2.sh "{{.CLI_ARGS}}"
+
+    # --- Maintenance ---
+
+    dist:
+        desc: Alias for dist:linux:appimage
+        cmds:
+            - task: dist:linux:appimage
+
+    clean:
+        desc: Nuke all build artifacts and dependencies
+        cmds:
+            - rm -rf node_modules build dist python-dist meshchatnext/public build-dir out
+            - task: android:clean
+
+    locales:gen:
+        desc: Generate localization template
+        cmds:
+            - "{{.PYTHON}} scripts/generate_locale_template.py"
+
+    ci:setup:
+        desc: Portable CI prep (toolchain bootstrap, deps, optional tree RSM verify)
+        cmds:
+            - bash scripts/ci/setup.sh
+
+    ci:pr:
+        desc: PR quality gate (local, Forgejo, Gitea, or workflow wrapper)
+        cmds:
+            - bash scripts/ci/run.sh pr
+
+    ci:lint:
+        desc: Portable CI lint job
+        cmds:
+            - bash scripts/ci/run.sh lint
+
+    ci:list:
+        desc: List portable CI job names
+        cmds:
+            - bash scripts/ci/run.sh list
+
+    ci:docker:
+        desc: PR gate inside Dockerfile.ci (podman or docker)
+        cmds:
+            - bash scripts/ci/run-docker.sh pr

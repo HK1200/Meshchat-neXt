@@ -1,0 +1,242 @@
+# SPDX-License-Identifier: 0BSD
+
+"""Property-based fuzz tests for the RRC wire protocol and notice parsers."""
+
+import base64
+import math
+
+import cbor2
+import cborx
+import pytest
+from hypothesis import assume, given, settings
+from hypothesis import strategies as st
+
+from meshchatnext.src.backend.rrc import protocol as proto
+
+
+def _envelope_dict_strategy():
+    return st.dictionaries(
+        keys=st.integers(min_value=0, max_value=10),
+        values=st.one_of(
+            st.none(),
+            st.integers(),
+            st.text(max_size=64),
+            st.binary(min_size=0, max_size=32),
+            st.lists(st.binary(min_size=0, max_size=16), max_size=8),
+            st.dictionaries(
+                st.integers(min_value=0, max_value=5),
+                st.text(max_size=32),
+            ),
+        ),
+        max_size=12,
+    )
+
+
+@given(data=st.binary(min_size=0, max_size=4096))
+@settings(max_examples=200, deadline=None)
+def test_decode_random_bytes_accept_reject(data):
+    try:
+        obj = proto.decode(data)
+    except Exception as exc:
+        assert isinstance(exc, (cborx.CBORDecodeError, ValueError, TypeError, EOFError))
+        return
+    # Successful decode yields a value. Prefer round-trip when CBOR can encode it.
+    try:
+        encoded = cbor2.dumps(obj)
+    except cbor2.CBOREncodeError:
+        return
+    assert isinstance(encoded, (bytes, bytearray))
+    decoded = proto.decode(encoded)
+    if isinstance(obj, float) and math.isnan(obj):
+        assert isinstance(decoded, float) and math.isnan(decoded)
+    else:
+        assert decoded == obj
+
+
+@given(env=_envelope_dict_strategy())
+@settings(max_examples=150, deadline=None)
+def test_encode_decode_roundtrip_dict(env):
+    payload = proto.encode(env)
+    assert isinstance(payload, (bytes, bytearray))
+    decoded = proto.decode(payload)
+    assert decoded == env
+
+
+@given(
+    msg_type=st.integers(min_value=-1000, max_value=1000),
+    src=st.one_of(st.none(), st.binary(min_size=0, max_size=32)),
+    room=st.one_of(st.none(), st.text(max_size=128)),
+    body=st.one_of(st.none(), st.text(max_size=512), st.binary(max_size=64)),
+    nick=st.one_of(st.none(), st.text(max_size=64)),
+)
+@settings(max_examples=120, deadline=None)
+def test_make_envelope_encode_decode_roundtrip(msg_type, src, room, body, nick):
+    env = proto.make_envelope(msg_type, src, room=room, body=body, nick=nick)
+    decoded = proto.decode(proto.encode(env))
+    assert decoded[proto.K_T] == int(msg_type)
+    assert decoded[proto.K_SRC] == src
+
+
+@given(nick=st.text(max_size=128))
+@settings(max_examples=100, deadline=None)
+def test_normalize_nick_shape(nick):
+    result = proto.normalize_nick(nick)
+    if result is not None:
+        assert isinstance(result, str)
+        assert result.strip() == result
+        assert len(result.encode("utf-8")) <= proto.DEFAULT_MAX_NICK_BYTES
+    stripped = (nick or "").strip()
+    if not stripped:
+        assert result is None
+
+
+@given(nick=st.text(max_size=128), max_bytes=st.integers(min_value=1, max_value=256))
+@settings(max_examples=80, deadline=None)
+def test_normalize_nick_respects_max_bytes(nick, max_bytes):
+    result = proto.normalize_nick(nick, max_bytes=max_bytes)
+    if result is not None:
+        assert len(result.encode("utf-8")) <= max_bytes
+
+
+@given(room=st.text(max_size=128))
+@settings(max_examples=80, deadline=None)
+def test_normalize_room_only_raises_on_empty_or_whitespace(room):
+    stripped = (room or "").strip()
+    if not stripped:
+        with pytest.raises(ValueError):
+            proto.normalize_room(room)
+    else:
+        assert proto.normalize_room(room) == stripped.lower()
+
+
+@given(text=st.text(max_size=256), nick=st.text(max_size=64))
+@settings(max_examples=120, deadline=None)
+def test_text_mentions_bool(text, nick):
+    result = proto.text_mentions(text, nick)
+    assert isinstance(result, bool)
+    n = proto.normalize_nick(nick)
+    if n is None:
+        assert result is False
+
+
+@given(text=st.one_of(st.none(), st.integers(), st.binary(), st.text(max_size=256)))
+@settings(max_examples=80, deadline=None)
+def test_parse_who_notice_shape(text):
+    result = proto.parse_who_notice(text)
+    if result is not None:
+        room, entries = result
+        assert isinstance(room, str)
+        assert room == room.lower()
+        assert isinstance(entries, list)
+
+
+@given(text=st.one_of(st.none(), st.integers(), st.binary(), st.text(max_size=512)))
+@settings(max_examples=80, deadline=None)
+def test_parse_room_list_notice_shape(text):
+    result = proto.parse_room_list_notice_details(text)
+    details = proto.parse_room_list_notice_details(text)
+    if result is None:
+        assert details is None
+        return
+    assert details is not None
+    assert isinstance(result, dict)
+    assert set(result) == set(details)
+    for key, val in result.items():
+        assert isinstance(key, str)
+        assert key == key.lower()
+        assert val is None or isinstance(val, str)
+        info = details[key]
+        assert info.get("topic") == val
+        assert info.get("has_key") in (True, False)
+
+
+@given(
+    rooms=st.dictionaries(
+        st.from_regex(r"[a-z0-9_-]{1,12}", fullmatch=True),
+        st.tuples(
+            st.one_of(st.none(), st.from_regex(r"[A-Za-z0-9 _]{1,24}", fullmatch=True)),
+            st.booleans(),
+        ),
+        max_size=8,
+    ),
+)
+@settings(max_examples=60, deadline=None)
+def test_parse_room_list_notice_keyed_roundtrip(rooms):
+    """Independent formatter: [+k] after the name roundtrips as has_key."""
+    if not rooms:
+        body = "No public rooms registered"
+        assert proto.parse_room_list_notice_details(body) == {}
+        return
+    lines = ["Registered public rooms"]
+    expected = {}
+    for name, (topic, has_key) in sorted(rooms.items()):
+        topic_txt = topic.strip() if isinstance(topic, str) else ""
+        line = name
+        if has_key:
+            line += " [+k]"
+        if topic_txt:
+            line += " - " + topic_txt
+        lines.append(line)
+        expected[name] = {"topic": topic_txt or None, "has_key": has_key}
+    parsed = proto.parse_room_list_notice_details("\n".join(lines))
+    assert parsed == expected
+
+
+@given(
+    kind=st.text(max_size=32),
+    room=st.one_of(st.none(), st.text(max_size=64)),
+    src=st.one_of(st.none(), st.binary(min_size=0, max_size=32)),
+    nick=st.one_of(st.none(), st.text(max_size=64)),
+    text=st.one_of(st.none(), st.text(max_size=512), st.integers()),
+    ts=st.one_of(st.integers(), st.floats(allow_nan=False), st.text(max_size=16)),
+)
+@settings(max_examples=100, deadline=None)
+def test_rrc_message_to_dict_shape(kind, room, src, nick, text, ts):
+    msg = proto.RRCMessage(kind, room, src, nick, text, ts)
+    d = msg.to_dict()
+    assert isinstance(d, dict)
+    assert d["kind"] == kind
+    assert isinstance(d["text"], str)
+    assert isinstance(d["ts"], int)
+
+
+@given(app_data=st.one_of(st.none(), st.text(max_size=256), st.binary(max_size=128)))
+@settings(max_examples=100, deadline=None)
+def test_display_name_from_hub_app_data_shape(app_data):
+    if isinstance(app_data, bytes):
+        b64 = base64.b64encode(app_data).decode("ascii")
+    elif isinstance(app_data, str):
+        b64 = app_data
+    else:
+        b64 = None
+    result = proto.display_name_from_hub_app_data(b64)
+    if result is not None:
+        assert isinstance(result, str)
+        assert result.strip() == result
+
+
+@given(
+    room=st.text(min_size=1, max_size=64),
+    entries=st.lists(
+        st.tuples(
+            st.one_of(st.none(), st.text(min_size=1, max_size=32)),
+            st.from_regex(r"[0-9a-fA-F]{12}", fullmatch=True),
+        ),
+        max_size=8,
+    ),
+)
+@settings(max_examples=40, deadline=None)
+def test_parse_who_notice_roundtrip_synthetic(room, entries):
+    assume(room.strip())
+    parts = []
+    for nick, np in entries:
+        if nick is None:
+            parts.append(np + "0" * 20)
+        else:
+            parts.append(f"{nick} ({np})")
+    body = ", ".join(parts) if parts else "(none)"
+    text = f"members in {room.strip()}: {body}"
+    parsed = proto.parse_who_notice(text)
+    assert parsed is not None
+    parsed_room, _parsed_entries = parsed
+    assert parsed_room == room.strip().lower()

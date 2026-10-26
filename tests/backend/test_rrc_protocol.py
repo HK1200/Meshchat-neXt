@@ -1,0 +1,771 @@
+# SPDX-License-Identifier: 0BSD
+
+"""Unit tests for the RRC protocol and manager layers."""
+
+import pytest
+
+from meshchatnext.src.backend.rrc import protocol as proto
+from meshchatnext.src.backend.rrc.manager import RRCHub, RRCManager
+
+
+class FakeIdentity:
+    """Minimal stand-in for an RNS identity."""
+
+    def __init__(
+        self,
+        hash_bytes=b"\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f",
+    ):
+        self.hash = hash_bytes
+
+
+def make_manager(tmp_path, nickname=None):
+    return RRCManager(
+        identity=FakeIdentity(),
+        storage_dir=str(tmp_path),
+        get_nickname=(lambda: nickname),
+    )
+
+
+def test_envelope_roundtrip():
+    env = proto.make_envelope(
+        proto.T_MSG,
+        src=b"abcd",
+        room="Lobby",
+        body="hello",
+        nick="bob",
+        mid=b"12345678",
+        ts=42,
+    )
+    assert env[proto.K_T] == proto.T_MSG
+    assert env[proto.K_ROOM] == "Lobby"
+    decoded = proto.decode(proto.encode(env))
+    assert decoded == env
+
+
+def test_normalize_room():
+    assert proto.normalize_room("  LoBBy ") == "lobby"
+
+
+def test_normalize_room_empty_raises():
+    import pytest
+
+    with pytest.raises(ValueError):
+        proto.normalize_room("   ")
+
+
+def test_mentions():
+    assert proto.text_mentions("hey @Alice, hi", "alice")
+    assert not proto.text_mentions("hey alice", "alice")
+    assert not proto.text_mentions("hey @alicebob", "alice")
+    assert not proto.text_mentions("anything", "")
+
+
+def test_parse_who_notice():
+    parsed = proto.parse_who_notice(
+        "members in lobby: alice (aabbccddeeff), aabbccddeeff00112233445566778899",
+    )
+    assert parsed is not None
+    room, entries = parsed
+    assert room == "lobby"
+    assert ("alice", "aabbccddeeff") in entries
+    assert (None, "aabbccddeeff00112233445566778899") in entries
+
+
+def test_parse_who_notice_rejects_other_text():
+    assert proto.parse_who_notice("hello world") is None
+
+
+def test_parse_room_list_notice():
+    parsed = proto.parse_room_list_notice_details(
+        "Registered public rooms\nlobby - The lobby\nrandom",
+    )
+    assert parsed == {
+        "lobby": {"topic": "The lobby", "has_key": False},
+        "random": {"topic": None, "has_key": False},
+    }
+    keyed = proto.parse_room_list_notice_details(
+        "Registered public rooms\nvault [+k]\nops [+k] - staff\nlobby - Main\n",
+    )
+    assert keyed == {
+        "vault": {"topic": None, "has_key": True},
+        "ops": {"topic": "staff", "has_key": True},
+        "lobby": {"topic": "Main", "has_key": False},
+    }
+    assert proto.parse_room_list_notice_details("No public rooms registered") == {}
+    assert proto.parse_room_list_notice_details("unrelated") is None
+    blank_topic = proto.parse_room_list_notice_details(
+        "Registered public rooms\n0 -\nlobby -  \n",
+    )
+    assert blank_topic == {
+        "0": {"topic": None, "has_key": False},
+        "lobby": {"topic": None, "has_key": False},
+    }
+
+
+def test_message_to_dict():
+    msg = proto.RRCMessage("msg", "lobby", b"\xaa\xbb", "bob", "hi", 123)
+    msg.mention = True
+    msg.seq = 7
+    assert msg.to_dict() == {
+        "kind": "msg",
+        "room": "lobby",
+        "src": "aabb",
+        "nick": "bob",
+        "text": "hi",
+        "ts": 123,
+        "mention": True,
+        "seq": 7,
+    }
+
+
+def test_manager_add_and_find_hub(tmp_path):
+    manager = make_manager(tmp_path)
+    hub_hash = bytes(range(16))
+    hub = manager.add_hub(hub_hash, name="Test Hub")
+    assert manager.find_hub(hub_hash) is hub
+    assert manager.find_hub_by_hex(hub_hash.hex()) is hub
+    assert manager.find_hub_by_hex("not-hex") is None
+
+    # adding the same hub again returns the existing instance
+    assert manager.add_hub(hub_hash) is hub
+
+    payload = manager.to_dict()
+    assert len(payload["hubs"]) == 1
+    assert payload["hubs"][0]["name"] == "Test Hub"
+    assert payload["hubs"][0]["hub_hash"] == hub_hash.hex()
+
+
+def test_manager_save_and_load_roundtrip(tmp_path):
+    manager = make_manager(tmp_path)
+    hub_hash = bytes(range(16))
+    hub = manager.add_hub(hub_hash, name="Persisted")
+    hub.add_room("lobby")
+    hub.set_auto_reconnect(True)
+    hub.set_nick_override("nickname")
+    hub.set_hub_icon("satellite-uplink")
+
+    reloaded = make_manager(tmp_path)
+    reloaded.load()
+    assert len(reloaded.hubs) == 1
+    loaded = reloaded.hubs[0]
+    assert loaded.hub_hash == hub_hash
+    assert "lobby" in loaded.rooms
+    assert loaded.auto_reconnect is True
+    assert loaded.nick_override == "nickname"
+    assert loaded.get_hub_icon() == "satellite-uplink"
+
+
+def test_hub_room_order_persisted(tmp_path):
+    manager = make_manager(tmp_path)
+    hub = manager.add_hub(bytes(range(16)))
+    hub.add_room("beta")
+    hub.add_room("alpha")
+    hub.reorder_rooms(["beta", "alpha"])
+    manager.save()
+
+    reloaded = make_manager(tmp_path)
+    reloaded.load()
+    loaded = reloaded.hubs[0]
+    assert loaded.ordered_known_rooms()[:2] == ["beta", "alpha"]
+
+
+def test_hub_icon_rejects_invalid_name(tmp_path):
+    manager = make_manager(tmp_path)
+    hub = manager.add_hub(bytes(range(16)))
+    with pytest.raises(ValueError):
+        hub.set_hub_icon("Not Valid!")
+
+
+def test_connect_auto_reconnect_hubs_after_load(tmp_path, monkeypatch):
+    manager = make_manager(tmp_path)
+    hub_hash = bytes(range(16))
+    hub = manager.add_hub(hub_hash, name="Persisted")
+    hub.set_auto_reconnect(True)
+    manager.save()
+
+    reloaded = make_manager(tmp_path)
+    reloaded.load()
+    loaded = reloaded.hubs[0]
+    calls = []
+
+    def fake_connect():
+        calls.append(loaded)
+
+    monkeypatch.setattr(loaded, "connect", fake_connect)
+    reloaded.connect_auto_reconnect_hubs()
+    assert calls == [loaded]
+
+    hub.set_auto_reconnect(False)
+    manager.save()
+    reloaded2 = make_manager(tmp_path)
+    reloaded2.load()
+    calls.clear()
+    monkeypatch.setattr(reloaded2.hubs[0], "connect", lambda: calls.append(1))
+    reloaded2.connect_auto_reconnect_hubs()
+    assert calls == []
+
+
+def test_hub_records_incoming_message_and_unread(tmp_path):
+    manager = make_manager(tmp_path)
+    hub = manager.add_hub(bytes(range(16)))
+    env = proto.make_envelope(
+        proto.T_MSG,
+        src=b"\x10" * 16,
+        room="lobby",
+        body="hello there",
+        nick="carol",
+    )
+    hub._on_packet(proto.encode(env))
+
+    messages = hub.get_messages("lobby")
+    assert len(messages) == 1
+    assert messages[0].text == "hello there"
+    assert messages[0].nick == "carol"
+    assert "lobby" in hub.unread_rooms
+
+
+def test_hub_detects_mention(tmp_path):
+    manager = make_manager(tmp_path, nickname="alice")
+    hub = manager.add_hub(bytes(range(16)))
+    env = proto.make_envelope(
+        proto.T_MSG,
+        src=b"\x20" * 16,
+        room="lobby",
+        body="hey @alice look",
+        nick="carol",
+    )
+    hub._on_packet(proto.encode(env))
+
+    messages = hub.get_messages("lobby")
+    assert messages[0].mention is True
+    assert "lobby" in hub.mention_rooms
+
+
+def test_hub_ignores_own_echoed_message(tmp_path):
+    manager = make_manager(tmp_path)
+    hub = manager.add_hub(bytes(range(16)))
+    mid = b"deadbeef"
+    hub._sent_ids.append(mid)
+    env = proto.make_envelope(
+        proto.T_MSG,
+        src=manager.identity.hash,
+        room="lobby",
+        body="echo",
+        mid=mid,
+    )
+    hub._on_packet(proto.encode(env))
+    assert hub.get_messages("lobby") == []
+
+
+def test_hub_notice_updates_room_list(tmp_path):
+    manager = make_manager(tmp_path)
+    hub = manager.add_hub(bytes(range(16)))
+    env = proto.make_envelope(
+        proto.T_NOTICE,
+        src=None,
+        body="Registered public rooms\nlobby - Main\nrandom",
+    )
+    hub._on_packet(proto.encode(env))
+    assert hub.available_rooms == {"lobby": "Main", "random": None}
+    assert hub.available_keyed_rooms == []
+
+
+def test_hub_list_notice_records_keyed_rooms(tmp_path):
+    manager = make_manager(tmp_path)
+    hub = manager.add_hub(bytes(range(16)))
+    env = proto.make_envelope(
+        proto.T_NOTICE,
+        src=None,
+        body="Registered public rooms\nlobby - Main\nvault [+k]\nops [+k] - staff",
+    )
+    hub._on_packet(proto.encode(env))
+    assert hub.available_rooms == {
+        "lobby": "Main",
+        "vault": None,
+        "ops": "staff",
+    }
+    assert hub.available_keyed_rooms == ["ops", "vault"]
+
+
+def test_welcome_sends_list_when_auto_list_enabled(tmp_path):
+    manager = make_manager(tmp_path)
+    hub = manager.add_hub(bytes(range(16)))
+    hub.auto_list = True
+    calls = []
+    hub.send_command = lambda text, room=None, record_local=True: calls.append(text)
+
+    hub._handle_welcome({})
+
+    assert calls == ["/list"]
+
+
+def test_silent_self_join_records_rejoined_system_line(tmp_path):
+    manager = make_manager(tmp_path)
+    hub = manager.add_hub(bytes(range(16)))
+    hub._pending_joins.add("lobby")
+    hub._silent_joins.add("lobby")
+    env = proto.make_envelope(
+        proto.T_JOINED,
+        src=None,
+        room="lobby",
+        body=[manager.identity.hash],
+        nick="me",
+    )
+
+    hub._handle_joined(env)
+
+    msgs = hub.messages.get("lobby", [])
+    assert any(m.kind == "system" and m.text == "You rejoined #lobby" for m in msgs)
+
+
+def test_manual_self_join_records_joined_system_line(tmp_path):
+    manager = make_manager(tmp_path)
+    hub = manager.add_hub(bytes(range(16)))
+    hub._pending_joins.add("lobby")
+    env = proto.make_envelope(
+        proto.T_JOINED,
+        src=None,
+        room="lobby",
+        body=[manager.identity.hash],
+        nick="me",
+    )
+
+    hub._handle_joined(env)
+
+    msgs = hub.messages.get("lobby", [])
+    assert any(m.kind == "system" and m.text == "You joined #lobby" for m in msgs)
+
+
+def test_connection_lost_records_system_line_in_joined_rooms(tmp_path):
+    manager = make_manager(tmp_path)
+    hub = manager.add_hub(bytes(range(16)))
+    hub.welcomed = True
+    hub.rooms.add("lobby")
+    hub.messages["lobby"] = []
+    hub.auto_reconnect = False
+
+    hub._on_closed(object())
+
+    msgs = hub.messages.get("lobby", [])
+    assert any(m.kind == "system" and m.text == "Connection lost" for m in msgs)
+
+
+def test_manual_disconnect_records_disconnected_system_line(tmp_path):
+    manager = make_manager(tmp_path)
+    hub = manager.add_hub(bytes(range(16)))
+    hub.welcomed = True
+    hub.rooms.add("lobby")
+    hub.messages["lobby"] = []
+    hub._manual_disconnect = True
+    hub.auto_reconnect = False
+
+    hub._on_closed(object())
+
+    msgs = hub.messages.get("lobby", [])
+    assert any(m.kind == "system" and m.text == "Disconnected from hub" for m in msgs)
+
+
+def test_welcome_after_session_records_reconnected(tmp_path):
+    manager = make_manager(tmp_path)
+    hub = manager.add_hub(bytes(range(16)))
+    hub.rooms.add("lobby")
+    hub.messages["lobby"] = []
+    hub._had_session = True
+    hub.auto_list = False
+    hub.auto_who = False
+
+    hub._handle_welcome({})
+
+    msgs = hub.messages.get("lobby", [])
+    assert any(m.kind == "system" and m.text == "Reconnected to hub" for m in msgs)
+
+
+def test_set_auto_list_requests_list_immediately_when_already_connected(tmp_path):
+    """Enabling auto-list mid-session must not require a reconnect to take effect."""
+    manager = make_manager(tmp_path)
+    hub = manager.add_hub(bytes(range(16)))
+    hub.welcomed = True
+    calls = []
+    hub.send_command = lambda text, room=None, record_local=True: calls.append(text)
+
+    hub.set_auto_list(True)
+
+    assert calls == ["/list"]
+
+
+def test_set_auto_list_does_not_list_before_hub_is_connected(tmp_path):
+    manager = make_manager(tmp_path)
+    hub = manager.add_hub(bytes(range(16)))
+    calls = []
+    hub.send_command = lambda text, room=None, record_local=True: calls.append(text)
+
+    hub.set_auto_list(True)
+
+    assert calls == []
+
+
+def test_request_room_list_sends_silent_list(tmp_path):
+    manager = make_manager(tmp_path)
+    hub = manager.add_hub(bytes(range(16)))
+    calls = []
+    hub.send_command = lambda text, room=None, record_local=True: calls.append(
+        (text, room, record_local),
+    )
+
+    hub.request_room_list()
+
+    assert calls == [("/list", None, False)]
+    assert hub._silent_list_pending == 1
+
+
+def test_request_room_list_raises_when_disconnected(tmp_path):
+    manager = make_manager(tmp_path)
+    hub = manager.add_hub(bytes(range(16)))
+
+    with pytest.raises(RuntimeError, match="not connected"):
+        hub.request_room_list()
+
+    assert hub._silent_list_pending == 0
+
+
+def test_hub_list_notice_replaces_available_rooms(tmp_path):
+    """A /list reply fully replaces available_rooms (add, remove, topic update)."""
+    manager = make_manager(tmp_path)
+    hub = manager.add_hub(bytes(range(16)))
+    hub.available_rooms = {"lobby": "Main", "gone": None, "kept": "Old"}
+
+    env = proto.make_envelope(
+        proto.T_NOTICE,
+        src=None,
+        body="Registered public rooms\nlobby - Renamed\nkept - Old\nnewroom",
+    )
+    hub._on_packet(proto.encode(env))
+
+    assert hub.available_rooms == {
+        "lobby": "Renamed",
+        "kept": "Old",
+        "newroom": None,
+    }
+    assert "gone" not in hub.available_rooms
+    assert hub.available_keyed_rooms == []
+
+
+def test_hub_empty_list_notice_clears_available_rooms(tmp_path):
+    manager = make_manager(tmp_path)
+    hub = manager.add_hub(bytes(range(16)))
+    hub.available_rooms = {"lobby": "Main", "random": None}
+    hub._silent_list_pending = 1
+
+    env = proto.make_envelope(
+        proto.T_NOTICE,
+        src=None,
+        body="No public rooms registered",
+    )
+    hub._on_packet(proto.encode(env))
+
+    assert hub.available_rooms == {}
+    assert hub.available_keyed_rooms == []
+    assert hub._silent_list_pending == 0
+    for msgs in hub.messages.values():
+        assert all(m.text != "No public rooms registered" for m in msgs)
+
+
+def test_history_is_persisted_and_reloaded(tmp_path):
+    manager = make_manager(tmp_path)
+    hub = manager.add_hub(bytes(range(16)))
+    hub.add_room("lobby")
+    msg = proto.RRCMessage("msg", "lobby", b"\x30" * 16, "dave", "persisted text", 100)
+    hub._record_message(msg)
+
+    reloaded = make_manager(tmp_path)
+    reloaded.load()
+    loaded_hub = reloaded.hubs[0]
+    messages = loaded_hub.get_messages("lobby")
+    assert any(m.text == "persisted text" for m in messages)
+
+
+def test_inbound_replay_by_envelope_id_counts_repeats(tmp_path):
+    """A hub redelivery folds into the row as a repeat count, not a new line."""
+    manager = make_manager(tmp_path)
+    hub = manager.add_hub(bytes(range(16)))
+    hub.add_room("lobby")
+    env = proto.make_envelope(
+        proto.T_MSG,
+        src=b"\x30" * 16,
+        room="lobby",
+        nick="dave",
+        body="hello mesh",
+    )
+    hub._handle_msg(env)
+    hub._handle_msg(env)
+    [msg] = hub.get_messages("lobby")
+    assert msg.dup_count == 2
+    assert msg.to_dict()["dup_count"] == 2
+
+
+def test_inbound_replay_keeps_sender_timestamp(tmp_path):
+    """Replayed envelopes carry the original send time, not receipt time."""
+    manager = make_manager(tmp_path)
+    hub = manager.add_hub(bytes(range(16)))
+    hub.add_room("lobby")
+    old_ts = proto.now_ms() - 3_600_000
+    env = proto.make_envelope(
+        proto.T_MSG,
+        src=b"\x30" * 16,
+        room="lobby",
+        nick="dave",
+        body="older text",
+        ts=old_ts,
+    )
+    hub._handle_msg(env)
+    [msg] = hub.get_messages("lobby")
+    assert msg.ts == old_ts
+
+
+def test_replay_dedupes_against_loaded_history(tmp_path):
+    """A replay after restart counts against the loaded row."""
+    manager = make_manager(tmp_path)
+    hub = manager.add_hub(bytes(range(16)))
+    hub.add_room("lobby")
+    env = proto.make_envelope(
+        proto.T_MSG,
+        src=b"\x30" * 16,
+        room="lobby",
+        nick="dave",
+        body="restart dupe",
+    )
+    hub._handle_msg(env)
+
+    reloaded = make_manager(tmp_path)
+    reloaded.load()
+    loaded_hub = reloaded.hubs[0]
+    # Simulate a reconnect replay of the same envelope.
+    loaded_hub._handle_msg(env)
+    [msg] = loaded_hub.get_messages("lobby")
+    assert msg.dup_count == 2
+
+
+def test_same_text_resend_counts_as_repeat(tmp_path):
+    """A verbatim repeat from the same peer folds into the original row.
+
+    Old clients re-send with a fresh envelope id and timestamp, so content
+    matching counts repeats while the original is still in the room buffer.
+    """
+    manager = make_manager(tmp_path)
+    hub = manager.add_hub(bytes(range(16)))
+    hub.add_room("lobby")
+    first = proto.make_envelope(
+        proto.T_MSG,
+        src=b"\x30" * 16,
+        room="lobby",
+        nick="dave",
+        body="same words",
+        ts=proto.now_ms() - 1000,
+    )
+    second = proto.make_envelope(
+        proto.T_MSG,
+        src=b"\x30" * 16,
+        room="lobby",
+        nick="dave",
+        body="same words",
+    )
+    hub._handle_msg(first)
+    hub._handle_msg(second)
+    [msg] = hub.get_messages("lobby")
+    assert msg.dup_count == 2
+
+
+def test_repeat_count_survives_history_reload(tmp_path):
+    """Counts persisted as update records come back after a restart."""
+    manager = make_manager(tmp_path)
+    hub = manager.add_hub(bytes(range(16)))
+    hub.add_room("lobby")
+    env = proto.make_envelope(
+        proto.T_MSG,
+        src=b"\x30" * 16,
+        room="lobby",
+        nick="dave",
+        body="counted",
+    )
+    hub._handle_msg(env)
+    hub._handle_msg(env)
+    hub._handle_msg(env)
+
+    reloaded = make_manager(tmp_path)
+    reloaded.load()
+    [msg] = reloaded.hubs[0].get_messages("lobby")
+    assert msg.dup_count == 3
+
+
+def test_legacy_duplicate_rows_merge_into_count(tmp_path):
+    """Repeat rows from files written before counts existed each count once."""
+    manager = make_manager(tmp_path)
+    hub = manager.add_hub(bytes(range(16)))
+    hub.add_room("lobby")
+    base = proto.RRCMessage("msg", "lobby", b"\x30" * 16, "dave", "legacy dupe", 123)
+    for _ in range(3):
+        hub._append_history("lobby", base)
+
+    reloaded = make_manager(tmp_path)
+    reloaded.load()
+    [msg] = reloaded.hubs[0].get_messages("lobby")
+    assert msg.dup_count == 3
+
+
+def test_own_echo_repeat_counts_on_own_row(tmp_path):
+    """A hub re-relaying our own message after delivery bumps our row."""
+    manager = make_manager(tmp_path)
+    hub = manager.add_hub(bytes(range(16)))
+    hub.add_room("lobby")
+    mid = b"\x42" * 8
+    own = proto.RRCMessage(
+        "msg", "lobby", manager.identity.hash, "me", "mine", proto.now_ms()
+    )
+    own.mid = mid
+    own.delivery = "sent"
+    hub._record_message(own, local=True)
+    hub._sent_ids.append(mid)
+    env = proto.make_envelope(
+        proto.T_MSG,
+        src=manager.identity.hash,
+        room="lobby",
+        nick="me",
+        body="mine",
+        mid=mid,
+    )
+    hub._handle_chat(env, "msg")
+    rows = [m for m in hub.get_messages("lobby") if m.text == "mine"]
+    assert len(rows) == 1
+    assert rows[0].dup_count == 2
+
+
+def test_dup_count_serializes_only_above_one():
+    m = proto.RRCMessage("msg", "lobby", None, None, "x", 0)
+    assert "dup_count" not in m.to_dict()
+    m.dup_count = 2
+    assert m.to_dict()["dup_count"] == 2
+
+
+def test_status_serialization(tmp_path):
+    manager = make_manager(tmp_path)
+    hub = manager.add_hub(bytes(range(16)))
+    data = hub.to_dict()
+    assert data["status"] == RRCHub.STATUS_DISCONNECTED
+    assert data["connected"] is False
+    assert data["rooms"] == []
+
+
+def test_reconnect_backoff_grows_and_caps(tmp_path, monkeypatch):
+    """Reconnect delay doubles per failure and caps at the configured max."""
+    import meshchatnext.src.backend.rrc.manager as rrc_manager
+
+    manager = make_manager(tmp_path)
+    hub = manager.add_hub(bytes(range(16)))
+    monkeypatch.setattr(rrc_manager.random, "uniform", lambda _a, _b: 0.0)
+    delays = []
+    try:
+        for _ in range(12):
+            hub._schedule_reconnect()
+            delays.append(hub._reconnect_timer.interval)
+    finally:
+        if hub._reconnect_timer is not None:
+            hub._reconnect_timer.cancel()
+            hub._reconnect_timer = None
+    assert delays[:5] == [2.0, 4.0, 8.0, 16.0, 32.0]
+    assert delays[-1] == rrc_manager.RECONNECT_BACKOFF_MAX_S
+    assert all(d <= rrc_manager.RECONNECT_BACKOFF_MAX_S for d in delays)
+    assert hub._reconnect_attempts == 12
+
+
+def test_manual_connect_resets_attempts(tmp_path, monkeypatch):
+    """A user driven connect clears the retry counter for a fast retry."""
+    manager = make_manager(tmp_path)
+    hub = manager.add_hub(bytes(range(16)))
+    hub._reconnect_attempts = 7
+    monkeypatch.setattr(hub, "_connect_worker", lambda: None)
+    hub.connect()
+    assert hub._reconnect_attempts == 0
+    assert hub.status == RRCHub.STATUS_CONNECTING
+
+
+def test_timer_reconnect_preserves_attempts(tmp_path, monkeypatch):
+    """Timer driven reconnects keep the counter so backoff can grow."""
+    manager = make_manager(tmp_path)
+    hub = manager.add_hub(bytes(range(16)))
+    hub.auto_reconnect = True
+    hub._reconnect_attempts = 7
+    monkeypatch.setattr(hub, "_connect_worker", lambda: None)
+    hub._fire_reconnect()
+    assert hub._reconnect_attempts == 7
+    assert hub.status == RRCHub.STATUS_CONNECTING
+    assert "attempt 7" in hub.status_text
+
+
+def test_hub_announce_resets_and_rate_limits_backoff(tmp_path):
+    """A fresh hub announce brings forward a decayed retry, once per window."""
+    import threading
+
+    manager = make_manager(tmp_path)
+    hub = manager.add_hub(bytes(range(16)))
+    hub.auto_reconnect = True
+    hub.status = RRCHub.STATUS_DISCONNECTED
+    hub._reconnect_attempts = 9
+    hub._reconnect_timer = threading.Timer(600, lambda: None)
+    try:
+        hub.note_hub_announce()
+        # The pending slow retry is rescheduled at the fastest tier.
+        assert hub._reconnect_attempts == 1
+        assert "2s" in hub.status_text
+        # A second announce inside the reset window must not reset again.
+        hub._reconnect_attempts = 9
+        hub.note_hub_announce()
+        assert hub._reconnect_attempts == 9
+    finally:
+        if hub._reconnect_timer is not None:
+            hub._reconnect_timer.cancel()
+            hub._reconnect_timer = None
+
+
+def test_hub_announce_ignored_when_connected_or_disabled(tmp_path):
+    manager = make_manager(tmp_path)
+    hub = manager.add_hub(bytes(range(16)))
+    hub._reconnect_attempts = 9
+
+    hub.status = RRCHub.STATUS_CONNECTED
+    hub.note_hub_announce()
+    assert hub._reconnect_attempts == 9
+
+    hub.status = RRCHub.STATUS_DISCONNECTED
+    hub.auto_reconnect = False
+    hub.note_hub_announce()
+    assert hub._reconnect_attempts == 9
+
+    hub.auto_reconnect = True
+    hub._manual_disconnect = True
+    hub.note_hub_announce()
+    assert hub._reconnect_attempts == 9
+
+
+def test_connect_worker_dedupes_path_requests(tmp_path, monkeypatch):
+    """Failed connects must not emit a path request every single attempt."""
+    import RNS
+
+    import meshchatnext.src.backend.rrc.manager as rrc_manager
+
+    manager = make_manager(tmp_path)
+    hub = manager.add_hub(bytes(range(16)))
+    hub.auto_reconnect = False
+    calls = []
+    monkeypatch.setattr(rrc_manager, "slowest_online_bitrate", lambda *a, **k: None)
+    monkeypatch.setattr(rrc_manager, "path_response_window", lambda *a, **k: 0.02)
+    monkeypatch.setattr(RNS.Transport, "has_path", lambda *a, **k: False)
+    monkeypatch.setattr(
+        RNS.Transport,
+        "request_path",
+        lambda *a, **k: calls.append(1),
+    )
+    monkeypatch.setattr(RNS.Identity, "recall", lambda *a, **k: None)
+    hub._connect_worker()
+    hub._connect_worker()
+    assert calls == [1]
+    assert hub.status == RRCHub.STATUS_FAILED

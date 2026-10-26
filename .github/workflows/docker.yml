@@ -1,0 +1,367 @@
+# Build multi-arch image, push to GHCR, and keyless-sign the manifest (Cosign).
+# Optionally also push to Docker Hub when credentials are configured (fork-friendly).
+# Runs on push to master (tags :dev and :sha-*), tags (semver tags + :latest),
+# and workflow_dispatch (:latest + :dev + :sha-* on master).
+#
+# Optional Docker Hub (same tag set as GHCR):
+#   Repository secrets (both required to enable Hub push. Omit either to skip):
+#     DOCKERHUB_USERNAME  Docker Hub user or org (e.g. quad4io).
+#     DOCKERHUB_TOKEN     Docker Hub access token (PAT) with push to the target repo.
+#   Optional repository variable:
+#     DOCKERHUB_REPOSITORY  Image name under the user (default: meshchatnext) -> docker.io/$user/$repo
+#
+# Pinned third-party actions (bump tag and SHA together when upgrading).
+# Automated check: first step resolves each tag via api.github.com and
+# compares to the commit below. Manual bump helpers (resolve annotated tags):
+#
+#   curl -sSf -H "Accept: application/vnd.github+json" -H "Authorization: Bearer $GH_TOKEN" \
+#     "https://api.github.com/repos/OWNER/REPO/git/refs/tags/TAG" | jq .
+#   # if object.type is "tag", follow object.url and jq -r .object.sha
+#
+# Pinned refs:
+#   actions/checkout@v6.0.1                 8e8c483db84b4bee98b60c0593521ed34d9990e8
+#   docker/setup-qemu-action@v4.4.0 99012661954931238ded8c8b007157a8430204e1
+#   docker/setup-buildx-action@v4.4.1 f87e5991a6d7451dcb8d9637bfbc97413f497069
+#   docker/login-action@v4.7.0 81c6f93d4bc991e510b342a00b419b3bb4efc5c6
+#   docker/build-push-action@v7.4.0 c3c9e263c25d99ce0380d002d59b67737d91b0dc
+#   sigstore/cosign-installer@v4.1.2 6f9f17788090df1f26f669e9d70d6ae9567deba6
+
+# HK main is Android-focused: container publication is manual via workflow_dispatch.
+# Retain the upstream master trigger without publishing containers on HK CI edits.
+name: Docker (GHCR + Docker Hub)
+
+# Publishing is deliberate while the new repository establishes its release infrastructure.
+on:
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+concurrency:
+    group: docker-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+    cancel-in-progress: true
+
+env:
+    HARDEN_ENDPOINTS: >
+        github.com:443
+        api.github.com:443
+        codeload.github.com:443
+        uploads.github.com:443
+        *.githubusercontent.com:443
+        *.actions.githubusercontent.com:443
+        *.githubapp.com:443
+        *.blob.core.windows.net:443
+        ghcr.io:443
+        azure.archive.ubuntu.com:80
+        archive.ubuntu.com:80
+        *.ubuntu.com:443
+        packages.microsoft.com:443
+        pypi.org:443
+        upload.pypi.org:443
+        *.pythonhosted.org:443
+        registry.npmjs.org:443
+        nodejs.org:443
+        go.dev:443
+        golang.org:443
+        proxy.golang.org:443
+        sum.golang.org:443
+        sh.rustup.rs:443
+        static.rust-lang.org:443
+        static.crates.io:443
+        index.crates.io:443
+        api.adoptium.net:443
+        dl.google.com:443
+        maven.google.com:443
+        repo.maven.apache.org:443
+        services.gradle.org:443
+        repo.gradle.org:443
+        plugins.gradle.org:443
+        chaquo.com:443
+        auth.docker.io:443
+        registry-1.docker.io:443
+        download.docker.com:443
+        production.cloudfront.docker.com:443
+        mirror.gcr.io:443
+        *.sigstore.dev:443
+        check.trivy.dev:443
+        cgr.dev:443
+        *.cgr.dev:443
+        dl-cdn.alpinelinux.org:443
+        *.alpinelinux.org:443
+        *.r2.cloudflarestorage.com:443
+        *.storage.bunnycdn.com:443
+        cdn.quad4.io:443
+        dl.flathub.org:443
+        flathub.org:443
+        api.securityscorecards.dev:443
+        meshchatx.com:443
+        cdn.playwright.dev:443
+        playwright.download.prss.microsoft.com:443
+        *.prss.microsoft.com:443
+        firefox.settings.services.mozilla.com:443
+        *.mozilla.com:443
+        storage.googleapis.com:443
+        *.stepsecurity.io:443
+    REGISTRY: ghcr.io
+    # Official .deb from aquasecurity/trivy releases. Scripts/ci/setup-trivy.sh verifies
+    # checksums.txt (sigstore) + .deb SHA256 + .deb (sigstore). Bump with upstream tags.
+    TRIVY_VERSION: "0.74.0"
+
+jobs:
+    build:
+        runs-on: ubuntu-latest
+        timeout-minutes: 120
+        permissions:
+            contents: read
+            packages: write
+            id-token: write
+        strategy:
+            max-parallel: 3
+            fail-fast: false
+            matrix:
+                include:
+                    - variant: standard
+                      dockerfile: ./docker/Dockerfile
+                      tag_suffix: ""
+                      build_variant: standard
+                      oci_description: "Meshchat neXt is an all-in-one Reticulum client."
+                      oci_licenses: "MIT AND 0BSD"
+                    - variant: hardened
+                      dockerfile: ./docker/Dockerfile.hardened
+                      tag_suffix: "-hardened"
+                      build_variant: standard
+                      oci_description: "Meshchat neXt is an all-in-one Reticulum client."
+                      oci_licenses: "MIT AND 0BSD"
+                    - variant: extra
+                      dockerfile: ./docker/Dockerfile
+                      tag_suffix: "-extra"
+                      build_variant: extra
+                      oci_description: "Meshchat neXt all-in-one Reticulum client with i2pd and yggdrasil."
+                      oci_licenses: "MIT AND 0BSD AND BSD-3-Clause AND LGPL-3.0-only"
+        steps:
+            - name: Harden runner
+              uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+              with:
+                  egress-policy: ${{ runner.os == 'Linux' && 'block' || 'audit' }}
+                  allowed-endpoints: ${{ env.HARDEN_ENDPOINTS }}
+            - name: Verify action pins (GitHub API)
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  set -euo pipefail
+                  hdr=(-H "Accept: application/vnd.github+json" -H "Authorization: Bearer ${GH_TOKEN}")
+                  api="https://api.github.com/repos"
+                  resolve() {
+                    local repo="$1" tag="$2" ref typ url
+                    ref=$(curl -sSf "${hdr[@]}" "${api}/${repo}/git/refs/tags/${tag}")
+                    typ=$(printf '%s' "$ref" | jq -r .object.type)
+                    if [ "$typ" = "commit" ]; then
+                      printf '%s' "$ref" | jq -r .object.sha
+                      return
+                    fi
+                    url=$(printf '%s' "$ref" | jq -r .object.url)
+                    curl -sSf "${hdr[@]}" "$url" | jq -r .object.sha
+                  }
+                  check() {
+                    local repo="$1" tag="$2" want="$3" got
+                    got=$(resolve "$repo" "$tag")
+                    if [ "$got" != "$want" ]; then
+                      printf 'Pin mismatch %s@%s: expected %s got %s\n' "$repo" "$tag" "$want" "$got" >&2
+                      exit 1
+                    fi
+                    printf 'OK %s@%s -> %s\n' "$repo" "$tag" "$got"
+                  }
+                  check actions/checkout v6.0.1 8e8c483db84b4bee98b60c0593521ed34d9990e8
+                  check docker/setup-qemu-action v4.4.0 99012661954931238ded8c8b007157a8430204e1
+                  check docker/setup-buildx-action v4.4.1 f87e5991a6d7451dcb8d9637bfbc97413f497069
+                  check docker/login-action v4.7.0 81c6f93d4bc991e510b342a00b419b3bb4efc5c6
+                  check docker/build-push-action v7.4.0 c3c9e263c25d99ce0380d002d59b67737d91b0dc
+                  check sigstore/cosign-installer v4.1.2 6f9f17788090df1f26f669e9d70d6ae9567deba6
+
+            - name: Checkout
+              uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+              with:
+                  persist-credentials: false
+
+            - name: OCI label timestamps and version
+              id: oci
+              run: |
+                  set -euo pipefail
+                  echo "created=$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> "$GITHUB_OUTPUT"
+                  if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+                    echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+                  else
+                    echo "version=sha-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+                  fi
+
+            - name: Registry image (GHCR lowercase)
+              id: image
+              run: |
+                  set -euo pipefail
+                  lower="$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')"
+                  echo "name=${REGISTRY}/${lower}" >> "$GITHUB_OUTPUT"
+
+            - name: Set up QEMU
+              uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1
+
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
+              with:
+                  # Bound concurrent stages/architectures within each builder.
+                  # Matrix variants run on separate hosted machines.
+                  buildkitd-config-inline: |
+                      [worker.oci]
+                        max-parallelism = 2
+
+            - name: Log in to GHCR
+              uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6
+              with:
+                  registry: ${{ env.REGISTRY }}
+                  username: ${{ github.actor }}
+                  password: ${{ github.token }}
+
+            - name: Detect Docker Hub credentials
+              id: dockerhub
+              env:
+                  DH_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+                  DH_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+              run: |
+                  set -euo pipefail
+                  if [ -n "${DH_USER}" ] && [ -n "${DH_TOKEN}" ]; then
+                    echo "configured=true" >> "$GITHUB_OUTPUT"
+                  else
+                    echo "configured=false" >> "$GITHUB_OUTPUT"
+                  fi
+
+            - name: Log in to Docker Hub
+              if: ${{ steps.dockerhub.outputs.configured == 'true' }}
+              uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6
+              with:
+                  registry: docker.io
+                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+            - name: Generate GHCR tags
+              id: tags
+              env:
+                  GITHUB_REF: ${{ github.ref }}
+                  GITHUB_REF_NAME: ${{ github.ref_name }}
+                  GITHUB_EVENT_NAME: ${{ github.event_name }}
+                  TAG_SUFFIX: ${{ matrix.tag_suffix }}
+                  IMAGE_NAME: ${{ steps.image.outputs.name }}
+              run: |
+                  set -euo pipefail
+                  sh scripts/ci/docker-tags.sh "${IMAGE_NAME}" /tmp/docker-tags.txt
+                  {
+                    echo 'tags<<EOF'
+                    sed 's/^-t //' /tmp/docker-tags.txt
+                    echo 'EOF'
+                  } >> "$GITHUB_OUTPUT"
+
+            - name: Generate Docker Hub tags
+              id: dh_tags
+              if: ${{ steps.dockerhub.outputs.configured == 'true' }}
+              env:
+                  GITHUB_REF: ${{ github.ref }}
+                  GITHUB_REF_NAME: ${{ github.ref_name }}
+                  GITHUB_EVENT_NAME: ${{ github.event_name }}
+                  TAG_SUFFIX: ${{ matrix.tag_suffix }}
+                  DH_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+                  DH_REPO_NAME: ${{ vars.DOCKERHUB_REPOSITORY }}
+              run: |
+                  set -euo pipefail
+                  repo="${DH_REPO_NAME:-meshchatnext}"
+                  base="docker.io/$(printf '%s' "$DH_USER" | tr '[:upper:]' '[:lower:]')/$(printf '%s' "$repo" | tr '[:upper:]' '[:lower:]')"
+                  sh scripts/ci/docker-tags.sh "${base}" /tmp/docker-hub-tags.txt
+                  {
+                    echo 'tags<<EOF'
+                    sed 's/^-t //' /tmp/docker-hub-tags.txt
+                    echo 'EOF'
+                  } >> "$GITHUB_OUTPUT"
+
+            # GHCR accepts OCI zstd layers. Docker.io regular repos still
+            # expect gzip, so the Hub export is a second cache-hit build.
+            # build-push-action has no compression inputs. They go through the
+            # image exporter options in `outputs`.
+            - name: Build and push (GHCR, zstd layers)
+              id: build
+              uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc
+              with:
+                  context: .
+                  file: ${{ matrix.dockerfile }}
+                  platforms: linux/amd64,linux/arm64
+                  sbom: true
+                  provenance: mode=max
+                  outputs: type=image,push=true,compression=zstd,force-compression=true,oci-mediatypes=true
+                  tags: ${{ steps.tags.outputs.tags }}
+                  cache-from: type=gha,scope=${{ matrix.variant }}
+                  cache-to: type=gha,mode=max,scope=${{ matrix.variant }}
+                  build-args: |
+                      OCI_REVISION=${{ github.sha }}
+                      OCI_VERSION=${{ steps.oci.outputs.version }}
+                      OCI_CREATED=${{ steps.oci.outputs.created }}
+                      VARIANT=${{ matrix.build_variant }}
+                      OCI_DESCRIPTION=${{ matrix.oci_description }}
+                      OCI_LICENSES=${{ matrix.oci_licenses }}
+
+            - name: Build and push (Docker Hub, gzip layers)
+              if: ${{ steps.dockerhub.outputs.configured == 'true' }}
+              uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc
+              with:
+                  context: .
+                  file: ${{ matrix.dockerfile }}
+                  platforms: linux/amd64,linux/arm64
+                  push: true
+                  sbom: true
+                  provenance: mode=max
+                  tags: ${{ steps.dh_tags.outputs.tags }}
+                  cache-from: type=gha,scope=${{ matrix.variant }}
+                  build-args: |
+                      OCI_REVISION=${{ github.sha }}
+                      OCI_VERSION=${{ steps.oci.outputs.version }}
+                      OCI_CREATED=${{ steps.oci.outputs.created }}
+                      VARIANT=${{ matrix.build_variant }}
+                      OCI_DESCRIPTION=${{ matrix.oci_description }}
+                      OCI_LICENSES=${{ matrix.oci_licenses }}
+
+            - name: Verify image has no package bloat
+              env:
+                  IMAGE_NAME: ${{ steps.image.outputs.name }}
+                  IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+              run: |
+                  set -euo pipefail
+                  img="${IMAGE_NAME}@${IMAGE_DIGEST}"
+                  docker pull --platform linux/amd64 "$img"
+                  bash scripts/ci/verify-package-contents.sh docker "$img"
+
+            - name: Apt update (for Trivy .deb)
+              run: sh scripts/ci/exec-priv.sh apt-get update -qq
+
+            - name: Setup Trivy
+              run: sh scripts/ci/setup-trivy.sh
+
+            - name: Trivy image scan (amd64)
+              env:
+                  IMAGE_NAME: ${{ steps.image.outputs.name }}
+                  IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+              run: |
+                  set -euo pipefail
+                  # amd64 layer already pulled above. --ignore-unfixed keeps the gate
+                  # actionable (fails only when a fix exists upstream). openvex.json
+                  # statements suppress not_affected/fixed findings.
+                  trivy image --exit-code 1 --severity HIGH,CRITICAL \
+                    --ignore-unfixed --vex openvex.json \
+                    "${IMAGE_NAME}@${IMAGE_DIGEST}"
+
+            - name: Install Cosign
+              uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
+
+            - name: Cosign sign (keyless, GHCR only)
+              env:
+                  COSIGN_YES: "true"
+                  IMAGE_NAME: ${{ steps.image.outputs.name }}
+                  IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+              run: |
+                  set -euo pipefail
+                  test -n "${IMAGE_DIGEST}"
+                  cosign sign "${IMAGE_NAME}@${IMAGE_DIGEST}"

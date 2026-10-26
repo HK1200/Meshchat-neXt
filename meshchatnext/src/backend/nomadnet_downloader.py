@@ -1,0 +1,808 @@
+# SPDX-License-Identifier: 0BSD
+
+import asyncio
+import io
+import logging
+import threading
+import time
+from collections.abc import Callable
+
+import RNS
+
+from meshchatnext.src.backend import reticulum_pathfinding, traffic_stats
+from meshchatnext.src.backend.async_utils import AsyncUtils
+from meshchatnext.src.backend.path_utils import (
+    link_establishment_window,
+    path_response_window,
+)
+from meshchatnext.src.backend.reticulum_pathfinding import ReticulumLike
+from meshchatnext.src.path_utils import safe_basename
+
+# Global cache for Nomad Network links (reuse instead of reconnecting per request).
+# Protected by _nomadnet_links_lock for callers that may touch Reticulum from multiple threads.
+# Cleared on identity switch / RNS reload. Must not outlive the active IdentityContext.
+nomadnet_cached_links: dict[bytes, object] = {}
+_nomadnet_link_last_used: dict[bytes, float] = {}
+_nomadnet_links_lock = threading.Lock()
+
+# Cap active Nomad links retained in process memory.
+MAX_CACHED_LINKS = 32
+LINK_IDLE_TTL_S = 30 * 60
+
+# Wait granularity while polling for path / link (seconds). Smaller = faster reaction, slightly more wakeups.
+_POLL_INTERVAL_S = 0.02
+
+# Floor for the request watchdog. RNS scales the window by link RTT, but a
+# zero-ish RTT on loopback/test links would otherwise cut off slow nodes.
+_MIN_REQUEST_WATCHDOG_S = 30.0
+
+logger = logging.getLogger(__name__)
+
+
+def cached_link_count() -> int:
+    with _nomadnet_links_lock:
+        return len(nomadnet_cached_links)
+
+
+def get_cached_active_link(destination_hash: bytes):
+    """Return a cached link if present and ACTIVE. Drop stale entries."""
+    with _nomadnet_links_lock:
+        link = nomadnet_cached_links.get(destination_hash)
+        if link is None:
+            return None
+        if link.status is RNS.Link.ACTIVE:
+            _nomadnet_link_last_used[destination_hash] = time.time()
+            return link
+        try:
+            del nomadnet_cached_links[destination_hash]
+        except KeyError:
+            pass
+        _nomadnet_link_last_used.pop(destination_hash, None)
+        return None
+
+
+def _teardown_links(links) -> None:
+    for link in links:
+        if link is None:
+            continue
+        try:
+            link.teardown()
+        except Exception:
+            pass
+
+
+def clear_all_nomadnet_cached_links() -> int:
+    """Tear down every cached Nomad link (identity switch / RNS reload).
+
+    sweep_stale_links leaves ACTIVE links alone. Those objects are tied to the
+    prior identity / transport and must not be reused after switch.
+    """
+    with _nomadnet_links_lock:
+        to_teardown = list(nomadnet_cached_links.values())
+        count = len(to_teardown)
+        nomadnet_cached_links.clear()
+        _nomadnet_link_last_used.clear()
+    _teardown_links(to_teardown)
+    return count
+
+
+def sweep_stale_links():
+    """Evict non-ACTIVE, idle, and over-cap links from the global cache."""
+    now = time.time()
+    to_teardown = []
+    with _nomadnet_links_lock:
+        stale = [
+            k
+            for k, v in nomadnet_cached_links.items()
+            if v.status is not RNS.Link.ACTIVE
+        ]
+        for k in stale:
+            to_teardown.append(nomadnet_cached_links.pop(k, None))
+            _nomadnet_link_last_used.pop(k, None)
+
+        idle = [
+            k
+            for k, last in _nomadnet_link_last_used.items()
+            if k in nomadnet_cached_links and now - last > LINK_IDLE_TTL_S
+        ]
+        for k in idle:
+            to_teardown.append(nomadnet_cached_links.pop(k, None))
+            _nomadnet_link_last_used.pop(k, None)
+
+        while len(nomadnet_cached_links) > MAX_CACHED_LINKS:
+            oldest_key = min(
+                nomadnet_cached_links.keys(),
+                key=lambda k: _nomadnet_link_last_used.get(k, 0.0),
+            )
+            to_teardown.append(nomadnet_cached_links.pop(oldest_key, None))
+            _nomadnet_link_last_used.pop(oldest_key, None)
+
+        orphans = [
+            k for k in _nomadnet_link_last_used if k not in nomadnet_cached_links
+        ]
+        for k in orphans:
+            del _nomadnet_link_last_used[k]
+    _teardown_links(to_teardown)
+
+
+def drop_cached_link(destination_hash: bytes) -> bool:
+    """Tear down and remove a single cached Nomad link (e.g. after clearing identify)."""
+    with _nomadnet_links_lock:
+        link = nomadnet_cached_links.pop(destination_hash, None)
+        _nomadnet_link_last_used.pop(destination_hash, None)
+    if link is None:
+        return False
+    _teardown_links([link])
+    return True
+
+
+def nomad_link_identity_kwargs(
+    app, destination_hash: bytes, *, private: bool = False
+) -> dict:
+    """Resolve local_identity / identify_on_connect for Nomad downloaders."""
+    if private:
+        return {"local_identity": None, "identify_on_connect": False}
+    identify = False
+    try:
+        db = getattr(app, "database", None)
+        if db is not None:
+            identify = bool(
+                db.announces.should_identify_on_connect(destination_hash.hex()),
+            )
+    except Exception:
+        identify = False
+    return {
+        "local_identity": getattr(app, "identity", None),
+        "identify_on_connect": identify,
+    }
+
+
+def _cache_link_if_active(destination_hash: bytes, link) -> None:
+    if link is None or link.status is not RNS.Link.ACTIVE:
+        return
+    to_teardown = []
+    with _nomadnet_links_lock:
+        nomadnet_cached_links[destination_hash] = link
+        _nomadnet_link_last_used[destination_hash] = time.time()
+        while len(nomadnet_cached_links) > MAX_CACHED_LINKS:
+            candidates = [k for k in nomadnet_cached_links if k != destination_hash]
+            if not candidates:
+                break
+            # Evict idle or stale links before tearing down an active one.
+            non_active = [
+                k
+                for k in candidates
+                if nomadnet_cached_links[k].status is not RNS.Link.ACTIVE
+            ]
+            if non_active:
+                candidates = non_active
+            else:
+                # All other cached links are still active. Do not tear down
+                # a link that may be carrying an in-flight request.
+                break
+            oldest_key = min(
+                candidates,
+                key=lambda k: _nomadnet_link_last_used.get(k, 0.0),
+            )
+            to_teardown.append(nomadnet_cached_links.pop(oldest_key, None))
+            _nomadnet_link_last_used.pop(oldest_key, None)
+    _teardown_links(to_teardown)
+
+
+def _uncache_link_if_matches(destination_hash: bytes, link) -> None:
+    if link is None:
+        return
+    with _nomadnet_links_lock:
+        if nomadnet_cached_links.get(destination_hash) is link:
+            try:
+                del nomadnet_cached_links[destination_hash]
+            except KeyError:
+                pass
+            _nomadnet_link_last_used.pop(destination_hash, None)
+
+
+class NomadnetDownloader:
+    def __init__(
+        self,
+        destination_hash: bytes,
+        path: str,
+        data: object | None,
+        on_download_success: Callable[[RNS.RequestReceipt], None],
+        on_download_failure: Callable[[str], None],
+        on_progress_update: Callable[[float], None],
+        timeout: int | None = None,
+        *,
+        on_phase: Callable[[str], None] | None = None,
+        reticulum: ReticulumLike | None = None,
+        private: bool = False,
+        local_identity=None,
+        identify_on_connect: bool = False,
+        traffic_component: str = traffic_stats.COMPONENT_NOMADNET,
+    ):
+        self.app_name = "nomadnetwork"
+        self.aspects = "node"
+        self.destination_hash = destination_hash
+        self.path = path
+        self.data = data
+        self.timeout = timeout
+        self._download_success_callback = on_download_success
+        self._download_failure_callback = on_download_failure
+        self.on_progress_update = on_progress_update
+        self._on_phase = on_phase
+        self._reticulum = reticulum
+        # Private browse: no shared link cache, tear down after the request.
+        # Does not spin IdentityContext. Nomad links stay unidentified.
+        self.private = bool(private)
+        self.local_identity = local_identity
+        self.identify_on_connect = bool(identify_on_connect) and not self.private
+        self.traffic_component = traffic_component
+        self._link_tx0 = None
+        self._link_rx0 = None
+        self.request_receipt = None
+        self.is_cancelled = False
+        self._outcome_delivered = False
+        self._outcome_lock = threading.Lock()
+        self.link = None
+
+    def _emit_phase(self, phase: str) -> None:
+        if self._on_phase is None:
+            return
+        try:
+            self._on_phase(phase)
+        except Exception:
+            pass
+
+    def _maybe_identify(self, link) -> None:
+        if not self.identify_on_connect or self.local_identity is None:
+            return
+        if link is None or link.status is not RNS.Link.ACTIVE:
+            return
+        try:
+            link.identify(self.local_identity)
+        except Exception as exc:
+            logger.warning("identify failed: %s", exc)
+
+    def _deliver_failure(self, reason: str) -> None:
+        with self._outcome_lock:
+            if self._outcome_delivered:
+                return
+            self._outcome_delivered = True
+        try:
+            self._download_failure_callback(reason)
+        except Exception:
+            pass
+
+    def _maybe_teardown_abandoned_link(self) -> None:
+        if self.link is None:
+            return
+        if self.private:
+            self._teardown_private_link()
+            return
+        with _nomadnet_links_lock:
+            is_shared = nomadnet_cached_links.get(self.destination_hash) is self.link
+        if not is_shared:
+            try:
+                self.link.teardown()
+            except Exception:
+                pass
+            self.link = None
+
+    def cancel(self):
+        if self.is_cancelled or self._outcome_delivered:
+            return
+        self.is_cancelled = True
+
+        if self.request_receipt is not None:
+            try:
+                if (
+                    hasattr(self.request_receipt, "resource")
+                    and self.request_receipt.resource is not None
+                ):
+                    self.request_receipt.resource.cancel()
+                else:
+                    self.request_receipt.status = RNS.RequestReceipt.FAILED
+                    if (
+                        hasattr(self.request_receipt, "link")
+                        and self.request_receipt.link is not None
+                        and self.request_receipt
+                        in self.request_receipt.link.pending_requests
+                    ):
+                        self.request_receipt.link.pending_requests.remove(
+                            self.request_receipt,
+                        )
+            except Exception as e:
+                logger.warning("failed to cancel request: %s", e)
+
+        self._maybe_teardown_abandoned_link()
+
+        self._deliver_failure("cancelled")
+
+    def _teardown_private_link(self) -> None:
+        if not self.private or self.link is None:
+            return
+        link = self.link
+        self.link = None
+        try:
+            link.teardown()
+        except Exception:
+            pass
+
+    async def download(
+        self,
+        path_lookup_timeout: float | None = None,
+        link_establishment_timeout: float | None = None,
+    ):
+        try:
+            await self._download_inner(
+                path_lookup_timeout=path_lookup_timeout,
+                link_establishment_timeout=link_establishment_timeout,
+            )
+        except Exception as exc:
+            if self.is_cancelled or self._outcome_delivered:
+                return
+            logger.warning("download failed: %s", exc)
+            self._deliver_failure(str(exc) or "download_failed")
+            self._maybe_teardown_abandoned_link()
+
+    async def _download_inner(
+        self,
+        path_lookup_timeout: float | None = None,
+        link_establishment_timeout: float | None = None,
+    ):
+        if self.is_cancelled or self._outcome_delivered:
+            return
+
+        if not self.private:
+            cached = get_cached_active_link(self.destination_hash)
+            if cached is not None:
+                logger.debug("using existing link for request")
+                self._emit_phase("requesting_page")
+                self.link = cached
+                self.link_established(cached)
+                return
+
+        if path_lookup_timeout is None:
+            path_lookup_timeout = path_response_window(
+                self.destination_hash,
+                self._reticulum,
+            )
+        timeout_after_seconds = time.time() + path_lookup_timeout
+
+        # Prefer a live path over dropping on soft expiry. Announces can still
+        # show as fresh in the UI while the path table marks DESTINATION_TIMEOUT.
+        # Only rediscover when missing or Transport says the path is unresponsive.
+        has_path = RNS.Transport.has_path(self.destination_hash)
+        unresponsive = False
+        if has_path:
+            try:
+                unresponsive = bool(
+                    RNS.Transport.path_is_unresponsive(self.destination_hash),
+                )
+            except Exception:
+                unresponsive = False
+        if not has_path or unresponsive:
+            reticulum_pathfinding.prepare_fresh_path_request(
+                self._reticulum,
+                self.destination_hash,
+            )
+
+        if not RNS.Transport.has_path(self.destination_hash):
+            self._emit_phase("finding_path")
+
+            while (
+                not RNS.Transport.has_path(self.destination_hash)
+                and time.time() < timeout_after_seconds
+            ):
+                if self.is_cancelled or self._outcome_delivered:
+                    return
+                await asyncio.sleep(_POLL_INTERVAL_S)
+
+        if not RNS.Transport.has_path(self.destination_hash):
+            self._deliver_failure("Could not find path to destination.")
+            return
+
+        if not self.private:
+            cached = get_cached_active_link(self.destination_hash)
+            if cached is not None:
+                logger.debug("using link cached while waiting for path")
+                self._emit_phase("requesting_page")
+                self.link = cached
+                self.link_established(cached)
+                return
+
+        if self.is_cancelled or self._outcome_delivered:
+            return
+
+        self._emit_phase("establishing_link")
+        identity = RNS.Identity.recall(self.destination_hash)
+        if identity is None:
+            # Path table can list a dest before Identity.recall has the key.
+            # Requesting the path again often recovers. Do not crash the task.
+            reticulum_pathfinding.nudge_path_request(self.destination_hash)
+            self._deliver_failure(
+                "No identity key for destination yet. Try Path Finder or wait for an announce.",
+            )
+            return
+
+        destination = RNS.Destination(
+            identity,
+            RNS.Destination.OUT,
+            RNS.Destination.SINGLE,
+            self.app_name,
+            self.aspects,
+        )
+
+        if not self.private:
+            cached = get_cached_active_link(self.destination_hash)
+            if cached is not None:
+                logger.debug("using link cached before establishing new link")
+                self._emit_phase("requesting_page")
+                self.link = cached
+                self.link_established(cached)
+                return
+
+        logger.debug("establishing new link for request")
+        link = RNS.Link(destination, established_callback=self.link_established)
+        self.link = link
+
+        if link_establishment_timeout is None:
+            link_establishment_timeout = link_establishment_window(
+                link,
+                self.destination_hash,
+                self._reticulum,
+            )
+        timeout_after_seconds = time.time() + link_establishment_timeout
+
+        while (
+            link.status is not RNS.Link.ACTIVE and time.time() < timeout_after_seconds
+        ):
+            if self.is_cancelled or self._outcome_delivered:
+                return
+            await asyncio.sleep(_POLL_INTERVAL_S)
+
+        if link.status is not RNS.Link.ACTIVE:
+            self._deliver_failure("Could not establish link to destination.")
+            self._maybe_teardown_abandoned_link()
+            return
+
+    def link_established(self, link):
+        if self.is_cancelled or self._outcome_delivered:
+            return
+
+        try:
+            self._link_tx0 = link.txbytes
+            self._link_rx0 = link.rxbytes
+        except Exception:
+            self._link_tx0 = None
+            self._link_rx0 = None
+
+        self._emit_phase("transferring")
+
+        if not self.private:
+            _cache_link_if_active(self.destination_hash, link)
+
+        self._maybe_identify(link)
+
+        try:
+            receipt = link.request(
+                self.path,
+                data=self.data,
+                response_callback=self.on_response,
+                failed_callback=self.on_failed,
+                progress_callback=self.on_progress,
+                timeout=self.timeout,
+            )
+        except Exception as exc:
+            _uncache_link_if_matches(self.destination_hash, link)
+            self._deliver_failure(str(exc) or "Could not send request to node.")
+            self._maybe_teardown_abandoned_link()
+            return
+        if not receipt:
+            _uncache_link_if_matches(self.destination_hash, link)
+            self._deliver_failure("Could not send request to node.")
+            self._maybe_teardown_abandoned_link()
+            return
+        self.request_receipt = receipt
+        AsyncUtils.run_async(self._watch_request_receipt(link))
+
+    async def _watch_request_receipt(self, link) -> None:
+        """Bound the wait for a link request to conclude.
+
+        RNS invokes failed_callback only once a receipt reaches DELIVERED.
+        A packet request stuck in SENT, an unanswered request, or a link
+        torn down mid-request, never times out upstream, so enforce the
+        window here.
+        """
+        receipt = self.request_receipt
+        if receipt is None:
+            return
+        try:
+            if self.timeout is not None:
+                window = float(self.timeout)
+            else:
+                rtt = getattr(link, "rtt", None) or 0.0
+                factor = getattr(
+                    link,
+                    "traffic_timeout_factor",
+                    RNS.Link.TRAFFIC_TIMEOUT_FACTOR,
+                )
+                window = rtt * factor + RNS.Resource.RESPONSE_MAX_GRACE_TIME * 1.125
+            window = max(window, _MIN_REQUEST_WATCHDOG_S)
+        except Exception:
+            window = _MIN_REQUEST_WATCHDOG_S
+
+        deadline = time.monotonic() + window
+        last_progress = getattr(receipt, "progress", None) or 0.0
+        reason = None
+        while not self._outcome_delivered and not self.is_cancelled:
+            if link.status is RNS.Link.CLOSED:
+                reason = "Link to node closed before the request completed."
+                break
+            if time.monotonic() > deadline:
+                reason = "Request timed out. The node did not respond."
+                break
+            await asyncio.sleep(_POLL_INTERVAL_S)
+            progress = getattr(receipt, "progress", None) or 0.0
+            if progress != last_progress:
+                last_progress = progress
+                deadline = time.monotonic() + window
+
+        if reason is None or self.is_cancelled or self._outcome_delivered:
+            return
+        # A request that never concluded means the link is dead or
+        # half-open: evict it so the next attempt does not reuse it.
+        _uncache_link_if_matches(self.destination_hash, link)
+        self._deliver_failure(reason)
+        self._maybe_teardown_abandoned_link()
+
+    def _claim_outcome(self) -> bool:
+        """Atomically claim the single outcome slot across callback threads."""
+        with self._outcome_lock:
+            if self.is_cancelled or self._outcome_delivered:
+                return False
+            self._outcome_delivered = True
+        self._record_link_traffic()
+        return True
+
+    def _record_link_traffic(self) -> None:
+        """Attribute link byte deltas to this downloader's component."""
+        link = self.link
+        if link is None or self._link_tx0 is None or self._link_rx0 is None:
+            return
+        try:
+            tx = max(0, link.txbytes - self._link_tx0)
+            rx = max(0, link.rxbytes - self._link_rx0)
+            traffic_stats.get_meter().record(
+                self.traffic_component,
+                tx=tx,
+                rx=rx,
+                peer=self.destination_hash.hex(),
+            )
+        except Exception:
+            pass
+
+    def on_response(self, request_receipt: RNS.RequestReceipt):
+        if not self._claim_outcome():
+            self._teardown_private_link()
+            return
+        logger.debug(
+            "on_response called with type %s: %s",
+            type(request_receipt),
+            request_receipt,
+        )
+        try:
+            self._download_success_callback(request_receipt)
+        finally:
+            self._teardown_private_link()
+
+    def on_failed(self, request_receipt=None):
+        if not self._claim_outcome():
+            self._teardown_private_link()
+            return
+        try:
+            self._download_failure_callback("request_failed")
+        finally:
+            self._teardown_private_link()
+
+    def on_progress(self, request_receipt):
+        if self.is_cancelled or self._outcome_delivered:
+            return
+        self.on_progress_update(request_receipt.progress)
+
+
+class NomadnetPageDownloader(NomadnetDownloader):
+    def __init__(
+        self,
+        destination_hash: bytes,
+        page_path: str,
+        data: object | None,
+        on_page_download_success: Callable[[str], None],
+        on_page_download_failure: Callable[[str], None],
+        on_progress_update: Callable[[float], None],
+        timeout: int | None = None,
+        *,
+        on_phase: Callable[[str], None] | None = None,
+        reticulum: ReticulumLike | None = None,
+        private: bool = False,
+        local_identity=None,
+        identify_on_connect: bool = False,
+        max_bytes: int | None = None,
+        traffic_component: str = traffic_stats.COMPONENT_NOMADNET,
+    ):
+        self.on_page_download_success = on_page_download_success
+        self.on_page_download_failure = on_page_download_failure
+        self._max_bytes = int(max_bytes) if max_bytes else None
+        super().__init__(
+            destination_hash,
+            page_path,
+            data,
+            self.on_download_success,
+            self.on_download_failure,
+            on_progress_update,
+            timeout,
+            on_phase=on_phase,
+            reticulum=reticulum,
+            private=private,
+            local_identity=local_identity,
+            identify_on_connect=identify_on_connect,
+            traffic_component=traffic_component,
+        )
+
+    def on_download_success(self, request_receipt: RNS.RequestReceipt):
+        if not isinstance(request_receipt, RNS.RequestReceipt):
+            logger.warning(
+                "on_download_success got %s instead of RequestReceipt: %s",
+                type(request_receipt),
+                request_receipt,
+            )
+        raw = request_receipt.response
+        if raw is None:
+            self.on_page_download_failure("empty_response")
+            return
+        if (
+            self._max_bytes is not None
+            and isinstance(raw, (bytes, bytearray, memoryview))
+            and len(raw) > self._max_bytes
+        ):
+            # Reject before decode/archive so a hostile node cannot push an
+            # unbounded page into memory and onto disk.
+            self.on_page_download_failure("page_too_large")
+            return
+        try:
+            micron_markup_response = raw.decode("utf-8", errors="replace")
+        except (AttributeError, TypeError):
+            self.on_page_download_failure("invalid_response_body")
+            return
+        self.on_page_download_success(micron_markup_response)
+
+    def on_download_failure(self, failure_reason):
+        self.on_page_download_failure(failure_reason)
+
+
+class NomadnetFileDownloader(NomadnetDownloader):
+    def __init__(
+        self,
+        destination_hash: bytes,
+        page_path: str,
+        on_file_download_success: Callable[[str, bytes], None],
+        on_file_download_failure: Callable[[str], None],
+        on_progress_update: Callable[[float], None],
+        data: object | None = None,
+        timeout: int | None = None,
+        *,
+        on_phase: Callable[[str], None] | None = None,
+        reticulum: ReticulumLike | None = None,
+        max_bytes: int | None = None,
+        private: bool = False,
+        local_identity=None,
+        identify_on_connect: bool = False,
+    ):
+        self.on_file_download_success = on_file_download_success
+        self.on_file_download_failure = on_file_download_failure
+        self._max_bytes = int(max_bytes) if max_bytes else None
+        self._oversize = False
+        super().__init__(
+            destination_hash,
+            page_path,
+            data,
+            self.on_download_success,
+            self.on_download_failure,
+            on_progress_update,
+            timeout,
+            on_phase=on_phase,
+            reticulum=reticulum,
+            private=private,
+            local_identity=local_identity,
+            identify_on_connect=identify_on_connect,
+        )
+
+    @staticmethod
+    def _safe_file_name(name) -> str:
+        try:
+            if isinstance(name, (bytes, bytearray)):
+                name = name.decode("utf-8", errors="replace")
+            base = safe_basename(str(name).replace("\x00", ""))
+        except (AttributeError, TypeError, ValueError):
+            return "downloaded_file"
+        if base is None:
+            return "downloaded_file"
+        # Drop path separators, control chars, and nulls that survive basename.
+        base = "".join(
+            ch for ch in base if ch.isprintable() and ch not in "/\\\x00"
+        ).strip()
+        if not base or base in {".", ".."}:
+            return "downloaded_file"
+        return base
+
+    def _payload_bytes(self, payload) -> bytes | None:
+        cap = self._max_bytes
+        if isinstance(payload, io.BufferedReader):
+            if cap is None:
+                return payload.read()
+            data = payload.read(cap + 1)
+            if len(data) > cap:
+                self._oversize = True
+                return None
+            return data
+        if isinstance(payload, (bytes, bytearray, memoryview)):
+            data = bytes(payload)
+            if cap is not None and len(data) > cap:
+                self._oversize = True
+                return None
+            return data
+        return None
+
+    def _fail_payload(self) -> None:
+        if self._oversize:
+            self.on_file_download_failure("file_too_large")
+            return
+        self.on_file_download_failure("unsupported_response")
+
+    def on_download_success(self, request_receipt: RNS.RequestReceipt):
+        self._oversize = False
+        response = request_receipt.response
+
+        if isinstance(response, io.BufferedReader):
+            file_name = "downloaded_file"
+            metadata = request_receipt.metadata
+            if isinstance(metadata, dict) and "name" in metadata:
+                file_name = self._safe_file_name(metadata["name"])
+
+            payload = self._payload_bytes(response)
+            if payload is None:
+                self._fail_payload()
+                return
+
+            self.on_file_download_success(file_name, payload)
+            return
+
+        if (
+            isinstance(response, list)
+            and len(response) > 1
+            and isinstance(response[1], dict)
+        ):
+            payload = self._payload_bytes(response[0])
+            if payload is None:
+                self._fail_payload()
+                return
+            metadata = response[1]
+
+            file_name = "downloaded_file"
+            if "name" in metadata:
+                file_name = self._safe_file_name(metadata["name"])
+
+            self.on_file_download_success(file_name, payload)
+            return
+
+        try:
+            file_name = self._safe_file_name(response[0])
+            payload = self._payload_bytes(response[1])
+            if payload is None:
+                self._fail_payload()
+                return
+            self.on_file_download_success(file_name, payload)
+        except Exception:
+            self.on_download_failure("unsupported_response")
+
+    def on_download_failure(self, failure_reason):
+        self.on_file_download_failure(failure_reason)

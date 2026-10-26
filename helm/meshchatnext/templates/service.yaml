@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+    name: {{ include "meshchatnext.fullname" . }}
+    labels:
+        {{- include "meshchatnext.labels" . | nindent 8 }}
+spec:
+    type: {{ .Values.service.type }}
+    ports:
+        - port: {{ .Values.service.port }}
+          targetPort: https
+          protocol: TCP
+          name: https
+    selector:
+        {{- include "meshchatnext.selectorLabels" . | nindent 8 }}

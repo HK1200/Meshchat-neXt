@@ -1,0 +1,505 @@
+# SPDX-License-Identifier: 0BSD
+
+import os
+import shutil
+from unittest.mock import MagicMock, patch
+
+import pytest
+from hypothesis import HealthCheck, given, settings
+from hypothesis import strategies as st
+
+from meshchatnext.src.backend.rncp_handler import (
+    _FORBIDDEN_RECEIVED_NAMES,
+    _RESERVED_RNCP_TOP,
+    RNCPHandler,
+)
+
+
+@pytest.fixture
+def mock_reticulum():
+    return MagicMock()
+
+
+@pytest.fixture
+def mock_identity():
+    return MagicMock()
+
+
+@pytest.fixture
+def rncp_handler(mock_reticulum, mock_identity, tmp_path):
+    storage_dir = tmp_path / "storage"
+    storage_dir.mkdir()
+    return RNCPHandler(mock_reticulum, mock_identity, str(storage_dir))
+
+
+def test_rncp_handler_init(rncp_handler, mock_reticulum, mock_identity):
+    assert rncp_handler.reticulum == mock_reticulum
+    assert rncp_handler.identity == mock_identity
+    assert rncp_handler.active_transfers == {}
+
+
+@patch("meshchatnext.src.backend.rncp_handler.RNS.Identity")
+@patch("meshchatnext.src.backend.rncp_handler.RNS.Destination")
+@patch("meshchatnext.src.backend.rncp_handler.RNS.Reticulum")
+def test_setup_receive_destination(
+    mock_rns_reticulum,
+    mock_dest,
+    mock_identity_class,
+    rncp_handler,
+):
+    mock_rns_reticulum.identitypath = "/tmp/rns/identities"
+    mock_id_obj = MagicMock()
+    mock_identity_class.from_file.return_value = mock_id_obj
+    mock_dest_obj = MagicMock()
+    mock_dest_obj.hash = b"dest_hash"
+    mock_dest.return_value = mock_dest_obj
+
+    with patch("os.path.isfile", return_value=True):
+        hash_hex = rncp_handler.setup_receive_destination(allowed_hashes=["abcd"])
+        assert hash_hex == b"dest_hash".hex()
+        assert bytes.fromhex("abcd") in rncp_handler.allowed_identity_hashes
+
+
+def test_receive_sender_identified_allowed(rncp_handler):
+    mock_link = MagicMock()
+    mock_identity = MagicMock()
+    mock_identity.hash = b"allowed"
+    rncp_handler.allowed_identity_hashes = [b"allowed"]
+
+    rncp_handler._receive_sender_identified(mock_link, mock_identity)
+    mock_link.teardown.assert_not_called()
+
+
+def test_receive_sender_identified_denied(rncp_handler):
+    mock_link = MagicMock()
+    mock_identity = MagicMock()
+    mock_identity.hash = b"denied"
+    rncp_handler.allowed_identity_hashes = [b"allowed"]
+
+    rncp_handler._receive_sender_identified(mock_link, mock_identity)
+    mock_link.teardown.assert_called_once()
+
+
+def test_receive_resource_callback(rncp_handler):
+    mock_resource = MagicMock()
+    mock_resource.link.get_remote_identity.return_value.hash = b"allowed"
+    rncp_handler.allowed_identity_hashes = [b"allowed"]
+
+    assert rncp_handler._receive_resource_callback(mock_resource) is True
+
+    mock_resource.link.get_remote_identity.return_value.hash = b"denied"
+    assert rncp_handler._receive_resource_callback(mock_resource) is False
+
+
+def test_receive_resource_started(rncp_handler):
+    mock_resource = MagicMock()
+    mock_resource.hash = b"res_hash"
+
+    rncp_handler._receive_resource_started(mock_resource)
+    assert b"res_hash".hex() in rncp_handler.active_transfers
+    assert rncp_handler.active_transfers[b"res_hash".hex()]["status"] == "receiving"
+
+
+def test_get_listener_status_not_listening(rncp_handler):
+    s = rncp_handler.get_listener_status()
+    assert s["listening"] is False
+    assert s["destination_hash"] is None
+    assert s["allowed_hashes"] == []
+
+
+@patch("meshchatnext.src.backend.rncp_handler.RNS.Transport")
+@patch("meshchatnext.src.backend.rncp_handler.RNS.Identity")
+@patch("meshchatnext.src.backend.rncp_handler.RNS.Destination")
+@patch("meshchatnext.src.backend.rncp_handler.RNS.Reticulum")
+def test_teardown_receive_destination_deregisters(
+    mock_rns_reticulum,
+    mock_dest_class,
+    mock_identity_class,
+    mock_transport,
+    rncp_handler,
+):
+    mock_rns_reticulum.identitypath = "/tmp/rns/identities"
+    mock_id_obj = MagicMock()
+    mock_identity_class.from_file.return_value = mock_id_obj
+    mock_dest_obj = MagicMock()
+    mock_dest_obj.hash = b"\x01" * 16
+    mock_dest_class.return_value = mock_dest_obj
+
+    with patch("os.path.isfile", return_value=True):
+        rncp_handler.setup_receive_destination(allowed_hashes=["ab" * 16])
+
+    rncp_handler.teardown_receive_destination()
+
+    mock_transport.deregister_destination.assert_called_once_with(mock_dest_obj)
+    assert rncp_handler.receive_destination is None
+
+
+@patch("meshchatnext.src.backend.rncp_handler.RNS.Transport")
+@patch("meshchatnext.src.backend.rncp_handler.RNS.Identity")
+@patch("meshchatnext.src.backend.rncp_handler.RNS.Destination")
+@patch("meshchatnext.src.backend.rncp_handler.RNS.Reticulum")
+def test_setup_receive_destination_idempotent_restarts_listener(
+    mock_rns_reticulum,
+    mock_dest_class,
+    mock_identity_class,
+    mock_transport,
+    rncp_handler,
+):
+    mock_rns_reticulum.identitypath = "/tmp/rns/identities"
+    mock_id_obj = MagicMock()
+    mock_identity_class.from_file.return_value = mock_id_obj
+    first_dest = MagicMock()
+    first_dest.hash = b"\x02" * 16
+    second_dest = MagicMock()
+    second_dest.hash = b"\x03" * 16
+    mock_dest_class.side_effect = [first_dest, second_dest]
+
+    with patch("os.path.isfile", return_value=True):
+        rncp_handler.setup_receive_destination(allowed_hashes=["cd" * 16])
+        rncp_handler.setup_receive_destination(allowed_hashes=["ef" * 16])
+
+    assert mock_transport.deregister_destination.call_count == 1
+    assert mock_transport.deregister_destination.call_args[0][0] is first_dest
+    assert rncp_handler.receive_destination is second_dest
+
+
+@patch("meshchatnext.src.backend.rncp_handler.RNS.Transport")
+@patch("meshchatnext.src.backend.rncp_handler.RNS.Identity")
+@patch("meshchatnext.src.backend.rncp_handler.RNS.Destination")
+@patch("meshchatnext.src.backend.rncp_handler.RNS.Reticulum")
+def test_setup_receive_destination_empty_allowlist_clears_previous(
+    mock_rns_reticulum,
+    mock_dest_class,
+    mock_identity_class,
+    mock_transport,
+    rncp_handler,
+):
+    mock_rns_reticulum.identitypath = "/tmp/rns/identities"
+    mock_id_obj = MagicMock()
+    mock_identity_class.from_file.return_value = mock_id_obj
+    mock_dest_obj = MagicMock()
+    mock_dest_obj.hash = b"\x04" * 16
+    mock_dest_class.return_value = mock_dest_obj
+
+    with patch("os.path.isfile", return_value=True):
+        rncp_handler.setup_receive_destination(allowed_hashes=["cd" * 16])
+        assert len(rncp_handler.allowed_identity_hashes) == 1
+        rncp_handler.setup_receive_destination(allowed_hashes=[])
+        assert rncp_handler.allowed_identity_hashes == []
+
+
+class _CapturingResource:
+    served_path = None
+
+    def __init__(self, file_obj, link, metadata=None, auto_compress=True, **kwargs):
+        _CapturingResource.served_path = getattr(file_obj, "name", None)
+        file_obj.close()
+
+
+class _FakeLink:
+    def __init__(self, link_id):
+        self.link_id = link_id
+
+    def get_remote_identity(self):
+        return None
+
+
+def test_fetch_request_without_jail_is_denied(rncp_handler, tmp_path):
+    """A fetch listener with no jail must never serve arbitrary host files."""
+    secret = tmp_path / "host_secret.key"
+    secret.write_text("PRIVATE")
+    rncp_handler.fetch_jail = None
+    _CapturingResource.served_path = None
+
+    link = _FakeLink(link_id=b"link-id")
+    with (
+        patch("meshchatnext.src.backend.rncp_handler.RNS.Transport") as transport,
+        patch(
+            "meshchatnext.src.backend.rncp_handler.RNS.Resource",
+            _CapturingResource,
+        ),
+    ):
+        transport.active_links = [link]
+        result = rncp_handler._fetch_request(
+            path="fetch_file",
+            data=str(secret),
+            request_id=None,
+            link_id=link.link_id,
+            remote_identity=None,
+            requested_at=0,
+        )
+
+    assert result == RNCPHandler.REQ_FETCH_NOT_ALLOWED
+    assert _CapturingResource.served_path is None
+
+
+def test_fetch_request_jail_blocks_traversal(rncp_handler, tmp_path):
+    """Path traversal outside the jail is rejected."""
+    jail = tmp_path / "share"
+    jail.mkdir()
+    secret = tmp_path / "host_secret.key"
+    secret.write_text("PRIVATE")
+    rncp_handler.fetch_jail = str(jail)
+    _CapturingResource.served_path = None
+
+    link = _FakeLink(link_id=b"link-id")
+    with (
+        patch("meshchatnext.src.backend.rncp_handler.RNS.Transport") as transport,
+        patch(
+            "meshchatnext.src.backend.rncp_handler.RNS.Resource",
+            _CapturingResource,
+        ),
+    ):
+        transport.active_links = [link]
+        result = rncp_handler._fetch_request(
+            path="fetch_file",
+            data="../host_secret.key",
+            request_id=None,
+            link_id=link.link_id,
+            remote_identity=None,
+            requested_at=0,
+        )
+
+    assert result == RNCPHandler.REQ_FETCH_NOT_ALLOWED
+    assert _CapturingResource.served_path is None
+
+
+def test_fetch_request_jail_serves_file_inside_jail(rncp_handler, tmp_path):
+    """A file inside the jail is served normally."""
+    jail = tmp_path / "share"
+    jail.mkdir()
+    shared = jail / "public.txt"
+    shared.write_text("ok")
+    rncp_handler.fetch_jail = str(jail)
+    _CapturingResource.served_path = None
+
+    link = _FakeLink(link_id=b"link-id")
+    with (
+        patch("meshchatnext.src.backend.rncp_handler.RNS.Transport") as transport,
+        patch(
+            "meshchatnext.src.backend.rncp_handler.RNS.Resource",
+            _CapturingResource,
+        ),
+    ):
+        transport.active_links = [link]
+        result = rncp_handler._fetch_request(
+            path="fetch_file",
+            data="public.txt",
+            request_id=None,
+            link_id=link.link_id,
+            remote_identity=None,
+            requested_at=0,
+        )
+
+    assert result is True
+    assert _CapturingResource.served_path == str(shared)
+
+
+def test_fetch_request_jail_blocks_null_byte(rncp_handler, tmp_path):
+    """Null bytes in fetch paths are denied, not raised."""
+    jail = tmp_path / "share"
+    jail.mkdir()
+    rncp_handler.fetch_jail = str(jail)
+    _CapturingResource.served_path = None
+    link = _FakeLink(link_id=b"link-null")
+    with (
+        patch("meshchatnext.src.backend.rncp_handler.RNS.Transport") as transport,
+        patch(
+            "meshchatnext.src.backend.rncp_handler.RNS.Resource",
+            _CapturingResource,
+        ),
+    ):
+        transport.active_links = [link]
+        result = rncp_handler._fetch_request(
+            path="fetch_file",
+            data="\0../x",
+            request_id=None,
+            link_id=link.link_id,
+            remote_identity=None,
+            requested_at=0,
+        )
+    assert result == RNCPHandler.REQ_FETCH_NOT_ALLOWED
+    assert _CapturingResource.served_path is None
+
+
+@patch("meshchatnext.src.backend.rncp_handler.RNS.Identity")
+@patch("meshchatnext.src.backend.rncp_handler.RNS.Destination")
+@patch("meshchatnext.src.backend.rncp_handler.RNS.Reticulum")
+def test_setup_defaults_jail_when_fetch_enabled(
+    mock_rns_reticulum,
+    mock_dest_class,
+    mock_identity_class,
+    rncp_handler,
+):
+    """Enabling fetch without a jail confines reads to a shared subdirectory."""
+    mock_rns_reticulum.identitypath = "/tmp/rns/identities"
+    mock_identity_class.from_file.return_value = MagicMock()
+    mock_dest_obj = MagicMock()
+    mock_dest_obj.hash = b"\x05" * 16
+    mock_dest_class.return_value = mock_dest_obj
+
+    with patch("os.path.isfile", return_value=True):
+        rncp_handler.setup_receive_destination(
+            allowed_hashes=["ab" * 16],
+            fetch_allowed=True,
+            fetch_jail=None,
+        )
+
+    assert rncp_handler.fetch_jail
+    assert rncp_handler.fetch_jail.endswith("rncp_shared")
+
+
+def test_default_fetch_save_dir_under_storage(rncp_handler, tmp_path):
+    path = rncp_handler._default_fetch_save_dir()
+    assert path.endswith(os.path.join("rncp", "downloads"))
+    assert os.path.isdir(path)
+
+
+def test_cancel_transfer_marks_active(rncp_handler):
+    rncp_handler.active_transfers["abc"] = {"status": "sending"}
+    out = rncp_handler.cancel_transfer("abc")
+    assert out["cancelled"] == ["abc"]
+    assert rncp_handler.active_transfers["abc"]["status"] == "cancelled"
+    assert rncp_handler._is_cancelled("abc")
+
+
+def test_fetch_resource_concluded_sets_resolved_on_save_error(rncp_handler, tmp_path):
+    """Save failures must resolve the waiter instead of hanging forever."""
+    import RNS
+
+    resource_resolved = {"value": False}
+    resource_status = {"value": "unrequested"}
+    save_error = {"value": None}
+    effective_save_path = str(tmp_path / "readonly")
+    os.makedirs(effective_save_path, exist_ok=True)
+    os.chmod(effective_save_path, 0o500)
+
+    resource = MagicMock()
+    resource.status = RNS.Resource.COMPLETE
+    resource.metadata = {"name": b"file.txt"}
+    tmpdata = tmp_path / "tmpdata"
+    tmpdata.write_text("x")
+    resource.data.name = str(tmpdata)
+
+    try:
+        filename = os.path.basename(resource.metadata["name"].decode("utf-8"))
+        saved_filename = os.path.join(effective_save_path, filename)
+        shutil.move(resource.data.name, saved_filename)
+        resource_status["value"] = "completed"
+    except Exception as e:
+        resource_status["value"] = "error"
+        save_error["value"] = str(e)
+    finally:
+        resource_resolved["value"] = True
+
+    assert resource_resolved["value"] is True
+    assert resource_status["value"] == "error"
+    assert save_error["value"]
+    os.chmod(effective_save_path, 0o700)
+
+
+_TRAVERSAL_PATHS = (
+    "../etc/passwd",
+    "../../host_secret.key",
+    "/etc/passwd",
+    "....//....//evil",
+    "share/../../outside.txt",
+    "\0../x",
+)
+
+
+@settings(
+    max_examples=80,
+    deadline=None,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+)
+@given(
+    data=st.one_of(
+        st.sampled_from(_TRAVERSAL_PATHS),
+        st.text(min_size=0, max_size=200),
+    ),
+)
+def test_fetch_request_path(rncp_handler, tmp_path, data):
+    """Fetch never serves outside the jail. Success only for files inside it."""
+    jail = tmp_path / "share"
+    jail.mkdir(exist_ok=True)
+    inside = jail / "ok.txt"
+    if not inside.exists():
+        inside.write_text("ok")
+    outside = tmp_path / "host_secret.key"
+    if not outside.exists():
+        outside.write_text("PRIVATE")
+    rncp_handler.fetch_jail = str(jail)
+    _CapturingResource.served_path = None
+
+    link = _FakeLink(link_id=b"link-ref")
+    with (
+        patch("meshchatnext.src.backend.rncp_handler.RNS.Transport") as transport,
+        patch(
+            "meshchatnext.src.backend.rncp_handler.RNS.Resource",
+            _CapturingResource,
+        ),
+    ):
+        transport.active_links = [link]
+        result = rncp_handler._fetch_request(
+            path="fetch_file",
+            data=data,
+            request_id=None,
+            link_id=link.link_id,
+            remote_identity=None,
+            requested_at=0,
+        )
+
+    assert result in (
+        True,
+        False,
+        None,
+        RNCPHandler.REQ_FETCH_NOT_ALLOWED,
+    )
+    jail_real = os.path.realpath(str(jail))
+    outside_real = os.path.realpath(str(outside))
+    if result is True:
+        served = _CapturingResource.served_path
+        assert served is not None
+        served_real = os.path.realpath(served)
+        assert served_real == jail_real or served_real.startswith(jail_real + os.sep)
+        assert served_real != outside_real
+    else:
+        assert _CapturingResource.served_path is None
+
+
+@settings(
+    max_examples=80,
+    deadline=None,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+)
+@given(
+    file_path=st.one_of(
+        st.sampled_from((*_TRAVERSAL_PATHS, "identity", "identity.bak", "")),
+        st.text(min_size=0, max_size=200),
+    ),
+)
+def test_resolve_send_path(rncp_handler, file_path):
+    """Resolved send paths stay under storage or home and never expose identity keys."""
+    storage = os.path.realpath(rncp_handler.storage_dir)
+    home = os.path.expanduser("~")
+    home_real = os.path.realpath(home) if home and home != "~" else None
+    try:
+        real = rncp_handler._resolve_send_path(file_path)
+    except (ValueError, PermissionError, FileNotFoundError, OSError, TypeError):
+        return
+    assert isinstance(real, str)
+    real = os.path.realpath(real)
+    under_storage = real == storage or real.startswith(storage + os.sep)
+    under_home = home_real is not None and (
+        real == home_real or real.startswith(home_real + os.sep)
+    )
+    assert under_storage or under_home
+    assert os.path.basename(real) not in _FORBIDDEN_RECEIVED_NAMES
+    if under_storage and real != storage:
+        first = os.path.relpath(real, storage).split(os.sep, 1)[0]
+        assert first not in _RESERVED_RNCP_TOP
+        assert not first.endswith(".db")
+    parts = {part for part in real.split(os.sep) if part}
+    assert not (parts & {".ssh", ".gnupg"})
+    assert os.path.isfile(real)

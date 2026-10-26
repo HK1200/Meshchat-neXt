@@ -1,0 +1,59 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+
+<template>
+    <div
+        v-if="isLoading"
+        class="absolute inset-0 z-20 flex items-center justify-center bg-sem-surface transition-all duration-300"
+    >
+        <div
+            class="bg-sem-surface dark:bg-sem-surface border border-sem-border rounded-2xl px-6 py-4 flex flex-col items-center gap-3"
+        >
+            <div class="relative">
+                <div class="w-12 h-12 border-4 border-blue-500/20 border-t-blue-500 rounded-full animate-spin"></div>
+                <div class="absolute inset-0 flex items-center justify-center">
+                    <div
+                        class="w-6 h-6 border-4 border-sem-success border-b-emerald-500 rounded-full animate-spin-reverse"
+                    ></div>
+                </div>
+            </div>
+            <div class="text-sm font-medium text-sem-fg">{{ loadingStatus }}</div>
+            <button
+                type="button"
+                class="rounded-lg border border-sem-border bg-sem-surface-muted px-3 py-1.5 text-xs font-semibold text-sem-fg transition-colors hover:bg-sem-surface focus:outline-hidden focus-visible:ring-1 focus-visible:ring-sem-info/50"
+                @click="$emit('cancel')"
+            >
+                {{ $t("common.cancel") }}
+            </button>
+            <div v-if="totalNodesToLoad > 0" class="w-48 space-y-2">
+                <div class="h-1.5 bg-sem-surface-muted rounded-full overflow-hidden">
+                    <div
+                        class="h-full bg-sem-action-info transition-all duration-300 shadow-[0_0_8px_var(--mc-action-info)]"
+                        :style="{ width: `${(loadedNodesCount / totalNodesToLoad) * 100}%` }"
+                    ></div>
+                </div>
+                <div
+                    v-if="totalBatches > 0"
+                    class="flex justify-between items-center text-[10px] font-bold text-sem-fg-muted uppercase tracking-wider"
+                >
+                    <span>{{ $t("visualiser.batch") }} {{ currentBatch }} / {{ totalBatches }}</span>
+                    <span>{{ Math.round((loadedNodesCount / totalNodesToLoad) * 100) }}%</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</template>
+
+<script>
+export default {
+    name: "NetworkVisualiserLoadingOverlay",
+    props: {
+        isLoading: { type: Boolean, default: false },
+        loadingStatus: { type: String, default: "" },
+        totalNodesToLoad: { type: Number, default: 0 },
+        loadedNodesCount: { type: Number, default: 0 },
+        currentBatch: { type: Number, default: 0 },
+        totalBatches: { type: Number, default: 0 },
+    },
+    emits: ["cancel"],
+};
+</script>

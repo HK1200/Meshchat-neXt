@@ -1,0 +1,229 @@
+# Identities, privacy, and security
+
+Meshchat neXt separates cryptographic identities, network security, and optional privacy controls. This page summarises how they interact.
+
+## Identities
+
+Each identity is a Reticulum key pair with its own:
+
+- SQLite database and LXMF router directory
+- Settings in the config table via ConfigManager
+- Storage path under `storage/identities/<identity_hash>/`
+
+Create, import, or switch identities from **Identities**. Only one identity is active in the UI at a time. Switching runs a teardown path so routers and managers do not leak state.
+
+Shared resources include the Reticulum process and interface configuration in ~/.reticulum unless you override paths.
+
+## Announces
+
+Meshchat neXt tracks announces for aspects such as:
+
+| Aspect            | Meaning                           |
+| ----------------- | --------------------------------- |
+| lxmf.delivery     | Peer accepts LXMF messages        |
+| lxst.telephony    | Peer accepts LXST calls           |
+| lxmf.propagation  | Propagation node                  |
+| nomadnetwork.node | NomadNet page server              |
+| rrc.hub           | Relay chat hub (when RRC enabled) |
+| map-data-v1       | Published GeoJSON/KML/KMZ packs   |
+
+Announce records store signal metadata and parsed app data for display names and icons.
+
+## Web UI authentication
+
+Optional HTTP basic authentication is enabled with --auth or MESHCHAT_AUTH=true. Sessions use encrypted cookies. Mutating API requests require CSRF tokens.
+
+Access attempts are logged. Repeated failures can trigger lockout when auth is enabled.
+
+Reset a forgotten password with --reset-password or MESHCHAT_RESET_PASSWORD=true, then set a new password in the UI.
+
+### Single sign-on (OIDC)
+
+Meshchat neXt can sign users in through an external OpenID Connect provider such as Authentik, Keycloak, or Pocket ID. The flow is Authorization Code with PKCE, state, and nonce, and ID tokens are verified against the provider JWKS (RS256, ES256, or EdDSA).
+
+Configure it under Settings, Authentication, Single sign-on, or with MESHCHAT_OIDC_* environment variables (which take precedence over the UI fields and lock them). A working OIDC setup also enforces authentication on the web UI even if password auth was never enabled, so a configured provider can act as the only sign-in method.
+
+Required provider settings:
+
+- Issuer URL: the provider issuer, for example https://idp.example.com/application/o/meshchatnext/ (Authentik) or https://idp.example.com/realms/master (Keycloak). Pasting a full discovery URL ending in /.well-known/openid-configuration also works.
+- Client ID and, for confidential clients, client secret.
+- Redirect URI: https://<your-meshchatnext-host>/api/v1/auth/oidc/callback, registered exactly as shown in the settings page.
+
+Provider notes:
+
+- Authentik: create a Provider of type OAuth2/OpenID and an Application. The issuer is shown on the provider detail page.
+- Keycloak: create a client in the realm, enable client authentication if you want a secret, and add the redirect URI under Valid redirect URIs. The issuer is the realm URL.
+- Pocket ID: create an OIDC client and add the callback URL. Pocket ID issues PKCE public clients, so a client secret is optional.
+
+Deployment notes:
+
+- Behind a reverse proxy, set MESHCHAT_TRUSTED_PROXIES so the app derives the public https redirect URI from X-Forwarded-* headers. Without trusted proxies the callback URL uses the internal origin and providers reject it.
+- Privacy mode blocks OIDC discovery, JWKS, and token requests because they are clearnet HTTP calls. SSO is unavailable while privacy mode is on.
+- The client secret is stored per identity in the config database and is never returned by the API. Rotating it just means typing a new value in the settings field.
+- If a bad OIDC config locks the UI, start with MESHCHAT_OIDC_ENABLED=0 to force it off (it wins over stored settings), or clear the other MESHCHAT_OIDC_* variables and set oidc_enabled to false in the stored config.
+
+Password auth stays available alongside OIDC. If no local password is set, the login page offers the SSO button plus a link to set one.
+
+### Demo mode
+
+MESHCHAT_DEMO_MODE=1 (or --demo) enables a public showcase profile: privacy mode on, plugins off, no outbound announces, and a default-deny HTTP mutation policy with mesh send blocked. Status reports demo_mode: true.
+
+MESHCHAT_AUTH_PAGE_HINT sets optional plain text on the login page (independent of demo mode). Demo Docker compose defaults to username and password hints for the showcase account.
+
+MESHCHAT_AUTH_BYPASS=1 skips session auth for local testing only. Do not use it on internet-facing deployments.
+
+## Transport security
+
+- HTTPS and WSS are on by default.
+- Self-signed certificates are generated per identity when custom PEM files are missing.
+- Pass --ssl-cert and --ssl-key for managed certificates.
+- Use --no-https only on trusted loopback setups.
+- WebSocket upgrades require a same-authority Origin when the browser sends one. Missing Origin is allowed on loopback binds (and when password auth is enabled) so local non-browser tools keep working. On a non-loopback bind without password auth, a missing Origin is rejected.
+- /ws inbound messages are rate-limited per connection. Nomad file downloads over WS are capped (default 10 MiB) and large transfers use chunked frames. Debug counters are at GET /api/v1/debug/websocket.
+
+Electron loads the UI from the local HTTPS origin served by the embedded backend.
+
+## IP allowlisting
+
+app_security_settings can restrict which client IPs may use the web UI. Combine with auth when exposing the service beyond localhost.
+
+## Privacy mode
+
+**Privacy mode** blocks outbound HTTP from Meshchat neXt features that would otherwise call the public internet. Translation and similar tools respect this flag.
+
+Privacy mode does not disable Reticulum mesh traffic. It limits clearnet fetches from the app itself.
+
+External links are a different surface. When you open an http(s) link in the UI, the Electron and Android shells hand it to the system browser. Privacy mode does not block that hand-off. The flag governs what the app fetches, not which links you choose to open.
+
+## Linux sandboxing
+
+On Linux, Meshchat neXt can enable two complementary in-process sandboxes when supported:
+
+- **Landlock** restricts filesystem paths the backend may use. User-local pipx tools (for example Argos Translate under ~/.local) need explicit read and sometimes write roots. See **Linux sandboxing** in Platform guides.
+- **Seccomp-BPF** installs a syscall denylist (via libseccomp) that blocks kernel-admin and related calls a mesh client does not need.
+
+Both auto-enable when available and fall back to a no-op when the platform, kernel, or libraries cannot support them. Override with:
+
+```bash
+MESHCHAT_LANDLOCK=0   # or 1 to force
+MESHCHAT_SECCOMP=0    # or 1 to force
+```
+
+Android never enables these in-process sandboxes (the Android app seccomp policy already constrains the process, and Landlock syscalls are blocked there).
+
+See **Linux sandboxing** in Platform guides for optional Firejail and Bubblewrap wrappers around the host install.
+
+## Windows Electron AppContainer
+
+Windows desktop builds can spawn the Python backend inside an LPAC AppContainer. The sandbox is off by default. Set MESHCHAT_APPCONTAINER=1 to require it or MESHCHAT_APPCONTAINER=auto to use it with an unsandboxed fallback when setup fails. Check /api/v1/server/security for appcontainer_active when debugging sandbox-related SQLite or filesystem errors on Windows.
+
+## Blocking and filtering
+
+Use **Blocked** for specific destination hashes. Combine with sieve filters, message blocklists, and LXMF stamp policies described in **LXMF messaging**.
+
+## Data backup
+
+Database backups land in database-backups/. Before a schema upgrade, Meshchat neXt writes a backup-pre-migrate-v*-to-v*.zip in that folder unless MESHCHAT_SKIP_PRE_MIGRATE_BACKUP=1. After a successful migration it runs PRAGMA quick_check and keeps the five newest pre-migrate zips (override with MESHCHAT_PRE_MIGRATE_BACKUP_KEEP, 0 disables pruning). If the stored schema version is newer than this build supports, startup refuses to migrate. Only one process should use a given identity storage directory at a time (storage lock). Roll back by restoring a backup zip and running an older Meshchat neXt build. Export snapshots from **About** or the API. Electron crash recovery can offer restore when integrity checks fail.
+
+CLI examples:
+
+```bash
+meshchatnext --list-backups
+meshchatnext --export-backup /path/to/export.zip
+meshchatnext --export-backup backup-20260101-120000.zip /path/to/copy.zip
+meshchatnext --restore-db /path/to/backup.zip
+```
+
+When the backend can start briefly, or you run from source:
+
+```bash
+meshchatnext --storage-dir /path/to/storage --restore-db /path/to/backup.zip
+```
+
+## Database corruption and data reset
+
+If Meshchat neXt fails to start with errors such as database disk image is malformed, DatabaseError, or corrupted ratchet data, the desktop crash screen offers:
+
+- Restore latest backup from database-backups/ or snapshots/ inside the Meshchat neXt storage folder
+- Choose backup file for a zip you saved elsewhere
+- Try auto-repair (--auto-recover: SQLite checkpoint / integrity pass)
+- Emergency mode, which opens the app without the database so you can export from About when possible
+- Copy reset instructions with the folders to delete for a clean reinstall
+
+### Storage locations
+
+| Platform         | Meshchat neXt storage                        | Reticulum network stack                  |
+| ---------------- | -------------------------------------------- | ---------------------------------------- |
+| Linux / macOS    | ~/.meshchat-next/                            | ~/.reticulum/                            |
+| Windows          | `%USERPROFILE%\.meshchat-next\`              | `%USERPROFILE%\.reticulum\`              |
+| Windows portable | `<Meshchat neXt.exe folder>\.meshchat-next\` | `<Meshchat neXt.exe folder>\.reticulum\` |
+
+Legacy Reticulum MeshChat data may still exist at ~/.reticulum-meshchat/ (or the Windows equivalent). Automatic database backups go to database-backups/ inside the Meshchat neXt storage folder after a successful run.
+
+### Complete removal
+
+Quit Meshchat neXt. On Windows, also end MeshchatNext.exe in Task Manager if it is still running. Then delete the Meshchat neXt storage folder and the Reticulum config folder for your install type. That removes the local identity, messages, contacts, path cache, and ratchet state. The next launch creates a new identity unless you restore a backup first.
+
+Linux / macOS:
+
+```bash
+rm -rf ~/.meshchat-next ~/.reticulum ~/.reticulum-meshchat
+```
+
+Windows PowerShell:
+
+```powershell
+Remove-Item -Recurse -Force "$env:USERPROFILE\.meshchat-next", "$env:USERPROFILE\.reticulum", "$env:USERPROFILE\.reticulum-meshchat" -ErrorAction SilentlyContinue
+```
+
+If you pass --storage-dir or --reticulum-config-dir, delete those directories instead.
+
+## Integrity checks
+
+Startup integrity verification runs in packaged Electron builds and can be triggered from the backend. Failed checks surface recovery options instead of silently corrupting data.
+
+Each identity storage directory keeps a signed manifest (`integrity-manifest.json`) of SHA-256 hashes for files that should be stable at rest: the `identity` private key, `database.db`, and any unexpected top-level file. Directories the app or remote peers rewrite during normal operation (lxmf_router, docs, database-backups, filesync, map data, RRC state, media folders) are excluded, since monitoring them only produces false alarms.
+
+The baseline is refreshed at clean shutdown or when you press **Acknowledge** under About, never right after a check flagged a problem. If the previous run ended without a clean shutdown, or the app version changed, drift in non-critical files is reported once as expected change instead of an alarm. Critical findings (identity or database tampering, a missing or forged manifest, an identity hash mismatch) block startup until you acknowledge them through the recovery path or restore the files.
+
+Unacknowledged findings are stored in the manifest and resurface on every boot until acknowledged. A signing key and registry under `<storage>/integrity/` bind manifests to this install, so deleting or swapping `integrity-manifest.json` is detected rather than treated as a first run. This detects offline tampering of one identity tree, disk corruption, and restores of the wrong identity data. It cannot stop an attacker who controls the whole storage directory, since the key lives next to the data.
+
+## Plugin signing and trust
+
+Packaged plugins may include a Reticulum Signature (.rsg) over a canonical ZIP payload (sorted paths, fixed 1980-01-01 mtimes, signature file excluded). Meshchat neXt plugin signing writes meshchatnext.plugin.rsg and WASM sections meshchatnext.plugin / meshchatnext.files / meshchatnext.signature.
+
+Policy:
+
+- Unsigned packages are allowed
+- Present but invalid signatures hard-block install
+- Valid signers can be added to a user trusted-publishers list (ignored if the list file is tampered outside Meshchat neXt)
+- Installed plugin trees get an integrity hash, on-disk changes disable the plugin as tampered
+
+Sideband Python plugins are opt-in via a master danger switch. They are not ZIP-permission gated. Optional per-file .py.rsg signatures are verified over script bytes.
+
+## Safe deployment patterns
+
+```
+Recommended for most users
+    |
+    v
+Bind 127.0.0.1, use HTTPS, enable auth if others use the same host
+    |
+    v
+Add interfaces only for meshes you trust
+    |
+    v
+Keep backups and test restore on upgrades
+```
+
+Avoid exposing port 8000 directly to the internet without a reverse proxy, strong auth, and network-level filtering. Meshchat neXt is designed as a personal or small-team operator console, not a multi-tenant public website.
+
+## Multi-user hosts
+
+On shared computers, use separate OS user accounts or separate --storage-dir values so SQLite databases and identity files do not overlap.
+
+## See also
+
+- **Architecture and design** for session and API details
+- **Installation and setup** for CLI security flags
+- Reticulum manual cryptography chapters for identity math

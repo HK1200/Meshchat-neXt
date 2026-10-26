@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: 0BSD
+
+[Desktop Entry]
+Name=Meshchat neXt
+Comment=A simple mesh network communications app powered by the Reticulum Network Stack
+Exec=meshchat-next
+Icon=com.meshchatnext.app
+Terminal=false
+Type=Application
+Categories=Network;InstantMessaging;Chat;
+StartupWMClass=com.meshchatnext.app

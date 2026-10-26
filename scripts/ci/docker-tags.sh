@@ -1,0 +1,75 @@
+#!/bin/sh
+# Generate Docker image tags from git context.
+#
+# Usage: docker-tags.sh <image_name> [output_file]
+# Environment: GITEA_REF / GITHUB_REF, GITEA_REF_NAME / GITHUB_REF_NAME, TAG_SUFFIX,
+#              GITHUB_EVENT_NAME (workflow_dispatch adds the latest tag on branch runs)
+#
+# The output file contains one -t registry/image:tag per line,
+# suitable for passing directly to docker buildx build.
+set -eu
+
+IMAGE="$1"
+OUTPUT="${2:-/tmp/docker-tags.txt}"
+SUFFIX="${TAG_SUFFIX:-}"
+: > "$OUTPUT"
+
+_suffix_tag() {
+    if [ -n "$SUFFIX" ]; then
+        printf '%s' "${1}${SUFFIX}"
+    else
+        printf '%s' "$1"
+    fi
+}
+
+SHA="$(git rev-parse --short HEAD)"
+REF="${GITEA_REF:-${GITHUB_REF:-}}"
+BRANCH="${GITEA_REF_NAME:-${GITHUB_REF_NAME:-$(git rev-parse --abbrev-ref HEAD)}}"
+EVENT="${GITHUB_EVENT_NAME:-}"
+
+echo "-t ${IMAGE}:$(_suffix_tag "sha-${SHA}")" >> "$OUTPUT"
+
+case "$BRANCH" in
+    master|main)
+        # Every master commit publishes the rolling :dev image. The floating
+        # :latest tag is reserved for manual runs and release tags.
+        echo "-t ${IMAGE}:$(_suffix_tag "dev")" >> "$OUTPUT"
+        if [ "$EVENT" = "workflow_dispatch" ]; then
+            echo "-t ${IMAGE}:$(_suffix_tag "latest")" >> "$OUTPUT"
+        fi
+        ;;
+    dev)
+        echo "-t ${IMAGE}:$(_suffix_tag "dev")" >> "$OUTPUT"
+        ;;
+esac
+
+case "$REF" in
+    refs/tags/v*)
+        VERSION="${REF#refs/tags/v}"
+        echo "-t ${IMAGE}:$(_suffix_tag "latest")" >> "$OUTPUT"
+        echo "-t ${IMAGE}:$(_suffix_tag "${VERSION}")" >> "$OUTPUT"
+        echo "-t ${IMAGE}:$(_suffix_tag "v${VERSION}")" >> "$OUTPUT"
+        MAJOR_MINOR="$(echo "$VERSION" | cut -d. -f1-2)"
+        if [ "$MAJOR_MINOR" != "$VERSION" ]; then
+            echo "-t ${IMAGE}:$(_suffix_tag "${MAJOR_MINOR}")" >> "$OUTPUT"
+            echo "-t ${IMAGE}:$(_suffix_tag "v${MAJOR_MINOR}")" >> "$OUTPUT"
+        fi
+        ;;
+    refs/tags/nightly-*|refs/tags/testing-*)
+        TAG="${REF#refs/tags/}"
+        echo "-t ${IMAGE}:$(_suffix_tag "testing")" >> "$OUTPUT"
+        echo "-t ${IMAGE}:$(_suffix_tag "${TAG}")" >> "$OUTPUT"
+        ;;
+    refs/tags/beta-*|refs/tags/preview-*)
+        TAG="${REF#refs/tags/}"
+        echo "-t ${IMAGE}:$(_suffix_tag "beta")" >> "$OUTPUT"
+        echo "-t ${IMAGE}:$(_suffix_tag "${TAG}")" >> "$OUTPUT"
+        ;;
+    refs/tags/*)
+        TAG="${REF#refs/tags/}"
+        echo "-t ${IMAGE}:$(_suffix_tag "${TAG}")" >> "$OUTPUT"
+        ;;
+esac
+
+echo "Generated tags:"
+cat "$OUTPUT"

@@ -1,0 +1,87 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+
+<template>
+    <div
+        class="absolute bottom-4 left-4 right-4 sm:left-4 sm:right-auto sm:w-80 md:max-lg:w-72 lg:w-80 z-20 bg-sem-surface rounded-xl shadow-2xl border border-sem-border overflow-hidden text-sem-fg"
+    >
+        <div class="p-4 border-b border-sem-border flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div
+                    class="size-8 rounded-full flex items-center justify-center bg-sem-action-primary text-sem-action-primary-text text-sm font-bold"
+                >
+                    {{ cluster.count }}
+                </div>
+                <div>
+                    <h3 class="font-bold text-sem-fg">{{ cluster.count }} interfaces here</h3>
+                    <div class="text-[10px] font-mono text-sem-fg-muted uppercase tracking-tighter">
+                        Tap an item to focus
+                    </div>
+                </div>
+            </div>
+            <button
+                class="text-sem-fg-muted hover:text-sem-fg dark:hover:text-sem-fg-secondary p-1"
+                title="Close"
+                @click="$emit('close')"
+            >
+                <MaterialDesignIcon icon-name="close" class="size-5" />
+            </button>
+        </div>
+        <div class="max-h-72 overflow-y-auto divide-y divide-gray-100 dark:divide-zinc-800">
+            <button
+                v-for="(item, idx) in cluster.items"
+                :key="idx"
+                class="w-full flex items-center gap-3 px-4 py-2 text-left hover:bg-sem-surface-muted transition-colors"
+                @click="$emit('select', item)"
+            >
+                <div
+                    v-if="item.kind === 'discovered'"
+                    class="size-7 rounded-full flex items-center justify-center border-2 border-sem-success bg-sem-success/15 text-sem-success shrink-0"
+                >
+                    <MaterialDesignIcon :icon-name="getDiscoveredIconName(item.iconKey)" class="size-[14px]" />
+                </div>
+                <div
+                    v-else-if="item.kind === 'telemetry'"
+                    class="size-7 rounded-full flex items-center justify-center border-2 border-sem-accent bg-sem-info/15 text-sem-info shrink-0"
+                >
+                    <MaterialDesignIcon
+                        :icon-name="item.peer?.lxmf_user_icon?.icon_name || 'account'"
+                        class="size-3.5"
+                    />
+                </div>
+                <div
+                    v-else
+                    class="size-7 rounded-full flex items-center justify-center border-2 border-sem-border bg-sem-surface-muted text-sem-fg-muted shrink-0"
+                >
+                    <MaterialDesignIcon icon-name="help" class="size-3.5" />
+                </div>
+                <div class="min-w-0 flex-1">
+                    <div class="text-sm font-medium truncate">{{ item.label }}</div>
+                    <div v-if="item.identifier" class="text-[10px] font-mono text-sem-fg-muted truncate">
+                        {{ item.identifier }}
+                    </div>
+                </div>
+                <MaterialDesignIcon icon-name="chevron-right" class="size-4 text-sem-fg-muted shrink-0" />
+            </button>
+        </div>
+    </div>
+</template>
+
+<script>
+import MaterialDesignIcon from "../../MaterialDesignIcon.vue";
+import { getDiscoveredIconName } from "./discoveredIcons.js";
+
+export default {
+    name: "MapClusterPanel",
+    components: { MaterialDesignIcon },
+    props: {
+        cluster: {
+            type: Object,
+            required: true,
+        },
+    },
+    emits: ["close", "select"],
+    methods: {
+        getDiscoveredIconName,
+    },
+};
+</script>

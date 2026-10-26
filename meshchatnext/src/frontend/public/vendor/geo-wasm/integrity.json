@@ -1,0 +1,6 @@
+{
+  "version": "1.0.0",
+  "wasm": "sha384-jTpEgwX/XGtcDmb9IvBmnVSqHSwtAhAtxislLDqZRJ8Hc7NB3lEtU9tveD6yAz9h",
+  "wasmExec": "sha384-PfGeEcr9Xuv41kJc81dgnXe6i1CorXb2JfA0qLxhxqd3/za7JqDklFKWqtto+x0V",
+  "wasmExecSource": "TinyGo targets/wasm_exec.js"
+}

@@ -1,0 +1,842 @@
+# SPDX-License-Identifier: 0BSD
+
+import json
+import os
+import shutil
+import tempfile
+
+import pytest
+
+from meshchatnext.src.backend.database import Database
+from meshchatnext.src.backend.database.provider import DatabaseProvider
+
+
+@pytest.fixture(autouse=True)
+def reset_database_provider():
+    DatabaseProvider._instance = None
+    yield
+    if DatabaseProvider._instance is not None:
+        DatabaseProvider._instance.close_all()
+    DatabaseProvider._instance = None
+
+
+@pytest.fixture
+def temp_dir():
+    dir_path = tempfile.mkdtemp()
+    yield dir_path
+    shutil.rmtree(dir_path)
+
+
+def test_database_snapshot_creation(temp_dir):
+    db_path = os.path.join(temp_dir, "test.db")
+    db = Database(db_path)
+    db.initialize()
+
+    # Add some data
+    db.execute_sql(
+        "INSERT INTO config (key, value) VALUES (?, ?)",
+        ("test_key", "test_value"),
+    )
+
+    # Create snapshot
+    snapshot_name = "test_snapshot"
+    db.create_snapshot(temp_dir, snapshot_name)
+
+    snapshot_path = os.path.join(temp_dir, "snapshots", f"{snapshot_name}.zip")
+    assert os.path.exists(snapshot_path)
+
+    # List snapshots
+    snapshots = db.list_snapshots(temp_dir)
+    assert len(snapshots) == 1
+    assert snapshots[0]["name"] == f"{snapshot_name}.zip"
+
+
+def test_database_snapshot_restoration(temp_dir):
+    db_path = os.path.join(temp_dir, "test.db")
+    db = Database(db_path)
+    db.initialize()
+
+    # Add some data
+    db.execute_sql("INSERT INTO config (key, value) VALUES (?, ?)", ("v1", "original"))
+
+    # Create snapshot
+    db.create_snapshot(temp_dir, "snap1")
+    snapshot_path = os.path.join(temp_dir, "snapshots", "snap1.zip")
+
+    # Modify data
+    db.execute_sql("UPDATE config SET value = ? WHERE key = ?", ("modified", "v1"))
+    row = db.provider.fetchone("SELECT value FROM config WHERE key = ?", ("v1",))
+    assert row["value"] == "modified"
+
+    # Restore snapshot
+    db.restore_database(snapshot_path)
+
+    # Verify data is back to original
+    row = db.provider.fetchone("SELECT value FROM config WHERE key = ?", ("v1",))
+    assert row is not None
+    assert row["value"] == "original"
+
+
+def test_database_auto_backup_logic(temp_dir):
+    db_path = os.path.join(temp_dir, "test.db")
+    db = Database(db_path)
+    db.initialize()
+
+    # Should create a timestamped backup
+    result = db.backup_database(temp_dir)
+    assert "database-backups" in result["path"]
+    assert os.path.exists(result["path"])
+
+    backup_dir = os.path.join(temp_dir, "database-backups")
+    zips = [f for f in os.listdir(backup_dir) if f.endswith(".zip")]
+    assert len(zips) == 1
+
+
+def test_backup_baseline_created_on_first_backup(temp_dir):
+    db_path = os.path.join(temp_dir, "test.db")
+    db = Database(db_path)
+    db.initialize()
+    db.backup_database(temp_dir)
+    baseline_path = os.path.join(temp_dir, "database-backups", "backup-baseline.json")
+    assert os.path.exists(baseline_path)
+    with open(baseline_path) as f:
+        data = json.load(f)
+    assert "message_count" in data
+    assert "total_bytes" in data
+    assert "main_bytes" in data
+    assert "timestamp" in data
+
+
+def test_backup_suspicious_when_messages_gone_skips_cleanup_and_baseline(temp_dir):
+    db_path = os.path.join(temp_dir, "test.db")
+    db = Database(db_path)
+    db.initialize()
+    for i in range(6):
+        db.messages.upsert_lxmf_message(
+            {
+                "hash": f"h{i}",
+                "source_hash": "s",
+                "destination_hash": "d",
+                "peer_hash": "p",
+                "state": "delivered",
+                "progress": 1.0,
+                "is_incoming": 1,
+                "method": "direct",
+                "delivery_attempts": 0,
+                "next_delivery_attempt_at": None,
+                "title": "t",
+                "content": "c",
+                "fields": "{}",
+                "timestamp": 0,
+                "rssi": None,
+                "snr": None,
+                "quality": None,
+                "is_spam": 0,
+                "reply_to_hash": None,
+            },
+        )
+    result1 = db.backup_database(temp_dir, max_count=3)
+    assert result1.get("suspicious") is not True
+    backup_dir = os.path.join(temp_dir, "database-backups")
+    zip_count_after_first = sum(1 for f in os.listdir(backup_dir) if f.endswith(".zip"))
+    assert zip_count_after_first == 1
+    with open(os.path.join(backup_dir, "backup-baseline.json")) as f:
+        baseline_after_first = json.load(f)
+    assert baseline_after_first["message_count"] == 6
+
+    db.messages.delete_all_lxmf_messages()
+    assert db.messages.count_lxmf_messages() == 0
+    result2 = db.backup_database(temp_dir, max_count=3)
+    assert result2.get("suspicious") is True
+    assert "baseline" in result2
+    assert result2["baseline"]["message_count"] == 6
+    assert result2["current_stats"]["message_count"] == 0
+    zip_count_after_suspicious = sum(
+        1 for f in os.listdir(backup_dir) if f.endswith(".zip")
+    )
+    assert zip_count_after_suspicious == 2
+    assert any("SUSPICIOUS" in f for f in os.listdir(backup_dir) if f.endswith(".zip"))
+    with open(os.path.join(backup_dir, "backup-baseline.json")) as f:
+        baseline_after_suspicious = json.load(f)
+    assert baseline_after_suspicious["message_count"] == 6
+
+
+def test_backup_suspicious_when_size_collapsed_skips_cleanup(temp_dir):
+    db_path = os.path.join(temp_dir, "test.db")
+    db = Database(db_path)
+    db.initialize()
+    for i in range(200):
+        db.messages.upsert_lxmf_message(
+            {
+                "hash": f"h{i}",
+                "source_hash": "s",
+                "destination_hash": "d",
+                "peer_hash": "p",
+                "state": "delivered",
+                "progress": 1.0,
+                "is_incoming": 1,
+                "method": "direct",
+                "delivery_attempts": 0,
+                "next_delivery_attempt_at": None,
+                "title": "t",
+                "content": "x" * 500,
+                "fields": "{}",
+                "timestamp": float(i),
+                "rssi": None,
+                "snr": None,
+                "quality": None,
+                "is_spam": 0,
+                "reply_to_hash": None,
+            },
+        )
+    db.backup_database(temp_dir, max_count=3)
+    baseline_path = os.path.join(temp_dir, "database-backups", "backup-baseline.json")
+    with open(baseline_path) as f:
+        baseline = json.load(f)
+    assert baseline["total_bytes"] > 100_000
+    db.messages.delete_all_lxmf_messages()
+    db.execute_sql("VACUUM")
+    result = db.backup_database(temp_dir, max_count=3)
+    assert result.get("suspicious") is True
+    backup_dir = os.path.join(temp_dir, "database-backups")
+    zips = [f for f in os.listdir(backup_dir) if f.endswith(".zip")]
+    assert len(zips) >= 2
+
+
+def test_backup_normal_rotation_and_baseline_update(temp_dir):
+    import time
+
+    db_path = os.path.join(temp_dir, "test.db")
+    db = Database(db_path)
+    db.initialize()
+    db.backup_database(temp_dir, max_count=2)
+    time.sleep(1.1)
+    db.backup_database(temp_dir, max_count=2)
+    time.sleep(1.1)
+    db.backup_database(temp_dir, max_count=2)
+    backup_dir = os.path.join(temp_dir, "database-backups")
+    zips = sorted([f for f in os.listdir(backup_dir) if f.endswith(".zip")])
+    assert len(zips) == 2
+    assert os.path.exists(os.path.join(backup_dir, "backup-baseline.json"))
+
+
+def test_backup_rotation_preserves_pre_migrate_zips(temp_dir):
+    import time
+
+    from meshchatnext.src.backend.database import PRE_MIGRATE_BACKUP_PREFIX
+
+    db_path = os.path.join(temp_dir, "test.db")
+    db = Database(db_path)
+    db.initialize()
+    backup_dir = os.path.join(temp_dir, "database-backups")
+    os.makedirs(backup_dir, exist_ok=True)
+    pre_migrate_name = f"{PRE_MIGRATE_BACKUP_PREFIX}v1-to-v2-20000101-000000.zip"
+    pre_migrate_path = os.path.join(backup_dir, pre_migrate_name)
+    with open(pre_migrate_path, "wb") as handle:
+        handle.write(b"PK\x03\x04pre-migrate-keep")
+    old = time.time() - 120
+    os.utime(pre_migrate_path, (old, old))
+
+    db.backup_database(temp_dir, max_count=1)
+    time.sleep(1.1)
+    db.backup_database(temp_dir, max_count=1)
+
+    assert os.path.isfile(pre_migrate_path)
+    regular = [
+        name
+        for name in os.listdir(backup_dir)
+        if name.endswith(".zip") and not name.startswith(PRE_MIGRATE_BACKUP_PREFIX)
+    ]
+    assert len(regular) == 1
+
+
+def test_backup_failure_does_not_remove_existing_backups(temp_dir):
+    from unittest.mock import patch
+
+    db_path = os.path.join(temp_dir, "test.db")
+    db = Database(db_path)
+    db.initialize()
+    db.backup_database(temp_dir)
+    backup_dir = os.path.join(temp_dir, "database-backups")
+    existing = [f for f in os.listdir(backup_dir) if f.endswith(".zip")]
+    assert len(existing) == 1
+    with patch.object(db, "_backup_to_zip", side_effect=OSError("disk full")):
+        with pytest.raises(OSError):
+            db.backup_database(temp_dir, max_count=1)
+    still_there = [f for f in os.listdir(backup_dir) if f.endswith(".zip")]
+    assert len(still_there) == 1
+
+
+def test_run_database_recovery_skips_vacuum_when_integrity_fails(temp_dir):
+    from unittest.mock import patch
+
+    db_path = os.path.join(temp_dir, "test.db")
+    db = Database(db_path)
+    db.initialize()
+    db.execute_sql("INSERT INTO config (key, value) VALUES (?, ?)", ("keep", "me"))
+
+    with (
+        patch.object(
+            db.provider,
+            "integrity_check",
+            return_value=[{"integrity_check": "tree corrupt"}],
+        ),
+        patch.object(db.provider, "vacuum") as mock_vacuum,
+    ):
+        result = db.run_database_recovery()
+        mock_vacuum.assert_not_called()
+
+    vacuum_steps = [step for step in result["actions"] if step.get("step") == "vacuum"]
+    assert vacuum_steps
+    assert vacuum_steps[0]["result"] == "skipped"
+    row = db.provider.fetchone("SELECT value FROM config WHERE key = ?", ("keep",))
+    assert row["value"] == "me"
+    db.close_all()
+
+
+def test_run_database_recovery_accepts_dict_integrity_rows(temp_dir):
+    db_path = os.path.join(temp_dir, "test.db")
+    db = Database(db_path)
+    db.initialize()
+    result = db.run_database_recovery()
+    integrity_steps = [
+        step for step in result["actions"] if step.get("step") == "integrity_check"
+    ]
+    assert integrity_steps
+    assert integrity_steps[0]["result"][0] == "ok"
+    db.close_all()
+
+
+def test_check_db_health_at_open_no_baseline_ok(temp_dir):
+    db_path = os.path.join(temp_dir, "test.db")
+    db = Database(db_path)
+    db.initialize()
+    issues = db.check_db_health_at_open(temp_dir)
+    assert issues == []
+
+
+def test_check_db_health_at_open_baseline_suspicious_content(temp_dir):
+    db_path = os.path.join(temp_dir, "test.db")
+    db = Database(db_path)
+    db.initialize()
+    for i in range(6):
+        db.messages.upsert_lxmf_message(
+            {
+                "hash": f"h{i}",
+                "source_hash": "s",
+                "destination_hash": "d",
+                "peer_hash": "p",
+                "state": "delivered",
+                "progress": 1.0,
+                "is_incoming": 1,
+                "method": "direct",
+                "delivery_attempts": 0,
+                "next_delivery_attempt_at": None,
+                "title": "t",
+                "content": "c",
+                "fields": "{}",
+                "timestamp": 0,
+                "rssi": None,
+                "snr": None,
+                "quality": None,
+                "is_spam": 0,
+                "reply_to_hash": None,
+            },
+        )
+    db.backup_database(temp_dir)
+    db.messages.delete_all_lxmf_messages()
+    issues = db.check_db_health_at_open(temp_dir)
+    assert len(issues) >= 1
+    assert any("anomaly" in i.lower() or "messages" in i for i in issues)
+
+
+def test_check_db_health_at_open_integrity_fail(temp_dir):
+    from unittest.mock import patch
+
+    db_path = os.path.join(temp_dir, "test.db")
+    db = Database(db_path)
+    db.initialize()
+    with patch.object(db.provider, "integrity_check", return_value=[("corrupt",)]):
+        issues = db.check_db_health_at_open(temp_dir)
+    assert len(issues) >= 1
+    assert any("integrity" in i.lower() for i in issues)
+
+
+def test_check_db_health_at_close_no_issues(temp_dir):
+    db_path = os.path.join(temp_dir, "test.db")
+    db = Database(db_path)
+    db.initialize()
+    issues = db.check_db_health_at_close(temp_dir)
+    assert issues == []
+
+
+def test_check_db_health_at_close_integrity_fail(temp_dir):
+    from unittest.mock import patch
+
+    db_path = os.path.join(temp_dir, "test.db")
+    db = Database(db_path)
+    db.initialize()
+    with patch.object(db.provider, "quick_check", return_value=[("corrupt",)]):
+        issues = db.check_db_health_at_close(temp_dir)
+    assert len(issues) >= 1
+    assert any("integrity" in i.lower() for i in issues)
+
+
+def test_is_backup_suspicious_does_not_mistrigger_empty_baseline():
+    from meshchatnext.src.backend.database import Database
+
+    db = Database(":memory:")
+    db.initialize()
+    assert (
+        db._is_backup_suspicious({"message_count": 0, "total_bytes": 0}, None) is False
+    )
+    assert (
+        db._is_backup_suspicious({"message_count": 10, "total_bytes": 1000}, None)
+        is False
+    )
+
+
+def test_is_backup_suspicious_does_not_mistrigger_legitimate_empty():
+    from meshchatnext.src.backend.database import Database
+
+    db = Database(":memory:")
+    db.initialize()
+    baseline = {"message_count": 0, "total_bytes": 5000}
+    assert (
+        db._is_backup_suspicious({"message_count": 0, "total_bytes": 5000}, baseline)
+        is False
+    )
+
+
+def test_is_backup_suspicious_does_not_mistrigger_small_db():
+    from meshchatnext.src.backend.database import Database
+
+    db = Database(":memory:")
+    db.initialize()
+    baseline = {"message_count": 5, "total_bytes": 50_000}
+    assert (
+        db._is_backup_suspicious({"message_count": 5, "total_bytes": 55_000}, baseline)
+        is False
+    )
+
+
+def test_is_backup_suspicious_last_message_gone_size_grew():
+    from meshchatnext.src.backend.database import Database
+
+    db = Database(":memory:")
+    db.initialize()
+    baseline = {"message_count": 1, "total_bytes": 8_978_368}
+    current = {"message_count": 0, "total_bytes": 9_162_256}
+    assert db._is_backup_suspicious(current, baseline) is False
+
+
+def test_is_backup_suspicious_wal_checkpoint_same_count():
+    from meshchatnext.src.backend.database import Database
+
+    db = Database(":memory:")
+    db.initialize()
+    baseline = {"message_count": 1, "total_bytes": 4_824_640}
+    current = {"message_count": 1, "total_bytes": 847_952}
+    assert db._is_backup_suspicious(current, baseline) is False
+
+
+def test_is_backup_suspicious_inbox_wiped_still_flags():
+    from meshchatnext.src.backend.database import Database
+
+    db = Database(":memory:")
+    db.initialize()
+    baseline = {"message_count": 70, "total_bytes": 15_420_968}
+    current = {"message_count": 0, "total_bytes": 11_292_728}
+    assert db._is_backup_suspicious(current, baseline) is True
+
+
+def test_is_backup_suspicious_failed_count_does_not_flag():
+    from meshchatnext.src.backend.database import Database
+
+    db = Database(":memory:")
+    db.initialize()
+    baseline = {"message_count": 70, "total_bytes": 15_420_968}
+    current = {"message_count": -1, "total_bytes": 15_420_968}
+    assert db._is_backup_suspicious(current, baseline) is False
+
+
+def test_merge_health_issues_keeps_first_content_anomaly():
+    from meshchatnext.src.backend.database import Database
+
+    first = (
+        "Database content anomaly: was 70 messages / 15420968 bytes, "
+        "now 0 / 11292728. Restore from backup if needed."
+    )
+    second = (
+        "Database content anomaly: was 70 messages / 15420968 bytes, "
+        "now 0 / 11408088. Restore from backup if needed."
+    )
+    integrity = "Database integrity check failed: corrupt"
+    merged = Database.merge_health_issues([first], [second, integrity, first])
+    assert merged == [first, integrity]
+
+
+def test_backup_includes_identity_rrc_and_history(temp_dir):
+    import zipfile
+
+    import RNS
+
+    identity_dir = os.path.join(temp_dir, "identities", "abc123")
+    os.makedirs(identity_dir, exist_ok=True)
+    db_path = os.path.join(identity_dir, "database.db")
+    db = Database(db_path)
+    db.initialize()
+
+    identity_bytes = RNS.Identity(create_keys=True).get_private_key()
+    with open(os.path.join(identity_dir, "identity"), "wb") as handle:
+        handle.write(identity_bytes)
+
+    rrc_hubs_path = os.path.join(identity_dir, "rrc_hubs")
+    with open(rrc_hubs_path, "wb") as handle:
+        handle.write(b"rrc-hub-data")
+
+    history_dir = os.path.join(identity_dir, "rrc_history", "hub1")
+    os.makedirs(history_dir, exist_ok=True)
+    history_path = os.path.join(history_dir, "lobby.log")
+    with open(history_path, "wb") as handle:
+        handle.write(b"history-entry")
+
+    result = db.backup_database(identity_dir)
+    assert os.path.exists(result["path"])
+    assert result.get("identity_files", 0) >= 3
+
+    with zipfile.ZipFile(result["path"], "r") as zf:
+        names = set(zf.namelist())
+        assert "identity" in names
+        assert "rrc_hubs" in names
+        assert any(name.startswith("rrc_history/") for name in names)
+        assert "backup-manifest.json" in names
+
+
+def test_restore_includes_identity_rrc_and_history(temp_dir):
+
+    import RNS
+
+    identity_dir = os.path.join(temp_dir, "identities", "abc123")
+    os.makedirs(identity_dir, exist_ok=True)
+    db_path = os.path.join(identity_dir, "database.db")
+    db = Database(db_path)
+    db.initialize()
+    db.execute_sql(
+        "INSERT INTO config (key, value) VALUES (?, ?)",
+        ("marker", "before-backup"),
+    )
+
+    identity_bytes = RNS.Identity(create_keys=True).get_private_key()
+    with open(os.path.join(identity_dir, "identity"), "wb") as handle:
+        handle.write(identity_bytes)
+
+    rrc_hubs_path = os.path.join(identity_dir, "rrc_hubs")
+    with open(rrc_hubs_path, "wb") as handle:
+        handle.write(b"rrc-hub-data")
+
+    history_dir = os.path.join(identity_dir, "rrc_history", "hub1")
+    os.makedirs(history_dir, exist_ok=True)
+    history_path = os.path.join(history_dir, "lobby.log")
+    with open(history_path, "wb") as handle:
+        handle.write(b"history-entry")
+
+    backup = db.backup_database(identity_dir)
+    db.close_all()
+    DatabaseProvider._instance = None
+
+    for path in (
+        db_path,
+        f"{db_path}-wal",
+        f"{db_path}-shm",
+        os.path.join(identity_dir, "identity"),
+        rrc_hubs_path,
+        history_path,
+    ):
+        if os.path.exists(path):
+            os.remove(path)
+    shutil.rmtree(os.path.join(identity_dir, "rrc_history"), ignore_errors=True)
+
+    restored = Database(db_path)
+    restored.restore_database(backup["path"])
+    restored.close_all()
+
+    assert os.path.isfile(os.path.join(identity_dir, "identity"))
+    with open(os.path.join(identity_dir, "identity"), "rb") as handle:
+        assert handle.read() == identity_bytes
+    with open(rrc_hubs_path, "rb") as handle:
+        assert handle.read() == b"rrc-hub-data"
+    with open(history_path, "rb") as handle:
+        assert handle.read() == b"history-entry"
+
+    reopened = Database(db_path)
+    reopened.initialize()
+    row = reopened.provider.fetchone(
+        "SELECT value FROM config WHERE key = ?",
+        ("marker",),
+    )
+    reopened.close_all()
+    assert row is not None
+    assert row["value"] == "before-backup"
+
+
+def test_failed_restore_does_not_overwrite_identity_sidecars(temp_dir):
+    from unittest.mock import patch
+
+    from meshchatnext.src.backend.database import DatabaseRestoreError
+
+    identity_dir = os.path.join(temp_dir, "identities", "abc123")
+    os.makedirs(identity_dir, exist_ok=True)
+    db_path = os.path.join(identity_dir, "database.db")
+    identity_path = os.path.join(identity_dir, "identity")
+    history_dir = os.path.join(identity_dir, "rrc_history", "hub1")
+    os.makedirs(history_dir, exist_ok=True)
+    history_path = os.path.join(history_dir, "lobby.log")
+
+    with open(identity_path, "wb") as handle:
+        handle.write(b"BACKUP-KEY")
+    with open(history_path, "wb") as handle:
+        handle.write(b"backup-history")
+
+    db = Database(db_path)
+    db.initialize()
+    backup = db.backup_database(identity_dir)
+
+    with open(identity_path, "wb") as handle:
+        handle.write(b"LIVE-KEY")
+    with open(history_path, "wb") as handle:
+        handle.write(b"live-history")
+
+    with patch.object(Database, "initialize", side_effect=RuntimeError("open failed")):
+        with pytest.raises(DatabaseRestoreError):
+            db.restore_database(backup["path"])
+
+    with open(identity_path, "rb") as handle:
+        assert handle.read() == b"LIVE-KEY"
+    with open(history_path, "rb") as handle:
+        assert handle.read() == b"live-history"
+    db.close_all()
+
+
+def test_partial_sidecar_copy_failure_restores_live_identity_files(temp_dir):
+    from unittest.mock import patch
+
+    from meshchatnext.src.backend.database import DatabaseRestoreError
+
+    identity_dir = os.path.join(temp_dir, "identities", "abc123")
+    os.makedirs(identity_dir, exist_ok=True)
+    db_path = os.path.join(identity_dir, "database.db")
+    identity_path = os.path.join(identity_dir, "identity")
+    hubs_path = os.path.join(identity_dir, "rrc_hubs")
+    history_dir = os.path.join(identity_dir, "rrc_history", "hub1")
+    os.makedirs(history_dir, exist_ok=True)
+    history_path = os.path.join(history_dir, "lobby.log")
+
+    with open(identity_path, "wb") as handle:
+        handle.write(b"BACKUP-KEY")
+    with open(hubs_path, "wb") as handle:
+        handle.write(b"backup-hubs")
+    with open(history_path, "wb") as handle:
+        handle.write(b"backup-history")
+
+    db = Database(db_path)
+    db.initialize()
+    backup = db.backup_database(identity_dir)
+
+    with open(identity_path, "wb") as handle:
+        handle.write(b"LIVE-KEY")
+    with open(hubs_path, "wb") as handle:
+        handle.write(b"live-hubs")
+    with open(history_path, "wb") as handle:
+        handle.write(b"live-history")
+
+    real_copy = shutil.copy2
+
+    def flaky_copy(src, dest, *args, **kwargs):
+        if os.path.basename(src) == "lobby.log":
+            raise OSError("disk full")
+        return real_copy(src, dest, *args, **kwargs)
+
+    with patch(
+        "meshchatnext.src.backend.database.shutil.copy2", side_effect=flaky_copy
+    ):
+        with pytest.raises(DatabaseRestoreError):
+            db.restore_database(backup["path"])
+
+    with open(identity_path, "rb") as handle:
+        assert handle.read() == b"LIVE-KEY"
+    with open(hubs_path, "rb") as handle:
+        assert handle.read() == b"live-hubs"
+    with open(history_path, "rb") as handle:
+        assert handle.read() == b"live-history"
+    db.close_all()
+
+
+def test_backup_count_failure_does_not_rotate_existing_backups(temp_dir):
+    import time
+    from unittest.mock import patch
+
+    db_path = os.path.join(temp_dir, "test.db")
+    db = Database(db_path)
+    db.initialize()
+    first = db.backup_database(temp_dir, max_count=1)
+    first_name = os.path.basename(first["path"])
+    backup_dir = os.path.join(temp_dir, "database-backups")
+    time.sleep(1.1)
+
+    with patch.object(
+        db.messages,
+        "count_lxmf_messages",
+        side_effect=RuntimeError("count failed"),
+    ):
+        db.backup_database(temp_dir, max_count=1)
+
+    names = [name for name in os.listdir(backup_dir) if name.endswith(".zip")]
+    assert first_name in names
+    assert len(names) >= 2
+    db.close_all()
+
+
+def test_pre_migration_backup_written_before_schema_upgrade(temp_dir):
+    from meshchatnext.src.backend.database.schema import DatabaseSchema
+
+    db_path = os.path.join(temp_dir, "test.db")
+    db = Database(db_path)
+    db.initialize()
+    db.close_all()
+
+    prior = DatabaseSchema.LATEST_VERSION - 1
+    if prior < 1:
+        pytest.skip("No prior schema version to simulate")
+
+    provider = DatabaseProvider(db_path)
+    provider.execute(
+        "UPDATE config SET value = ? WHERE key = ?",
+        (str(prior), "database_version"),
+    )
+    provider.close_all()
+
+    upgraded = Database(db_path)
+    upgraded.initialize()
+    backups = upgraded.list_auto_backups(temp_dir)
+    upgraded.close_all()
+
+    assert any("backup-pre-migrate" in row["name"] for row in backups)
+
+
+def test_pre_migration_backup_handles_pre_1980_identity_file_mtime(temp_dir):
+    from meshchatnext.src.backend.database.schema import DatabaseSchema
+
+    legacy = os.path.join(temp_dir, "legacy.dat")
+    with open(legacy, "wb") as handle:
+        handle.write(b"legacy")
+    os.utime(legacy, (0, 0))
+
+    db_path = os.path.join(temp_dir, "test.db")
+    db = Database(db_path)
+    db.initialize()
+    db.close_all()
+
+    prior = DatabaseSchema.LATEST_VERSION - 1
+    if prior < 1:
+        pytest.skip("No prior schema version to simulate")
+
+    provider = DatabaseProvider(db_path)
+    provider.execute(
+        "UPDATE config SET value = ? WHERE key = ?",
+        (str(prior), "database_version"),
+    )
+    provider.close_all()
+
+    upgraded = Database(db_path)
+    upgraded.initialize()
+    backups = upgraded.list_auto_backups(temp_dir)
+    upgraded.close_all()
+
+    assert any("backup-pre-migrate" in row["name"] for row in backups)
+
+
+def test_pre_migration_backup_skipped_with_env(temp_dir, monkeypatch):
+    from meshchatnext.src.backend.database.schema import DatabaseSchema
+
+    monkeypatch.setenv("MESHCHAT_SKIP_PRE_MIGRATE_BACKUP", "1")
+
+    db_path = os.path.join(temp_dir, "test.db")
+    db = Database(db_path)
+    db.initialize()
+    db.close_all()
+
+    prior = DatabaseSchema.LATEST_VERSION - 1
+    if prior < 1:
+        pytest.skip("No prior schema version to simulate")
+
+    provider = DatabaseProvider(db_path)
+    provider.execute(
+        "UPDATE config SET value = ? WHERE key = ?",
+        (str(prior), "database_version"),
+    )
+    provider.close_all()
+
+    upgraded = Database(db_path)
+    upgraded.initialize()
+    backups = upgraded.list_auto_backups(temp_dir)
+    upgraded.close_all()
+
+    assert not any("backup-pre-migrate" in row["name"] for row in backups)
+
+
+def test_pre_migration_upgrade_logs_schema_migration_line(temp_dir, caplog):
+    import logging
+
+    from meshchatnext.src.backend.database.schema import DatabaseSchema
+
+    caplog.set_level(logging.INFO, logger="meshchatnext.database")
+
+    db_path = os.path.join(temp_dir, "test.db")
+    db = Database(db_path)
+    db.initialize()
+    db.close_all()
+
+    prior = DatabaseSchema.LATEST_VERSION - 1
+    if prior < 1:
+        pytest.skip("No prior schema version to simulate")
+
+    provider = DatabaseProvider(db_path)
+    provider.execute(
+        "UPDATE config SET value = ? WHERE key = ?",
+        (str(prior), "database_version"),
+    )
+    provider.close_all()
+
+    upgraded = Database(db_path)
+    upgraded.initialize()
+    upgraded.close_all()
+
+    joined = caplog.text
+    assert "schema_migration" in joined
+    assert "status=ok" in joined
+    assert f"from={prior}" in joined
+
+
+def test_prune_pre_migrate_backups_keeps_newest_five(temp_dir):
+    from meshchatnext.src.backend.database import PRE_MIGRATE_BACKUP_PREFIX
+
+    backup_dir = os.path.join(temp_dir, "database-backups")
+    os.makedirs(backup_dir)
+    paths = []
+    for i in range(7):
+        name = f"{PRE_MIGRATE_BACKUP_PREFIX}v{i}-to-v{i + 1}.zip"
+        path = os.path.join(backup_dir, name)
+        with open(path, "wb") as handle:
+            handle.write(b"z")
+        os.utime(path, (1000 + i, 1000 + i))
+        paths.append(path)
+    newest = paths[-1]
+    Database._prune_pre_migrate_backups(temp_dir, keep=5, preserve_path=newest)
+    remaining = [
+        f
+        for f in os.listdir(backup_dir)
+        if f.startswith(PRE_MIGRATE_BACKUP_PREFIX) and f.endswith(".zip")
+    ]
+    assert len(remaining) == 5
+    assert os.path.basename(newest) in remaining

@@ -1,0 +1,20 @@
+---
+# Meshchat neXt Ansible role defaults.
+
+meshchatnext_version: "latest"
+meshchatnext_image: "quad4io/meshchatnext"
+meshchatnext_container_name: "meshchat-next"
+meshchatnext_port: 8000
+meshchatnext_bind: "127.0.0.1"
+meshchatnext_config_dir: "/opt/meshchatnext/config"
+meshchatnext_user: "meshchatnext"
+meshchatnext_uid: 1000
+meshchatnext_gid: 1000
+
+# Set to deploy behind a reverse proxy (nginx). Disabled by default.
+meshchatnext_nginx_enabled: false
+meshchatnext_domain: "meshchatnext.local"
+
+# Extra docker run args.
+meshchatnext_extra_env: {}
+meshchatnext_extra_args: []

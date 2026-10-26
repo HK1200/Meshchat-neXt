@@ -1,0 +1,25 @@
+diff --git a/src/util.js b/src/util.js
+--- a/src/util.js
++++ b/src/util.js
+@@ -335,7 +335,9 @@
+     2 * haloWidth * spriteImageData.pixelRatio + spriteImageData.height,
+   ];
+   const imageCanvas = createCanvas(imgSize[0], imgSize[1]);
+-  const imageContext = imageCanvas.getContext('2d');
++  const imageContext = imageCanvas.getContext('2d', {
++    willReadFrequently: true,
++  });
+   imageContext.drawImage(
+     spriteImage,
+     spriteImageData.x,
+@@ -385,7 +387,9 @@
+  */
+ export function drawSDF(image, area, color) {
+   const imageCanvas = createCanvas(area.width, area.height);
+-  const imageContext = imageCanvas.getContext('2d');
++  const imageContext = imageCanvas.getContext('2d', {
++    willReadFrequently: true,
++  });
+   imageContext.drawImage(
+     image,
+     area.x,

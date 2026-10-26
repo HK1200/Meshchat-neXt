@@ -1,0 +1,1261 @@
+# SPDX-License-Identifier: 0BSD
+
+"""End-to-end tests for the /api/v1/reticulum/interfaces/add endpoint.
+
+Each test exercises one interface type and asserts that the rich set of
+options exposed in the UI is persisted into the Reticulum config dict.
+"""
+
+import contextlib
+import json
+import shutil
+import socket
+import tempfile
+from unittest.mock import MagicMock, patch
+
+import pytest
+import RNS
+
+from meshchatnext.meshchat import ReticulumMeshChat
+
+
+class ConfigDict(dict):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.write_called = False
+
+    def write(self):
+        self.write_called = True
+        return True
+
+
+@pytest.fixture
+def temp_dir():
+    path = tempfile.mkdtemp()
+    try:
+        yield path
+    finally:
+        shutil.rmtree(path)
+
+
+def build_identity():
+    identity = MagicMock(spec=RNS.Identity)
+    identity.hash = b"test_hash_32_bytes_long_01234567"
+    identity.hexhash = identity.hash.hex()
+    identity.get_private_key.return_value = b"test_private_key"
+    return identity
+
+
+async def find_route_handler(app_instance, path, method):
+    for route in app_instance.get_routes():
+        if route.path == path and route.method == method:
+            return route.handler
+    return None
+
+
+@contextlib.asynccontextmanager
+async def make_app(temp_dir, config):
+    with (
+        patch("meshchatnext.meshchat.generate_ssl_certificate"),
+        patch("RNS.Reticulum") as mock_rns,
+        patch("RNS.Transport"),
+        patch("LXMF.LXMRouter"),
+    ):
+        mock_reticulum = mock_rns.return_value
+        mock_reticulum.config = config
+        mock_reticulum.configpath = "/tmp/mock_config"
+        mock_reticulum.is_connected_to_shared_instance = False
+        mock_reticulum.transport_enabled.return_value = True
+
+        app_instance = ReticulumMeshChat(
+            identity=build_identity(),
+            storage_dir=temp_dir,
+            reticulum_config_dir=temp_dir,
+        )
+
+        handler = await find_route_handler(
+            app_instance,
+            "/api/v1/reticulum/interfaces/add",
+            "POST",
+        )
+        assert handler
+        yield handler
+
+
+def make_request(payload):
+    class Request:
+        @staticmethod
+        async def json():
+            return payload
+
+    return Request()
+
+
+def _free_port(kind="tcp"):
+    sock_type = socket.SOCK_STREAM if kind == "tcp" else socket.SOCK_DGRAM
+    with contextlib.closing(socket.socket(socket.AF_INET, sock_type)) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+@pytest.mark.asyncio
+async def test_auto_interface_persists_full_options(temp_dir):
+    config = ConfigDict({"reticulum": {}, "interfaces": {}})
+
+    async with make_app(temp_dir, config) as handler:
+        payload = {
+            "name": "AutoLAN",
+            "type": "AutoInterface",
+            "group_id": "homelab",
+            "discovery_scope": "site",
+            "discovery_port": 35000,
+            "data_port": 35001,
+            "multicast_address_type": "permanent",
+            "devices": "eth0, wlan0",
+            "ignored_devices": "tun0",
+            "configured_bitrate": 5000000,
+        }
+        response = await handler(make_request(payload))
+        body = json.loads(response.body)
+        assert response.status == 200, body
+        saved = config["interfaces"]["AutoLAN"]
+        assert saved["type"] == "AutoInterface"
+        assert saved["group_id"] == "homelab"
+        assert saved["discovery_scope"] == "site"
+        assert saved["discovery_port"] == 35000
+        assert saved["data_port"] == 35001
+        assert saved["multicast_address_type"] == "permanent"
+        assert saved["devices"] == "eth0, wlan0"
+        assert saved["ignored_devices"] == "tun0"
+        assert saved["configured_bitrate"] == 5000000
+
+
+@pytest.mark.asyncio
+async def test_auto_interface_rejects_invalid_discovery_scope(temp_dir):
+    config = ConfigDict({"reticulum": {}, "interfaces": {}})
+
+    async with make_app(temp_dir, config) as handler:
+        payload = {
+            "name": "AutoLAN",
+            "type": "AutoInterface",
+            "discovery_scope": "outerspace",
+        }
+        response = await handler(make_request(payload))
+        body = json.loads(response.body)
+        assert response.status == 422
+        assert "discovery scope" in body["message"].lower()
+
+
+@pytest.mark.asyncio
+async def test_auto_interface_rejects_invalid_multicast_type(temp_dir):
+    config = ConfigDict({"reticulum": {}, "interfaces": {}})
+
+    async with make_app(temp_dir, config) as handler:
+        payload = {
+            "name": "AutoLAN",
+            "type": "AutoInterface",
+            "multicast_address_type": "weird",
+        }
+        response = await handler(make_request(payload))
+        body = json.loads(response.body)
+        assert response.status == 422
+        assert "multicast" in body["message"].lower()
+
+
+@pytest.mark.asyncio
+async def test_auto_interface_rejects_busy_data_port(temp_dir):
+    config = ConfigDict({"reticulum": {}, "interfaces": {}})
+
+    busy = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    busy.bind(("127.0.0.1", 0))
+    busy_port = busy.getsockname()[1]
+    try:
+        async with make_app(temp_dir, config) as handler:
+            payload = {
+                "name": "AutoLAN",
+                "type": "AutoInterface",
+                "data_port": busy_port,
+            }
+            response = await handler(make_request(payload))
+            body = json.loads(response.body)
+            assert response.status == 409, body
+            assert str(busy_port) in body["message"]
+    finally:
+        busy.close()
+
+
+@pytest.mark.asyncio
+async def test_auto_interface_rejects_duplicate_default_ports(temp_dir):
+    config = ConfigDict(
+        {
+            "reticulum": {},
+            "interfaces": {
+                "AutoInterface": {
+                    "type": "AutoInterface",
+                    "interface_enabled": "true",
+                },
+            },
+        },
+    )
+
+    async with make_app(temp_dir, config) as handler:
+        payload = {"name": "AutoInterface2", "type": "AutoInterface"}
+        response = await handler(make_request(payload))
+        body = json.loads(response.body)
+        assert response.status == 422, body
+        assert "autointerface" in body["message"].lower()
+        assert "AutoInterface2" not in config["interfaces"]
+
+
+@pytest.mark.asyncio
+async def test_auto_interface_allows_second_with_distinct_ports(temp_dir):
+    config = ConfigDict(
+        {
+            "reticulum": {},
+            "interfaces": {
+                "AutoInterface": {
+                    "type": "AutoInterface",
+                    "interface_enabled": "true",
+                },
+            },
+        },
+    )
+
+    async with make_app(temp_dir, config) as handler:
+        payload = {
+            "name": "AutoInterface2",
+            "type": "AutoInterface",
+            "discovery_port": _free_port("udp"),
+            "data_port": _free_port("udp"),
+        }
+        response = await handler(make_request(payload))
+        body = json.loads(response.body)
+        assert response.status == 200, body
+        assert config["interfaces"]["AutoInterface2"]["type"] == "AutoInterface"
+
+
+@pytest.mark.asyncio
+async def test_auto_interface_ignores_disabled_existing_entry(temp_dir):
+    # The seeded "Default Interface" in the on-disk config is an enabled
+    # AutoInterface. Marking it disabled in memory wins over disk sync,
+    # leaving no enabled AutoInterface for a new default-port entry to
+    # collide with.
+    config = ConfigDict(
+        {
+            "reticulum": {},
+            "interfaces": {
+                "Default Interface": {
+                    "type": "AutoInterface",
+                    "interface_enabled": "false",
+                },
+            },
+        },
+    )
+
+    async with make_app(temp_dir, config) as handler:
+        payload = {"name": "AutoInterface2", "type": "AutoInterface"}
+        response = await handler(make_request(payload))
+        body = json.loads(response.body)
+        assert response.status == 200, body
+
+
+@pytest.mark.asyncio
+async def test_tcp_client_persists_advanced_options(temp_dir):
+    config = ConfigDict({"reticulum": {}, "interfaces": {}})
+
+    async with make_app(temp_dir, config) as handler:
+        payload = {
+            "name": "TCPClient",
+            "type": "TCPClientInterface",
+            "target_host": "example.com",
+            "target_port": "4242",
+            "kiss_framing": True,
+            "i2p_tunneled": True,
+            "connect_timeout": 12,
+            "max_reconnect_tries": 7,
+            "fixed_mtu": 512,
+        }
+        response = await handler(make_request(payload))
+        body = json.loads(response.body)
+        assert response.status == 200, body
+        saved = config["interfaces"]["TCPClient"]
+        assert saved["kiss_framing"] is True
+        assert saved["i2p_tunneled"] is True
+        assert saved["connect_timeout"] == 12
+        assert saved["max_reconnect_tries"] == 7
+        assert saved["fixed_mtu"] == 512
+
+
+@pytest.mark.asyncio
+async def test_tcp_client_rejects_fixed_mtu_below_reticulum_minimum(temp_dir):
+    config = ConfigDict({"reticulum": {}, "interfaces": {}})
+
+    async with make_app(temp_dir, config) as handler:
+        payload = {
+            "name": "TCPClient",
+            "type": "TCPClientInterface",
+            "target_host": "example.com",
+            "target_port": "4242",
+            "fixed_mtu": 485,
+        }
+        response = await handler(make_request(payload))
+        body = json.loads(response.body)
+        assert response.status == 422, body
+        assert "fixed_mtu" in body["message"].lower()
+        assert "500" in body["message"]
+        assert "TCPClient" not in config["interfaces"]
+
+
+@pytest.mark.asyncio
+async def test_tcp_server_persists_optional_options(temp_dir):
+    config = ConfigDict({"reticulum": {}, "interfaces": {}})
+
+    free_port = _free_port("tcp")
+    async with make_app(temp_dir, config) as handler:
+        payload = {
+            "name": "TCPServer",
+            "type": "TCPServerInterface",
+            "listen_ip": "127.0.0.1",
+            "listen_port": free_port,
+            "device": "eth0",
+            "prefer_ipv6": True,
+            "i2p_tunneled": True,
+        }
+        response = await handler(make_request(payload))
+        body = json.loads(response.body)
+        assert response.status == 200, body
+        saved = config["interfaces"]["TCPServer"]
+        assert saved["device"] == "eth0"
+        assert saved["prefer_ipv6"] is True
+        assert saved["i2p_tunneled"] is True
+
+
+@pytest.mark.asyncio
+async def test_tcp_server_rejects_whitespace_listen_ip(temp_dir):
+    config = ConfigDict({"reticulum": {}, "interfaces": {}})
+
+    async with make_app(temp_dir, config) as handler:
+        payload = {
+            "name": "TCPServer",
+            "type": "TCPServerInterface",
+            "listen_ip": "   ",
+            "listen_port": _free_port("tcp"),
+        }
+        response = await handler(make_request(payload))
+        body = json.loads(response.body)
+        assert response.status == 422, body
+        assert "Listen IP" in body["message"]
+
+
+@pytest.mark.asyncio
+async def test_tcp_server_rejects_busy_listen_port(temp_dir):
+    config = ConfigDict({"reticulum": {}, "interfaces": {}})
+
+    busy = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    busy.bind(("127.0.0.1", 0))
+    busy.listen(1)
+    busy_port = busy.getsockname()[1]
+    try:
+        async with make_app(temp_dir, config) as handler:
+            payload = {
+                "name": "TCPServer",
+                "type": "TCPServerInterface",
+                "listen_ip": "127.0.0.1",
+                "listen_port": busy_port,
+            }
+            response = await handler(make_request(payload))
+            body = json.loads(response.body)
+            assert response.status == 409, body
+            assert str(busy_port) in body["message"]
+    finally:
+        busy.close()
+
+
+@pytest.mark.asyncio
+async def test_udp_rejects_busy_listen_port(temp_dir):
+    config = ConfigDict({"reticulum": {}, "interfaces": {}})
+
+    busy = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    busy.bind(("127.0.0.1", 0))
+    busy_port = busy.getsockname()[1]
+    try:
+        async with make_app(temp_dir, config) as handler:
+            payload = {
+                "name": "UDP1",
+                "type": "UDPInterface",
+                "listen_ip": "127.0.0.1",
+                "listen_port": busy_port,
+                "forward_ip": "255.255.255.255",
+                "forward_port": busy_port,
+            }
+            response = await handler(make_request(payload))
+            body = json.loads(response.body)
+            assert response.status == 409, body
+            assert "UDP" in body["message"]
+    finally:
+        busy.close()
+
+
+@pytest.mark.asyncio
+async def test_backbone_listener_mode_persists_options(temp_dir):
+    config = ConfigDict({"reticulum": {}, "interfaces": {}})
+
+    free_port = _free_port("tcp")
+    async with make_app(temp_dir, config) as handler:
+        payload = {
+            "name": "BackboneListen",
+            "type": "BackboneInterface",
+            "listen_ip": "127.0.0.1",
+            "listen_port": free_port,
+            "device": "eth0",
+            "prefer_ipv6": True,
+        }
+        response = await handler(make_request(payload))
+        body = json.loads(response.body)
+        assert response.status == 200, body
+        saved = config["interfaces"]["BackboneListen"]
+        assert saved["listen_port"] == free_port
+        assert saved["listen_ip"] == "127.0.0.1"
+        assert saved["device"] == "eth0"
+        assert saved["prefer_ipv6"] is True
+
+
+@pytest.mark.asyncio
+async def test_backbone_connector_allows_empty_transport_identity(temp_dir):
+    config = ConfigDict({"reticulum": {}, "interfaces": {}})
+
+    free_port = _free_port("tcp")
+    async with make_app(temp_dir, config) as handler:
+        payload = {
+            "name": "BackboneOut",
+            "type": "BackboneInterface",
+            "target_host": "10.0.0.1",
+            "target_port": str(free_port),
+        }
+        response = await handler(make_request(payload))
+        body = json.loads(response.body)
+        assert response.status == 200, body
+        saved = config["interfaces"]["BackboneOut"]
+        assert saved["remote"] == "10.0.0.1"
+        assert str(saved["target_port"]) == str(free_port)
+        assert "transport_identity" not in saved
+
+
+@pytest.mark.asyncio
+async def test_external_interface_merges_extra_config(temp_dir):
+    config = ConfigDict({"reticulum": {}, "interfaces": {}})
+
+    async with make_app(temp_dir, config) as handler:
+        payload = {
+            "name": "WeaveTest",
+            "type": "WeaveInterface",
+            "extra_config": {"listen_ip": "127.0.0.1", "listen_port": 4242},
+        }
+        response = await handler(make_request(payload))
+        body = json.loads(response.body)
+        assert response.status == 200, body
+        saved = config["interfaces"]["WeaveTest"]
+        assert saved["type"] == "WeaveInterface"
+        assert saved["listen_ip"] == "127.0.0.1"
+        assert saved["listen_port"] == 4242
+
+
+@pytest.mark.asyncio
+async def test_external_interface_rejects_non_object_extra_config(temp_dir):
+    config = ConfigDict({"reticulum": {}, "interfaces": {}})
+
+    async with make_app(temp_dir, config) as handler:
+        payload = {
+            "name": "Bad",
+            "type": "FooInterface",
+            "extra_config": "not-an-object",
+        }
+        response = await handler(make_request(payload))
+        body = json.loads(response.body)
+        assert response.status == 422
+        assert "extra_config" in body["message"].lower()
+
+
+@pytest.mark.asyncio
+async def test_backbone_connector_mode_still_requires_remote(temp_dir):
+    config = ConfigDict({"reticulum": {}, "interfaces": {}})
+
+    async with make_app(temp_dir, config) as handler:
+        payload = {
+            "name": "BackboneOut",
+            "type": "BackboneInterface",
+            "target_port": "4242",
+            "transport_identity": "00" * 16,
+        }
+        response = await handler(make_request(payload))
+        body = json.loads(response.body)
+        assert response.status == 422
+        assert "remote" in body["message"].lower()
+
+
+@pytest.mark.asyncio
+async def test_rnode_persists_flow_control_and_id_callsign(temp_dir):
+    config = ConfigDict({"reticulum": {}, "interfaces": {}})
+
+    async with make_app(temp_dir, config) as handler:
+        payload = {
+            "name": "Radio",
+            "type": "RNodeInterface",
+            "port": "/dev/ttyUSB0",
+            "frequency": 868000000,
+            "bandwidth": 125000,
+            "txpower": 7,
+            "spreadingfactor": 8,
+            "codingrate": 5,
+            "flow_control": True,
+            "id_callsign": "NOCALL",
+            "id_interval": 600,
+            "airtime_limit_long": 1.5,
+            "airtime_limit_short": 33.0,
+        }
+        response = await handler(make_request(payload))
+        body = json.loads(response.body)
+        assert response.status == 200, body
+        saved = config["interfaces"]["Radio"]
+        assert saved["flow_control"] is True
+        assert saved["id_callsign"] == "NOCALL"
+        assert saved["id_interval"] == 600
+        assert saved["airtime_limit_long"] == 1.5
+        assert saved["airtime_limit_short"] == 33.0
+
+
+@pytest.mark.asyncio
+async def test_rnode_ble_uart_port_persisted(temp_dir):
+    config = ConfigDict({"reticulum": {}, "interfaces": {}})
+
+    async with make_app(temp_dir, config) as handler:
+        payload = {
+            "name": "RadioBLE",
+            "type": "RNodeInterface",
+            "port": "ble://aa:bb:cc:dd:ee:ff",
+            "frequency": 868000000,
+            "bandwidth": 125000,
+            "txpower": 7,
+            "spreadingfactor": 8,
+            "codingrate": 5,
+        }
+        response = await handler(make_request(payload))
+        body = json.loads(response.body)
+        assert response.status == 200, body
+        assert config["interfaces"]["RadioBLE"]["port"] == "ble://aa:bb:cc:dd:ee:ff"
+
+
+@pytest.mark.asyncio
+async def test_rnode_tcp_over_ip_normalizes_to_host_only(temp_dir):
+    config = ConfigDict({"reticulum": {}, "interfaces": {}})
+
+    async with make_app(temp_dir, config) as handler:
+        payload = {
+            "name": "RNodeWiFi",
+            "type": "RNodeIPInterface",
+            "port": "tcp://192.168.4.1:7633",
+            "frequency": 868000000,
+            "bandwidth": 125000,
+            "txpower": 7,
+            "spreadingfactor": 8,
+            "codingrate": 5,
+        }
+        response = await handler(make_request(payload))
+        body = json.loads(response.body)
+        assert response.status == 200, body
+        assert config["interfaces"]["RNodeWiFi"]["port"] == "tcp://192.168.4.1"
+        # RNS's Android-specific RNodeInterface reads tcp_host as its own
+        # config key instead of parsing it out of port like desktop does.
+        assert config["interfaces"]["RNodeWiFi"]["tcp_host"] == "192.168.4.1"
+
+
+@pytest.mark.asyncio
+async def test_rnode_over_ip_allowed_on_android_without_usbserial4a_or_jnius(temp_dir):
+    """RNode over TCP needs no native Android modules and must not be blocked."""
+    config = ConfigDict({"reticulum": {}, "interfaces": {}})
+
+    async with make_app(temp_dir, config) as handler:
+        with patch(
+            "meshchatnext.src.backend.http.routes.interfaces._is_chaquopy_android",
+            return_value=True,
+        ):
+            payload = {
+                "name": "RNodeWiFi",
+                "type": "RNodeIPInterface",
+                "port": "tcp://192.168.4.1:7633",
+                "frequency": 868000000,
+                "bandwidth": 125000,
+                "txpower": 7,
+                "spreadingfactor": 8,
+                "codingrate": 5,
+            }
+            response = await handler(make_request(payload))
+            body = json.loads(response.body)
+            assert response.status == 200, body
+            assert config["interfaces"]["RNodeWiFi"]["tcp_host"] == "192.168.4.1"
+
+
+@pytest.mark.asyncio
+async def test_rnode_serial_blocked_on_android_without_usbserial4a_or_jnius(temp_dir):
+    config = ConfigDict({"reticulum": {}, "interfaces": {}})
+
+    async with make_app(temp_dir, config) as handler:
+        with patch(
+            "meshchatnext.src.backend.http.routes.interfaces._is_chaquopy_android",
+            return_value=True,
+        ):
+            payload = {
+                "name": "Radio",
+                "type": "RNodeInterface",
+                "port": "/dev/ttyUSB0",
+                "frequency": 868000000,
+                "bandwidth": 125000,
+                "txpower": 7,
+                "spreadingfactor": 8,
+                "codingrate": 5,
+            }
+            response = await handler(make_request(payload))
+            body = json.loads(response.body)
+            assert response.status == 422, body
+            assert "RNode over IP" in body["message"]
+            assert "issue #" not in body["message"].lower()
+            assert "github" not in body["message"].lower()
+            assert "Radio" not in config["interfaces"]
+
+
+@pytest.mark.asyncio
+async def test_rnode_multi_interface_blocked_on_android(temp_dir):
+    """RNS has no Android-specific implementation of RNodeMultiInterface."""
+    config = ConfigDict({"reticulum": {}, "interfaces": {}})
+
+    async with make_app(temp_dir, config) as handler:
+        with patch(
+            "meshchatnext.src.backend.http.routes.interfaces._is_chaquopy_android",
+            return_value=True,
+        ):
+            payload = {
+                "name": "MultiRadio",
+                "type": "RNodeMultiInterface",
+                "port": "/dev/ttyUSB0",
+                "sub_interfaces": [
+                    {
+                        "name": "vport0",
+                        "frequency": 868000000,
+                        "bandwidth": 125000,
+                        "txpower": 7,
+                        "spreadingfactor": 8,
+                        "codingrate": 5,
+                        "vport": 0,
+                    },
+                ],
+            }
+            response = await handler(make_request(payload))
+            body = json.loads(response.body)
+            assert response.status == 422, body
+            assert "not supported on Android" in body["message"]
+            assert "MultiRadio" not in config["interfaces"]
+
+
+@pytest.mark.asyncio
+async def test_rnode_tcp_over_ip_rejects_empty_host(temp_dir):
+    config = ConfigDict({"reticulum": {}, "interfaces": {}})
+
+    async with make_app(temp_dir, config) as handler:
+        payload = {
+            "name": "Bad",
+            "type": "RNodeIPInterface",
+            "port": "tcp://",
+            "frequency": 868000000,
+            "bandwidth": 125000,
+            "txpower": 7,
+            "spreadingfactor": 8,
+            "codingrate": 5,
+        }
+        response = await handler(make_request(payload))
+        body = json.loads(response.body)
+        assert response.status == 422, body
+        assert "TCP host" in body["message"]
+
+
+@pytest.mark.asyncio
+async def test_rnode_frequency_mhz_decimal_normalized_to_hz(temp_dir):
+    config = ConfigDict({"reticulum": {}, "interfaces": {}})
+
+    async with make_app(temp_dir, config) as handler:
+        payload = {
+            "name": "RadioEU",
+            "type": "RNodeInterface",
+            "port": "/dev/ttyUSB0",
+            "frequency": 868.825,
+            "bandwidth": 125000,
+            "txpower": 7,
+            "spreadingfactor": 8,
+            "codingrate": 5,
+        }
+        response = await handler(make_request(payload))
+        body = json.loads(response.body)
+        assert response.status == 200, body
+        assert config["interfaces"]["RadioEU"]["frequency"] == 868825000
+
+
+@pytest.mark.asyncio
+async def test_rnode_rejects_invalid_txpower(temp_dir):
+    config = ConfigDict({"reticulum": {}, "interfaces": {}})
+
+    async with make_app(temp_dir, config) as handler:
+        payload = {
+            "name": "RadioBad",
+            "type": "RNodeInterface",
+            "port": "/dev/ttyUSB0",
+            "frequency": 868000000,
+            "bandwidth": 125000,
+            "txpower": -9,
+            "spreadingfactor": 8,
+            "codingrate": 5,
+        }
+        response = await handler(make_request(payload))
+        body = json.loads(response.body)
+        assert response.status == 422, body
+        assert "TX power" in body["message"]
+        assert "RadioBad" not in config["interfaces"]
+
+
+@pytest.mark.asyncio
+async def test_rnode_normalizes_txpower_to_integer(temp_dir):
+    config = ConfigDict({"reticulum": {}, "interfaces": {}})
+
+    async with make_app(temp_dir, config) as handler:
+        payload = {
+            "name": "Radio",
+            "type": "RNodeInterface",
+            "port": "/dev/ttyUSB0",
+            "frequency": 868000000,
+            "bandwidth": 125000,
+            "txpower": "14.0",
+            "spreadingfactor": 8,
+            "codingrate": 5,
+        }
+        response = await handler(make_request(payload))
+        body = json.loads(response.body)
+        assert response.status == 200, body
+        assert config["interfaces"]["Radio"]["txpower"] == 14
+
+
+@pytest.mark.asyncio
+async def test_kiss_persists_full_serial_options(temp_dir):
+    config = ConfigDict({"reticulum": {}, "interfaces": {}})
+
+    async with make_app(temp_dir, config) as handler:
+        payload = {
+            "name": "KISSRadio",
+            "type": "KISSInterface",
+            "port": "/dev/ttyACM0",
+            "speed": 19200,
+            "databits": 8,
+            "parity": "N",
+            "stopbits": 1,
+            "preamble": 200,
+            "txtail": 30,
+            "persistence": 128,
+            "slottime": 25,
+            "flow_control": True,
+            "id_callsign": "BEACON",
+            "id_interval": 1200,
+        }
+        response = await handler(make_request(payload))
+        body = json.loads(response.body)
+        assert response.status == 200, body
+        saved = config["interfaces"]["KISSRadio"]
+        assert saved["speed"] == 19200
+        assert saved["databits"] == 8
+        assert saved["parity"] == "N"
+        assert saved["stopbits"] == 1
+        assert saved["preamble"] == 200
+        assert saved["txtail"] == 30
+        assert saved["persistence"] == 128
+        assert saved["slottime"] == 25
+        assert saved["flow_control"] is True
+        assert saved["id_callsign"] == "BEACON"
+        assert saved["id_interval"] == 1200
+
+
+@pytest.mark.asyncio
+async def test_ax25_kiss_persists_callsign_and_ssid(temp_dir):
+    config = ConfigDict({"reticulum": {}, "interfaces": {}})
+
+    async with make_app(temp_dir, config) as handler:
+        payload = {
+            "name": "AX25",
+            "type": "AX25KISSInterface",
+            "port": "/dev/ttyACM1",
+            "callsign": "N0CALL",
+            "ssid": 7,
+        }
+        response = await handler(make_request(payload))
+        body = json.loads(response.body)
+        assert response.status == 200, body
+        saved = config["interfaces"]["AX25"]
+        assert saved["callsign"] == "N0CALL"
+        assert saved["ssid"] == 7
+
+
+@pytest.mark.asyncio
+async def test_i2p_connectable_can_be_disabled(temp_dir):
+    config = ConfigDict(
+        {
+            "reticulum": {"enable_transport": "True"},
+            "interfaces": {},
+        },
+    )
+
+    async with make_app(temp_dir, config) as handler:
+        payload = {
+            "name": "I2POut",
+            "type": "I2PInterface",
+            "peers": ["abcdef.b32.i2p"],
+            "connectable": False,
+        }
+        response = await handler(make_request(payload))
+        body = json.loads(response.body)
+        assert response.status == 200, body
+        saved = config["interfaces"]["I2POut"]
+        assert saved["connectable"] == "False"
+        assert saved["peers"] == ["abcdef.b32.i2p"]
+
+
+@pytest.mark.asyncio
+async def test_i2p_connectable_defaults_to_false_when_omitted(temp_dir):
+    config = ConfigDict(
+        {
+            "reticulum": {"enable_transport": "True"},
+            "interfaces": {},
+        },
+    )
+
+    async with make_app(temp_dir, config) as handler:
+        payload = {
+            "name": "I2POut",
+            "type": "I2PInterface",
+            "peers": ["abcdef.b32.i2p"],
+        }
+        response = await handler(make_request(payload))
+        body = json.loads(response.body)
+        assert response.status == 200, body
+        saved = config["interfaces"]["I2POut"]
+        assert saved["connectable"] == "False"
+
+
+@pytest.mark.asyncio
+async def test_i2p_connectable_true_still_persists(temp_dir):
+    config = ConfigDict(
+        {
+            "reticulum": {"enable_transport": "True"},
+            "interfaces": {},
+        },
+    )
+
+    async with make_app(temp_dir, config) as handler:
+        payload = {
+            "name": "I2PIn",
+            "type": "I2PInterface",
+            "peers": ["abcdef.b32.i2p"],
+            "connectable": True,
+        }
+        response = await handler(make_request(payload))
+        body = json.loads(response.body)
+        assert response.status == 200, body
+        saved = config["interfaces"]["I2PIn"]
+        assert saved["connectable"] == "True"
+
+
+@pytest.mark.asyncio
+async def test_internal_mode_and_rns_bool_options_persist(temp_dir):
+    config = ConfigDict({"reticulum": {}, "interfaces": {}})
+
+    free_port = _free_port("tcp")
+    async with make_app(temp_dir, config) as handler:
+        payload = {
+            "name": "InternalTCP",
+            "type": "TCPServerInterface",
+            "listen_ip": "127.0.0.1",
+            "listen_port": free_port,
+            "mode": "internal",
+            "recursive_prs": True,
+            "announces_from_internal": False,
+        }
+        response = await handler(make_request(payload))
+        body = json.loads(response.body)
+        assert response.status == 200, body
+        saved = config["interfaces"]["InternalTCP"]
+        assert saved["mode"] == "internal"
+        assert saved["recursive_prs"] == "yes"
+        assert saved["announces_from_internal"] == "no"
+
+
+@pytest.mark.asyncio
+async def test_gravity_and_announces_to_internal_persist(temp_dir):
+    config = ConfigDict({"reticulum": {}, "interfaces": {}})
+
+    free_port = _free_port("tcp")
+    async with make_app(temp_dir, config) as handler:
+        payload = {
+            "name": "GravityTCP",
+            "type": "TCPServerInterface",
+            "listen_ip": "127.0.0.1",
+            "listen_port": free_port,
+            "gravity": 2,
+            "announces_to_internal": True,
+        }
+        response = await handler(make_request(payload))
+        body = json.loads(response.body)
+        assert response.status == 200, body
+        saved = config["interfaces"]["GravityTCP"]
+        assert saved["gravity"] == 2
+        assert saved["announces_to_internal"] == "yes"
+
+
+@pytest.mark.asyncio
+async def test_rejects_unknown_interface_mode(temp_dir):
+    config = ConfigDict({"reticulum": {}, "interfaces": {}})
+
+    free_port = _free_port("tcp")
+    async with make_app(temp_dir, config) as handler:
+        payload = {
+            "name": "BadMode",
+            "type": "TCPServerInterface",
+            "listen_ip": "127.0.0.1",
+            "listen_port": free_port,
+            "mode": "warehouse",
+        }
+        response = await handler(make_request(payload))
+        body = json.loads(response.body)
+        assert response.status == 422, body
+        assert "mode" in body["message"].lower()
+        assert "BadMode" not in config["interfaces"]
+
+
+@pytest.mark.asyncio
+async def test_rejects_unsafe_location_cmd(temp_dir):
+    config = ConfigDict({"reticulum": {}, "interfaces": {}})
+
+    free_port = _free_port("tcp")
+    async with make_app(temp_dir, config) as handler:
+        payload = {
+            "name": "Disco",
+            "type": "TCPServerInterface",
+            "listen_ip": "127.0.0.1",
+            "listen_port": free_port,
+            "discoverable": "yes",
+            "mode": "gateway",
+            "location_cmd": "/tmp/gps; rm -rf /",
+        }
+        response = await handler(make_request(payload))
+        body = json.loads(response.body)
+        assert response.status == 422, body
+        assert "location_cmd" in body["message"]
+
+
+@pytest.mark.asyncio
+async def test_backbone_listener_fast_flapping_options(temp_dir):
+    config = ConfigDict({"reticulum": {}, "interfaces": {}})
+
+    free_port = _free_port("tcp")
+    async with make_app(temp_dir, config) as handler:
+        payload = {
+            "name": "BackboneFlap",
+            "type": "BackboneInterface",
+            "listen_ip": "127.0.0.1",
+            "listen_port": free_port,
+            "block_fast_flapping": True,
+            "fast_flapping_block_time": 60,
+            "fast_flapping_threshold": 15,
+            "fast_flapping_grace": 3,
+        }
+        response = await handler(make_request(payload))
+        body = json.loads(response.body)
+        assert response.status == 200, body
+        saved = config["interfaces"]["BackboneFlap"]
+        assert saved["block_fast_flapping"] == "yes"
+        assert saved["fast_flapping_block_time"] == 60
+        assert saved["fast_flapping_threshold"] == 15
+        assert saved["fast_flapping_grace"] == 3
+
+
+@pytest.mark.asyncio
+async def test_http_interface_client_persists_tunnel_options(temp_dir):
+    config = ConfigDict({"reticulum": {}, "interfaces": {}})
+
+    async with make_app(temp_dir, config) as handler:
+        payload = {
+            "name": "HttpClient",
+            "type": "HTTPInterface",
+            "mode": "client",
+            "server_url": "https://example.com:8080/",
+            "poll_interval": 0.2,
+            "mtu": 2048,
+            "http_version": 1,
+            "user_agent": "RNS-HTTP-Tunnel/1.0",
+            "tls_verify": True,
+        }
+        response = await handler(make_request(payload))
+        body = json.loads(response.body)
+        assert response.status == 200, body
+        saved = config["interfaces"]["HttpClient"]
+        assert saved["type"] == "HTTPInterface"
+        assert saved["mode"] == "client"
+        assert saved["server_url"] == "https://example.com:8080/"
+        assert saved["poll_interval"] == 0.2
+        assert saved["mtu"] == 2048
+        assert saved["http_version"] == 1
+        assert saved["user_agent"] == "RNS-HTTP-Tunnel/1.0"
+        assert "listen_port" not in saved
+
+
+@pytest.mark.asyncio
+async def test_http_interface_server_persists_listen_options(temp_dir):
+    config = ConfigDict({"reticulum": {}, "interfaces": {}})
+    free_port = _free_port("tcp")
+
+    async with make_app(temp_dir, config) as handler:
+        payload = {
+            "name": "HttpServer",
+            "type": "HTTPInterface",
+            "mode": "server",
+            "listen_host": "127.0.0.1",
+            "listen_port": free_port,
+            "check_user_agent": True,
+            "mtu": 4096,
+            "http_version": 1,
+            "user_agent": "RNS-HTTP-Tunnel/1.0",
+        }
+        response = await handler(make_request(payload))
+        body = json.loads(response.body)
+        assert response.status == 200, body
+        saved = config["interfaces"]["HttpServer"]
+        assert saved["mode"] == "server"
+        assert saved["listen_host"] == "127.0.0.1"
+        assert saved["listen_port"] == free_port
+        assert saved["check_user_agent"] is True
+        assert "server_url" not in saved
+
+
+@pytest.mark.asyncio
+async def test_http_interface_rejects_reticulum_mode_values(temp_dir):
+    config = ConfigDict({"reticulum": {}, "interfaces": {}})
+
+    async with make_app(temp_dir, config) as handler:
+        payload = {
+            "name": "HttpBad",
+            "type": "HTTPInterface",
+            "mode": "gateway",
+            "server_url": "https://example.com/",
+        }
+        response = await handler(make_request(payload))
+        body = json.loads(response.body)
+        assert response.status == 422, body
+        assert "client or server" in body["message"]
+
+
+def _aware_supported_caps(**overrides):
+    caps = {
+        "supported": True,
+        "wifi_aware": True,
+        "wifi_aware_available": True,
+        "permission_nearby_wifi": True,
+    }
+    caps.update(overrides)
+    return caps
+
+
+@pytest.mark.asyncio
+async def test_aware_rejected_without_android_bridge(temp_dir):
+    """Desktop/web hosts have no local-link bridge, so Aware must 422."""
+    config = ConfigDict({"reticulum": {}, "interfaces": {}})
+
+    async with make_app(temp_dir, config) as handler:
+        with patch(
+            "meshchatnext.src.backend.android_locallink.is_available",
+            return_value=False,
+        ):
+            payload = {
+                "name": "Nan",
+                "type": "AwareInterface",
+                "mode": "subscribe",
+            }
+            response = await handler(make_request(payload))
+            body = json.loads(response.body)
+            assert response.status == 422, body
+            assert "Android" in body["message"]
+            assert "Nan" not in config["interfaces"]
+
+
+@pytest.mark.asyncio
+async def test_aware_rejected_when_hardware_missing(temp_dir):
+    config = ConfigDict({"reticulum": {}, "interfaces": {}})
+
+    async with make_app(temp_dir, config) as handler:
+        with (
+            patch(
+                "meshchatnext.src.backend.android_locallink.is_available",
+                return_value=True,
+            ),
+            patch(
+                "meshchatnext.src.backend.android_locallink.probe_capabilities",
+                return_value=_aware_supported_caps(wifi_aware=False),
+            ),
+        ):
+            payload = {
+                "name": "Nan",
+                "type": "AwareInterface",
+                "mode": "subscribe",
+            }
+            response = await handler(make_request(payload))
+            body = json.loads(response.body)
+            assert response.status == 422, body
+            assert "not supported" in body["message"]
+            assert "Nan" not in config["interfaces"]
+
+
+@pytest.mark.asyncio
+async def test_aware_rejected_when_currently_unavailable(temp_dir):
+    """wifi_aware_available flaps with WiFi state, so it is checked too."""
+    config = ConfigDict({"reticulum": {}, "interfaces": {}})
+
+    async with make_app(temp_dir, config) as handler:
+        with (
+            patch(
+                "meshchatnext.src.backend.android_locallink.is_available",
+                return_value=True,
+            ),
+            patch(
+                "meshchatnext.src.backend.android_locallink.probe_capabilities",
+                return_value=_aware_supported_caps(wifi_aware_available=False),
+            ),
+        ):
+            payload = {
+                "name": "Nan",
+                "type": "AwareInterface",
+                "mode": "subscribe",
+            }
+            response = await handler(make_request(payload))
+            body = json.loads(response.body)
+            assert response.status == 422, body
+            assert "unavailable" in body["message"]
+            assert "Nan" not in config["interfaces"]
+
+
+@pytest.mark.asyncio
+async def test_aware_rejects_reticulum_mode_values(temp_dir):
+    """Mode is the Aware role, so Reticulum mode strings must not pass."""
+    config = ConfigDict({"reticulum": {}, "interfaces": {}})
+
+    async with make_app(temp_dir, config) as handler:
+        with (
+            patch(
+                "meshchatnext.src.backend.android_locallink.is_available",
+                return_value=True,
+            ),
+            patch(
+                "meshchatnext.src.backend.android_locallink.probe_capabilities",
+                return_value=_aware_supported_caps(),
+            ),
+        ):
+            payload = {
+                "name": "Nan",
+                "type": "AwareInterface",
+                "mode": "gateway",
+            }
+            response = await handler(make_request(payload))
+            body = json.loads(response.body)
+            assert response.status == 422, body
+            assert "subscribe or publish" in body["message"]
+            assert "Nan" not in config["interfaces"]
+
+
+@pytest.mark.asyncio
+async def test_aware_rejects_peers_out_of_range(temp_dir):
+    config = ConfigDict({"reticulum": {}, "interfaces": {}})
+
+    async with make_app(temp_dir, config) as handler:
+        with (
+            patch(
+                "meshchatnext.src.backend.android_locallink.is_available",
+                return_value=True,
+            ),
+            patch(
+                "meshchatnext.src.backend.android_locallink.probe_capabilities",
+                return_value=_aware_supported_caps(),
+            ),
+        ):
+            for bad in (0, 9, "abc"):
+                payload = {
+                    "name": f"Nan{bad}",
+                    "type": "AwareInterface",
+                    "mode": "publish",
+                    "peers": bad,
+                }
+                response = await handler(make_request(payload))
+                body = json.loads(response.body)
+                assert response.status == 422, body
+                assert f"Nan{bad}" not in config["interfaces"]
+
+
+@pytest.mark.asyncio
+async def test_aware_persists_options_on_supported_device(temp_dir):
+    config = ConfigDict({"reticulum": {}, "interfaces": {}})
+
+    async with make_app(temp_dir, config) as handler:
+        with (
+            patch(
+                "meshchatnext.src.backend.android_locallink.is_available",
+                return_value=True,
+            ),
+            patch(
+                "meshchatnext.src.backend.android_locallink.probe_capabilities",
+                return_value=_aware_supported_caps(),
+            ),
+        ):
+            payload = {
+                "name": "Nan",
+                "type": "AwareInterface",
+                "mode": "publish",
+                "peers": 3,
+            }
+            response = await handler(make_request(payload))
+            body = json.loads(response.body)
+            assert response.status == 200, body
+            saved = config["interfaces"]["Nan"]
+            assert saved["type"] == "AwareInterface"
+            assert saved["mode"] == "publish"
+            assert saved["peers"] == 3
+
+
+@pytest.mark.asyncio
+async def test_aware_extra_config_is_ignored(temp_dir):
+    """AwareInterface is a builtin type, so extra_config must not merge."""
+    config = ConfigDict({"reticulum": {}, "interfaces": {}})
+
+    async with make_app(temp_dir, config) as handler:
+        with (
+            patch(
+                "meshchatnext.src.backend.android_locallink.is_available",
+                return_value=True,
+            ),
+            patch(
+                "meshchatnext.src.backend.android_locallink.probe_capabilities",
+                return_value=_aware_supported_caps(),
+            ),
+        ):
+            payload = {
+                "name": "Nan",
+                "type": "AwareInterface",
+                "mode": "subscribe",
+                "extra_config": {"injected_key": "should_not_persist"},
+            }
+            response = await handler(make_request(payload))
+            body = json.loads(response.body)
+            assert response.status == 200, body
+            saved = config["interfaces"]["Nan"]
+            assert saved["mode"] == "subscribe"
+            assert "peers" not in saved
+            assert "injected_key" not in saved

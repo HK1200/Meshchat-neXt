@@ -1,0 +1,113 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+
+<template>
+    <div
+        class="absolute bottom-4 right-4 z-20 w-72 bg-sem-surface rounded-xl shadow-2xl border border-sem-border p-4 space-y-3 animate-in slide-in-from-bottom-4"
+    >
+        <div class="flex justify-between items-center">
+            <span class="font-bold text-sm text-sem-fg">{{
+                status.status === "completed" ? $t("map.download_ready") : $t("map.exporting")
+            }}</span>
+            <button
+                v-if="status.status === 'completed' || status.status === 'failed'"
+                class="text-sem-fg-muted"
+                @click="$emit('dismiss')"
+            >
+                <MaterialDesignIcon icon-name="close" class="size-4" />
+            </button>
+            <button
+                v-else
+                class="text-xs font-bold text-sem-danger hover:text-sem-danger uppercase tracking-tighter"
+                @click="$emit('cancel')"
+            >
+                {{ $t("common.cancel") }}
+            </button>
+        </div>
+
+        <div v-if="status.status !== 'completed' && status.status !== 'failed'">
+            <div class="w-full h-2 bg-sem-surface-muted rounded-full overflow-hidden">
+                <div
+                    class="h-full bg-sem-info transition-all duration-300"
+                    :style="{ width: status.progress + '%' }"
+                ></div>
+            </div>
+            <div class="flex justify-between text-[10px] text-sem-fg-muted mt-1 uppercase font-bold tracking-wider">
+                <span>{{ status.current }} / {{ status.total }} tiles</span>
+                <span>{{ status.progress }}%</span>
+            </div>
+        </div>
+
+        <div v-if="status.status === 'completed'" class="flex flex-col gap-2">
+            <a
+                :href="`/api/v1/map/export/${exportId}/download`"
+                class="flex items-center justify-center space-x-2 w-full py-2 bg-sem-success hover:bg-sem-success text-white rounded-lg font-bold transition-colors shadow-md text-xs"
+            >
+                <MaterialDesignIcon icon-name="download" class="size-4" />
+                <span>{{ $t("map.download_now") }}</span>
+            </a>
+            <button
+                class="flex items-center justify-center space-x-2 w-full py-2 bg-sem-info hover:bg-sem-action-primary text-sem-action-primary-text rounded-lg font-bold transition-colors shadow-md text-xs"
+                @click="$emit('show-offline-maps')"
+            >
+                <MaterialDesignIcon icon-name="map-check" class="size-4" />
+                <span>Show in Offline Maps</span>
+            </button>
+        </div>
+
+        <div
+            v-if="status.status === 'failed'"
+            class="text-xs text-sem-danger bg-sem-danger/15 dark:bg-sem-danger/15 p-2 rounded-lg"
+        >
+            {{ status.error }}
+        </div>
+    </div>
+</template>
+
+<script>
+import MaterialDesignIcon from "../../MaterialDesignIcon.vue";
+import AndroidDownloadBridge from "../../../js/AndroidDownloadBridge";
+
+export default {
+    name: "MapExportProgressPanel",
+    components: { MaterialDesignIcon },
+    props: {
+        status: { type: Object, required: true },
+        exportId: { type: [String, Number], default: null },
+    },
+    emits: ["dismiss", "cancel", "show-offline-maps"],
+    computed: {
+        notificationId() {
+            return `map-export-${this.exportId}`;
+        },
+        notificationName() {
+            return this.$t("map.exporting");
+        },
+    },
+    watch: {
+        "status.progress"(progress) {
+            if (this.status.status !== "completed" && this.status.status !== "failed") {
+                AndroidDownloadBridge.notifyProgress(this.notificationId, this.notificationName, progress);
+            }
+        },
+        "status.status"(status) {
+            if (status === "completed") {
+                AndroidDownloadBridge.cancelNotification(this.notificationId);
+                AndroidDownloadBridge.sessionEnd(this.notificationId);
+            } else if (status === "failed") {
+                AndroidDownloadBridge.notifyFailed(this.notificationId, this.notificationName);
+                AndroidDownloadBridge.sessionEnd(this.notificationId);
+            }
+        },
+    },
+    mounted() {
+        AndroidDownloadBridge.sessionStart(this.notificationId);
+        if (this.status.status !== "completed" && this.status.status !== "failed") {
+            AndroidDownloadBridge.notifyProgress(this.notificationId, this.notificationName, this.status.progress);
+        }
+    },
+    unmounted() {
+        AndroidDownloadBridge.cancelNotification(this.notificationId);
+        AndroidDownloadBridge.sessionEnd(this.notificationId);
+    },
+};
+</script>

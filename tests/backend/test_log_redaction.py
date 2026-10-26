@@ -1,0 +1,86 @@
+# SPDX-License-Identifier: 0BSD
+"""Unit tests for diagnostic log redaction."""
+
+from meshchatnext.src.backend.log_redaction import REDACTED, redact_diagnostic_text
+
+
+def test_redact_paths_hashes_email_ip():
+    full = "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899"
+    text = f"fail at /tmp/secret/db for {full} user@example.com from 203.0.113.9"
+    out = redact_diagnostic_text(text)
+    assert "/tmp/" not in out.lower()
+    assert full not in out
+    assert "user@example.com" not in out
+    assert "203.0.113.9" not in out
+    assert out.count(REDACTED) >= 3
+
+
+def test_redact_run_media_and_windows_drives():
+    out = redact_diagnostic_text(
+        "fail at /run/media/user1/projects/db and D:\\Users\\user1\\AppData\\id",
+    )
+    assert "/run/media/" not in out.lower()
+    assert "D:\\Users" not in out
+    assert REDACTED in out
+
+
+def test_redact_pem_bearer_and_secret_assigns():
+    # Marker is assembled so source does not embed a literal PEM header.
+    pem = (
+        "-----" + "BEGIN" + " PRIVATE KEY-----\n"
+        "MIIEowIBAAKCAQEA\n"
+        "-----" + "END" + " PRIVATE KEY-----"
+    )
+    out = redact_diagnostic_text(
+        f"{pem} Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.aaa.bbb "
+        "alias_identity_private_key=YWJjZGVm "
+        "Authorization: Basic dXNlcjpwYXNz",
+    )
+    assert "BEGIN PRIVATE KEY" not in out
+    assert "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9" not in out
+    assert "YWJjZGVm" not in out
+    assert "dXNlcjpwYXNz" not in out
+    assert "Bearer" in out
+    assert REDACTED in out
+
+
+def test_redact_preserves_short_hash():
+    short = "aabbccddeeff00112233445566778899"
+    out = redact_diagnostic_text(f"peer {short}")
+    assert short in out
+
+
+def test_redact_empty():
+    assert redact_diagnostic_text("") == ""
+    assert redact_diagnostic_text(None) is None  # type: ignore[arg-type]
+
+
+def test_debug_log_read_redacts_paths_and_hashes(tmp_path, monkeypatch):
+    from unittest.mock import MagicMock
+
+    from meshchatnext.src.backend import persistent_log_handler as plh
+    from meshchatnext.src.backend.plugin_manager import PluginManager
+
+    app = MagicMock()
+    handler = MagicMock()
+    monkeypatch.setattr(plh, "memory_log_handler", handler)
+    app.memory_log_handler = handler
+    secret = "/home/alice/.reticulum/storage/identities/deadbeef/identity"
+    hash64 = "a" * 64
+    handler.get_logs.return_value = [
+        {
+            "timestamp": 1.0,
+            "level": "INFO",
+            "module": "mesh",
+            "message": f"loaded {secret} peer {hash64}",
+        },
+    ]
+    handler.get_total_count.return_value = 1
+
+    manager = PluginManager(str(tmp_path), app=app)
+    result = manager._debug_log_read({"limit": 10})
+    message = result["logs"][0]["message"]
+    assert secret not in message
+    assert hash64 not in message
+    assert REDACTED in message
+    assert redact_diagnostic_text(f"loaded {secret} peer {hash64}") == message

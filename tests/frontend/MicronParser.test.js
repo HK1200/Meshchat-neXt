@@ -1,0 +1,1165 @@
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import MicronParser from "@/js/MicronParser";
+
+describe("MicronParser.js", () => {
+    let parser;
+
+    beforeEach(() => {
+        parser = new MicronParser(true, false); // darkTheme = true, enableForceMonospace = false
+    });
+
+    describe("PARTIAL_LINE_REGEX", () => {
+        it("matches partial without refresh", () => {
+            const m = "`{f64a846313b874ee4a357040807f8c77:/page/partial.mu}"
+                .trim()
+                .match(MicronParser.PARTIAL_LINE_REGEX);
+            expect(m).not.toBeNull();
+            expect(m[1]).toBe("f64a846313b874ee4a357040807f8c77");
+            expect(m[2]).toBe("/page/partial.mu");
+            expect(m[3]).toBeUndefined();
+        });
+
+        it("matches partial with refresh", () => {
+            const m = "`{f64a846313b874ee4a357040807f8c77:/page/ref.mu`30}"
+                .trim()
+                .match(MicronParser.PARTIAL_LINE_REGEX);
+            expect(m).not.toBeNull();
+            expect(m[3]).toBe("30");
+        });
+
+        it("does not match without leading backtick", () => {
+            expect("{f64a846313b874ee4a357040807f8c77:/page/x.mu}".match(MicronParser.PARTIAL_LINE_REGEX)).toBeNull();
+        });
+
+        it("does not match short hash", () => {
+            expect("`{f64a846313b874ee4a35704:/page/x.mu}".match(MicronParser.PARTIAL_LINE_REGEX)).toBeNull();
+        });
+    });
+
+    describe("formatNomadnetworkUrl", () => {
+        it("formats nomadnetwork URL correctly", () => {
+            expect(MicronParser.formatNomadnetworkUrl("example.com")).toBe("nomadnetwork://example.com");
+        });
+    });
+
+    describe("isWideMonospaceCell", () => {
+        it("detects Han, kana, Hangul syllables", () => {
+            expect(MicronParser.isWideMonospaceCell("中")).toBe(true);
+            expect(MicronParser.isWideMonospaceCell("あ")).toBe(true);
+            expect(MicronParser.isWideMonospaceCell("ア")).toBe(true);
+            expect(MicronParser.isWideMonospaceCell("한")).toBe(true);
+        });
+
+        it("detects CJK punctuation and fullwidth ASCII", () => {
+            expect(MicronParser.isWideMonospaceCell("\u3000")).toBe(true);
+            expect(MicronParser.isWideMonospaceCell("\uff01")).toBe(true);
+        });
+
+        it("treats Latin as narrow", () => {
+            expect(MicronParser.isWideMonospaceCell("A")).toBe(false);
+            expect(MicronParser.isWideMonospaceCell("9")).toBe(false);
+        });
+    });
+
+    describe("forceMonospace wide cells", () => {
+        it("uses Mu-mnt-group for Latin-only words and Mu-mnt-full per grapheme for CJK", () => {
+            const monoParser = new MicronParser(true, true);
+            const html = monoParser.splitAtSpaces("Hi \u4e2d\u6587");
+            expect(html).toContain("Mu-mnt-group");
+            expect(html).not.toContain("class='Mu-mnt'>H</span>");
+            expect(html).toContain("class='Mu-mnt-full'>\u4e2d</span>");
+            expect(html).toContain("class='Mu-mnt-full'>\u6587</span>");
+        });
+
+        it("uses Mu-mnt-group for Cyrillic without per-character Mu-mnt spans", () => {
+            const monoParser = new MicronParser(true, true);
+            const html = monoParser.forceMonospace("\u041f\u0440\u0438\u0432\u0435\u0442");
+            expect(html).toContain("Mu-mnt-group");
+            expect(html).toContain("\u041f\u0440\u0438\u0432\u0435\u0442");
+            expect(html).not.toMatch(/class='Mu-mnt'>/);
+        });
+    });
+
+    describe("convertMicronToHtml", () => {
+        it("converts simple text to HTML", () => {
+            const markup = "Hello World";
+            const html = parser.convertMicronToHtml(markup);
+            expect(html).toContain("Hello World");
+            expect(html).toContain("<div");
+        });
+
+        it("wraps #!bg= pages in mu-page shell like NomadNet", () => {
+            const markup = "#!bg=444\n#!fg=ddd\nHello";
+            const html = parser.convertMicronToHtml(markup);
+            expect(html).toContain('class="mu-page"');
+            expect(html).toMatch(/background-color:\s*(rgb\(68,\s*68,\s*68\)|#444)/i);
+            expect(html).toContain("Hello");
+        });
+
+        it("keeps Micron full-width background rows after overlay scrub", () => {
+            const scrubbed = MicronParser.stripOverlayStyles(
+                '<div style="background-color: rgb(68, 68, 68); width: 100%; height: 1.2em"></div>'
+            );
+            expect(scrubbed).toContain("width: 100%");
+            expect(scrubbed).toContain("background-color");
+            expect(MicronParser.stripOverlayStyles('<div style="position:fixed;width:100vw"></div>')).not.toMatch(
+                /100vw/
+            );
+        });
+
+        it("converts headings correctly", () => {
+            const markup = "> Heading 1\n>> Heading 2";
+            const html = parser.convertMicronToHtml(markup);
+            expect(html).toContain("Heading 1");
+            expect(html).toContain("Heading 2");
+            // Check for styles applied to headings (in dark theme)
+            expect(html).toContain("background-color: rgb(187, 187, 187)"); // #bbb
+            expect(html).toContain("background-color: rgb(153, 153, 153)"); // #999
+        });
+
+        it("handles bare headings without adding extra lines", () => {
+            // Bare headings are headings without content after them on the same line
+            // They should not insert extra blank lines
+            const markup = `>Anonymous Git Node
+
+>>
+\`[Node\`:/page/index.mu] / \`[public\`:/page/group.mu\`g=public] / LXMF
+
+>LXMF - \`*A simple messaging format\`*
+>>
+
+\`[Files\`:/page/tree.mu] \`[Commits\`:/page/commits.mu]`;
+            const html = parser.convertMicronToHtml(markup);
+
+            // All content should be present
+            expect(html).toContain("Anonymous Git Node");
+            expect(html).toContain("Node");
+            expect(html).toContain("public");
+            expect(html).toContain("LXMF");
+            expect(html).toContain("A simple messaging format");
+            expect(html).toContain("Files");
+            expect(html).toContain("Commits");
+
+            // Verify no consecutive <br><br> patterns that would indicate extra lines
+            // from bare headings (normalize HTML first)
+            const normalized = html.replace(/>\s+</g, "><");
+            expect(normalized).not.toContain("<br><br><br>");
+        });
+
+        it("handles nested bare headings with section indents", () => {
+            // Multiple nested bare headings should apply section indentation correctly
+            const markup = `>Section A
+>>>
+Content at depth 3
+
+>>Section B
+>
+Content at depth 1`;
+            const html = parser.convertMicronToHtml(markup);
+
+            expect(html).toContain("Section A");
+            expect(html).toContain("Section B");
+            expect(html).toContain("Content at depth 3");
+            expect(html).toContain("Content at depth 1");
+
+            // Check for section indentation via inline margin styles (2.4em = 2 levels * 1.2em per level)
+            expect(html).toContain("margin-left: 2.4em");
+            // Content after Section B should be at depth 1 (1.2em margin)
+            expect(html).toContain("margin-left: 1.2em");
+        });
+
+        it("converts horizontal dividers", () => {
+            const markup = "-";
+            const html = parser.convertMicronToHtml(markup);
+            expect(html).toContain("<hr");
+        });
+
+        it("handles bold formatting", () => {
+            const markup = "`!Bold Text`!";
+            const html = parser.convertMicronToHtml(markup);
+            expect(html).toContain("font-weight: bold");
+            expect(html).toContain("Bold Text");
+        });
+
+        it("handles italic formatting", () => {
+            const markup = "`*Italic Text`*";
+            const html = parser.convertMicronToHtml(markup);
+            expect(html).toContain("font-style: italic");
+            expect(html).toContain("Italic Text");
+        });
+
+        it("handles underline formatting", () => {
+            const markup = "`_Underlined Text`_";
+            const html = parser.convertMicronToHtml(markup);
+            expect(html).toContain("text-decoration: underline");
+            expect(html).toContain("Underlined Text");
+        });
+
+        it("handles combined formatting", () => {
+            const markup = "`!`_Bold Underlined Text`_`!";
+            const html = parser.convertMicronToHtml(markup);
+            expect(html).toContain("font-weight: bold");
+            expect(html).toContain("text-decoration: underline");
+            expect(html).toContain("Bold Underlined Text");
+        });
+
+        describe("foreground color", () => {
+            it("handles 3-char F format", () => {
+                const markup = "`FabcRed Text`";
+                const html = parser.convertMicronToHtml(markup);
+                expect(html).toContain("rgb(170, 187, 204)");
+                expect(html).toContain("Red Text");
+            });
+
+            it("handles NomadNet 0.9.9 truecolor `FT (6 hex) for foreground", () => {
+                const markup = "`FTff0000Red text`";
+                const html = parser.convertMicronToHtml(markup);
+                expect(html).toMatch(/#ff0000|rgb\(255,\s*0,\s*0\)/);
+                expect(html).toContain("Red text");
+            });
+        });
+
+        describe("background color", () => {
+            it("handles 3-char B format", () => {
+                const markup = "`BfffYellow BG`";
+                const html = parser.convertMicronToHtml(markup);
+                expect(html).toContain("rgb(255, 255, 255)");
+                expect(html).toContain("Yellow BG");
+            });
+
+            it("handles NomadNet 0.9.9 truecolor `BT (6 hex) for background", () => {
+                const markup = "`BT00ff00On green`";
+                const html = parser.convertMicronToHtml(markup);
+                expect(html).toMatch(/#00ff00|rgb\(0,\s*255,\s*0\)/);
+                expect(html).toContain("On green");
+            });
+        });
+
+        it("handles literal mode", () => {
+            const markup = "`=\n`*Not Italic`*\n`=";
+            const html = parser.convertMicronToHtml(markup);
+            expect(html).not.toContain("font-style: italic");
+            expect(html).toContain("`*Not Italic`*");
+        });
+
+        it("handles links correctly", () => {
+            const markup = "`[Label`example.com]";
+            const html = parser.convertMicronToHtml(markup);
+            expect(html).toContain("<a");
+            expect(html).toContain('href="nomadnetwork://example.com"');
+            expect(html).toContain("Label");
+        });
+
+        it("handles input fields", () => {
+            const markup = "`<24|field_name`Initial Value>";
+            const html = parser.convertMicronToHtml(markup);
+            expect(html).toContain("<input");
+            expect(html).toContain('name="field_name"');
+            expect(html).toContain('value="Initial Value"');
+        });
+
+        it("handles checkboxes", () => {
+            const markup = "`<?|checkbox_name|val|*`Checkbox Label>";
+            const html = parser.convertMicronToHtml(markup);
+            expect(html).toContain('type="checkbox"');
+            expect(html).toContain('name="checkbox_name"');
+            expect(html).toContain('value="val"');
+            expect(html).toContain("Checkbox Label");
+        });
+
+        describe("images", () => {
+            it("renders a placeholder for a valid WebP image link", () => {
+                const markup = "`[River valley`:/file/harbour.webp`img=1;w=400;h=267;s=18088]";
+                const html = parser.convertMicronToHtml(markup);
+                expect(html).toContain('class="mu-image"');
+                expect(html).toContain('data-mu-image-url=":/file/harbour.webp"');
+                expect(html).toContain('data-mu-image-alt="River valley"');
+                expect(html).toContain('data-mu-image-w="400ch"');
+                expect(html).toContain('data-mu-image-h="267lh"');
+                expect(html).toContain('data-mu-image-s="18088"');
+                expect(html).toContain("River valley");
+                expect(html).toContain("17.7 kB");
+                expect(html).toContain("Load image");
+                expect(html).toContain('data-mu-image-a="left"');
+            });
+
+            it("falls back to a normal link when img=1 is missing alt text", () => {
+                const markup = "`[`:/file/harbour.webp`img=1]";
+                const html = parser.convertMicronToHtml(markup);
+                expect(html).not.toContain('class="mu-image"');
+                expect(html).toContain('class="Mu-nl"');
+                expect(html).toContain("/file/harbour.webp");
+            });
+
+            it("renders a placeholder for a /file non-webp image", () => {
+                const markup = "`[River valley`:/file/harbour.jpg`img=1]";
+                const html = parser.convertMicronToHtml(markup);
+                expect(html).toContain('class="mu-image"');
+                expect(html).toContain('data-mu-image-url=":/file/harbour.jpg"');
+                expect(html).toContain('data-mu-image-alt="River valley"');
+            });
+
+            it("renders a placeholder for a /media non-webp image", () => {
+                const markup = "`[River valley`:/media/harbour.png`w=400]";
+                const html = parser.convertMicronToHtml(markup);
+                expect(html).toContain('class="mu-image"');
+                expect(html).toContain('data-mu-image-url=":/media/harbour.png"');
+                expect(html).toContain('data-mu-image-alt="River valley"');
+            });
+
+            it("respects alignment from the a= option", () => {
+                const markup = "`[Centre`:/file/c.webp`img=1;a=c]";
+                const html = parser.convertMicronToHtml(markup);
+                expect(html).toContain('data-mu-image-a="center"');
+            });
+
+            it("preserves key and profile metadata", () => {
+                const markup = "`[Map`:/file/m.webp`img=1;k=map1;profile=fast]";
+                const html = parser.convertMicronToHtml(markup);
+                expect(html).toContain('data-mu-image-k="map1"');
+                expect(html).toContain('data-mu-image-profile="fast"');
+            });
+
+            it("ignores unknown image option fields", () => {
+                const markup = "`[x`:/file/x.webp`img=1;foo=bar;w=abc;h=-1]";
+                const html = parser.convertMicronToHtml(markup);
+                expect(html).toContain('class="mu-image"');
+                expect(html).not.toContain("data-mu-image-w");
+                expect(html).not.toContain("data-mu-image-h");
+            });
+
+            it("treats img=0 as a normal link", () => {
+                const markup = "`[x`:/file/x.webp`img=0]";
+                const html = parser.convertMicronToHtml(markup);
+                expect(html).not.toContain('class="mu-image"');
+                expect(html).toContain('class="Mu-nl"');
+            });
+
+            it("rejects image links that do not point into /file/", () => {
+                const markup = "`[x`:/page/x.webp`img=1]";
+                const html = parser.convertMicronToHtml(markup);
+                expect(html).not.toContain('class="mu-image"');
+                expect(html).toContain('class="Mu-nl"');
+            });
+
+            it("strips query, fragment and backtick data suffix before checking extension", () => {
+                const markup = "`[x`:/file/x.webp?ref=1`img=1]";
+                const html = parser.convertMicronToHtml(markup);
+                expect(html).toContain('class="mu-image"');
+                expect(html).toContain('data-mu-image-path=":/file/x.webp"');
+            });
+
+            it("clamps oversized w/h/s values", () => {
+                const markup = "`[x`:/file/x.webp`img=1;w=999999;h=999999;s=999999999]";
+                const html = parser.convertMicronToHtml(markup);
+                expect(html).toContain('data-mu-image-w="8192ch"');
+                expect(html).toContain('data-mu-image-h="8192lh"');
+                expect(html).toContain('data-mu-image-s="104857600"');
+            });
+
+            it("renders a placeholder for a NomadNet 1.4 `(alt`props`url) image line", () => {
+                const markup = "`(rrc-client.jpg`w=n`a=l`:/media/img/forum/40155dab9a63966cfa6288f65a0d8aa3.webp)";
+                const html = parser.convertMicronToHtml(markup);
+                expect(html).toContain('class="mu-image"');
+                expect(html).toContain('data-mu-image-alt="rrc-client.jpg"');
+                expect(html).toContain('data-mu-image-path=":/media/img/forum/40155dab9a63966cfa6288f65a0d8aa3.webp"');
+                expect(html).toContain('data-mu-image-a="left"');
+                expect(html).toContain('data-mu-image-w="auto"');
+                expect(html).toContain("Load image");
+            });
+
+            it("supports percent widths on `( ) image lines", () => {
+                const markup = "`(Meezenest logo`w=25%`a=c`:/media/gfx/logo.webp)";
+                const html = parser.convertMicronToHtml(markup);
+                expect(html).toContain('class="mu-image"');
+                expect(html).toContain('data-mu-image-w="25%"');
+                expect(html).toContain('data-mu-image-a="center"');
+                expect(html).toContain('data-mu-image-path=":/media/gfx/logo.webp"');
+            });
+
+            it("supports absolute hash and keyed `( ) image URLs", () => {
+                const markup = "`(Map`w=400`k=map1`9ce92808be498e9e05590ff27cbfdfe4:/media/m.png)";
+                const html = parser.convertMicronToHtml(markup);
+                expect(html).toContain('class="mu-image"');
+                expect(html).toContain('data-mu-image-w="400ch"');
+                expect(html).toContain('data-mu-image-k="map1"');
+                expect(html).toContain('data-mu-image-path="9ce92808be498e9e05590ff27cbfdfe4:/media/m.png"');
+            });
+
+            it("allows an empty alt on `( ) image lines", () => {
+                const markup = "`(`:/media/x.webp)";
+                const html = parser.convertMicronToHtml(markup);
+                expect(html).toContain('class="mu-image"');
+                expect(html).toContain('data-mu-image-path=":/media/x.webp"');
+            });
+
+            it("renders `( lines with no image url as normal text", () => {
+                const markup = "`(not an image line)";
+                const html = parser.convertMicronToHtml(markup);
+                expect(html).not.toContain('class="mu-image"');
+                expect(html).toContain("not an image line");
+            });
+
+            it("truncates long alt text", () => {
+                const alt = "x".repeat(300);
+                const markup = `\`[${alt}\`:/file/x.webp\`img=1]`;
+                const html = parser.convertMicronToHtml(markup);
+                expect(html).not.toContain(alt);
+                expect(html).toContain('data-mu-image-alt="' + "x".repeat(240) + '"');
+            });
+
+            it("sanitizes key and profile values", () => {
+                const markup = "`[x`:/file/x.webp`img=1;k=<script>;profile=fast!]";
+                const html = parser.convertMicronToHtml(markup);
+                expect(html).not.toContain("<script>");
+                expect(html).not.toContain("fast!");
+                expect(html).not.toContain('data-mu-image-k="<script>"');
+                expect(html).not.toContain('data-mu-image-profile="fast!"');
+            });
+
+            it("centers whole-line images via margin auto when a=c", () => {
+                const markup = "`(Logo`a=c`:/media/gfx/logo.webp)";
+                const html = parser.convertMicronToHtml(markup);
+                expect(html).toContain('data-mu-image-a="center"');
+                expect(html).toMatch(/style="[^"]*margin-left:\s*auto/);
+                expect(html).toMatch(/style="[^"]*margin-right:\s*auto/);
+            });
+
+            it("right-aligns whole-line images via margin-left auto when a=r", () => {
+                const markup = "`(Logo`a=r`:/media/gfx/logo.webp)";
+                const html = parser.convertMicronToHtml(markup);
+                expect(html).toContain('data-mu-image-a="right"');
+                expect(html).toMatch(/style="[^"]*margin-left:\s*auto/);
+                expect(html).not.toMatch(/margin-right:\s*auto/);
+            });
+
+            it("defaults whole-line images to center like upstream ImageWidget", () => {
+                const markup = "`(Logo`:/media/gfx/logo.webp)";
+                const html = parser.convertMicronToHtml(markup);
+                expect(html).toContain('data-mu-image-a="center"');
+                expect(html).toMatch(/margin-left:\s*auto/);
+            });
+
+            it("keeps left-aligned images without auto margins", () => {
+                const markup = "`(Logo`a=l`:/media/gfx/logo.webp)";
+                const html = parser.convertMicronToHtml(markup);
+                expect(html).toContain('data-mu-image-a="left"');
+                expect(html).not.toMatch(/margin-left:\s*auto/);
+            });
+        });
+
+        describe("partials", () => {
+            it("emits placeholder for partial line without refresh", () => {
+                const dest = "f64a846313b874ee4a357040807f8c77";
+                const path = "/page/partial_1.mu";
+                const markup = "`{" + dest + ":" + path + "}";
+                const html = parser.convertMicronToHtml(markup);
+                expect(html).toContain('class="mu-partial"');
+                expect(html).toContain('data-partial-id="partial-0"');
+                expect(html).toContain('data-dest="' + dest + '"');
+                expect(html).toContain('data-path="' + path + '"');
+                expect(html).not.toContain("data-refresh");
+                expect(html).toContain("Loading...");
+            });
+
+            it("emits placeholder for partial line with refresh seconds", () => {
+                const dest = "f64a846313b874ee4a357040807f8c77";
+                const path = "/page/refreshing_partial.mu";
+                const markup = "`{" + dest + ":" + path + "`10}";
+                const html = parser.convertMicronToHtml(markup);
+                expect(html).toContain('class="mu-partial"');
+                expect(html).toContain('data-partial-id="partial-0"');
+                expect(html).toContain('data-dest="' + dest + '"');
+                expect(html).toContain('data-path="' + path + '"');
+                expect(html).toContain('data-refresh="10"');
+                expect(html).toContain("Loading...");
+            });
+
+            it("injects partialContents when provided", () => {
+                const dest = "a".repeat(32);
+                const path = "/page/partial.mu";
+                const markup = "`{" + dest + ":" + path + "}";
+                const injected = "<span>Injected partial content</span>";
+                const html = parser.convertMicronToHtml(markup, { "partial-0": injected });
+                expect(html).toContain(injected);
+                expect(html).not.toContain("Loading...");
+                expect(html).not.toContain("mu-partial");
+            });
+
+            it("sanitizes partialContents at the insertion sink", () => {
+                const dest = "a".repeat(32);
+                const markup = "`{" + dest + ":/page/partial.mu}";
+                const html = parser.convertMicronToHtml(markup, {
+                    "partial-0": '<img src="x" onerror="alert(1)"><script>alert(2)</script>',
+                });
+                expect(html).not.toContain("onerror");
+                expect(html).not.toContain("<script");
+            });
+
+            it("assigns unique partial ids for multiple partials", () => {
+                const dest = "b".repeat(32);
+                const markup = "`{" + dest + ":/page/a.mu}\n`{" + dest + ":/page/b.mu}";
+                const html = parser.convertMicronToHtml(markup);
+                expect(html).toContain('data-partial-id="partial-0"');
+                expect(html).toContain('data-partial-id="partial-1"');
+                expect(html).toContain('data-path="/page/a.mu"');
+                expect(html).toContain('data-path="/page/b.mu"');
+            });
+
+            it("does not interpret partial syntax inside literal block", () => {
+                const dest = "c".repeat(32);
+                const markup = "`=\n`{" + dest + ":/page/partial.mu}\n`=";
+                const html = parser.convertMicronToHtml(markup);
+                expect(html).not.toContain("mu-partial");
+                expect(html).toContain("`{" + dest + ":/page/partial.mu}");
+            });
+
+            it("does not treat similar-looking line as partial without backtick", () => {
+                const markup = "{f64a846313b874ee4a357040807f8c77:/page/partial.mu}";
+                const html = parser.convertMicronToHtml(markup);
+                expect(html).not.toContain("mu-partial");
+            });
+        });
+    });
+
+    describe("colorToCss", () => {
+        it("expands 3-digit hex", () => {
+            expect(parser.colorToCss("abc")).toBe("#abc");
+        });
+
+        it("returns 6-digit hex", () => {
+            expect(parser.colorToCss("abcdef")).toBe("#abcdef");
+        });
+
+        it("handles grayscale format", () => {
+            expect(parser.colorToCss("g50")).toBe("#7f7f7f"); // 50 * 2.55 = 127.5 -> 7f
+        });
+
+        it("returns null for unknown formats", () => {
+            expect(parser.colorToCss("invalid")).toBeNull();
+        });
+    });
+
+    describe("risky: XSS and injection", () => {
+        it("output contains no raw script tag for script-like markup", () => {
+            const markup = "<script>alert(1)</script> hello";
+            const html = parser.convertMicronToHtml(markup);
+            expect(html).not.toMatch(/<script[\s>]/i);
+        });
+
+        it("output contains no javascript: in href for link-like markup", () => {
+            const markup = "`[click`javascript:alert(1)]";
+            const html = parser.convertMicronToHtml(markup);
+            expect(html).not.toMatch(/\bhref\s*=\s*["']?\s*javascript:/i);
+        });
+
+        it("output contains no data: html in href", () => {
+            const markup = "`[x`data:text/html,<script>alert(1)</script>]";
+            const html = parser.convertMicronToHtml(markup);
+            expect(html).not.toMatch(/\bhref\s*=\s*["']?\s*data\s*:\s*text\/html/i);
+        });
+
+        it("does not produce executable event handler attributes", () => {
+            const markup = '<span onclick="alert(1)">x</span>';
+            const html = parser.convertMicronToHtml(markup);
+            expect(html).not.toMatch(/<[^>]*\bonclick\s*=\s*["']?\s*alert/i);
+        });
+    });
+
+    describe("risky: stability and edge input", () => {
+        it("does not throw on null or undefined markup", () => {
+            expect(() => parser.convertMicronToHtml(null)).not.toThrow();
+            expect(() => parser.convertMicronToHtml(undefined)).not.toThrow();
+        });
+
+        it("handles very long input without hanging", () => {
+            const long = "> ".repeat(5000) + "x";
+            const start = Date.now();
+            const html = parser.convertMicronToHtml(long);
+            expect(Date.now() - start).toBeLessThan(10000);
+            expect(typeof html).toBe("string");
+        });
+
+        it("handles repeated backticks (ReDoS-prone pattern) quickly", () => {
+            const markup = "`".repeat(3000);
+            const start = Date.now();
+            parser.convertMicronToHtml(markup);
+            expect(Date.now() - start).toBeLessThan(1000);
+        });
+
+        it("handles control chars and null byte", () => {
+            const markup = "hello\x00world\x07\n\t";
+            expect(() => parser.convertMicronToHtml(markup)).not.toThrow();
+            const html = parser.convertMicronToHtml(markup);
+            expect(typeof html).toBe("string");
+        });
+
+        it("handles unicode and RTL override", () => {
+            const markup = "\u202eRTL `!bold`! text \ufffd";
+            const html = parser.convertMicronToHtml(markup);
+            expect(typeof html).toBe("string");
+            expect(html).not.toMatch(/<script[\s>]/i);
+        });
+    });
+
+    describe("adversarial: deeply nested tags", () => {
+        it("handles 500 levels of nested bold without stack overflow", () => {
+            const open = "`!".repeat(500);
+            const close = "`!".repeat(500);
+            const markup = open + "deep" + close;
+            expect(() => parser.convertMicronToHtml(markup)).not.toThrow();
+            const html = parser.convertMicronToHtml(markup);
+            expect(typeof html).toBe("string");
+            expect(html).toContain("deep");
+        });
+
+        it("handles 500 levels of mixed nesting (bold+italic+underline)", () => {
+            const tags = ["`!", "`*", "`_"];
+            let markup = "";
+            for (let i = 0; i < 500; i++) markup += tags[i % 3];
+            markup += "payload";
+            for (let i = 499; i >= 0; i--) markup += tags[i % 3];
+            expect(() => parser.convertMicronToHtml(markup)).not.toThrow();
+            const html = parser.convertMicronToHtml(markup);
+            expect(html).toContain("payload");
+        });
+
+        it("handles deeply nested headings", () => {
+            const markup = Array.from({ length: 200 }, (_, i) => ">".repeat(i + 1) + " H").join("\n");
+            expect(() => parser.convertMicronToHtml(markup)).not.toThrow();
+        });
+    });
+
+    describe("adversarial: unclosed and mismatched tags", () => {
+        it("handles unclosed bold tag", () => {
+            const markup = "`!unclosed bold without end";
+            const html = parser.convertMicronToHtml(markup);
+            expect(typeof html).toBe("string");
+            expect(html).not.toMatch(/<script[\s>]/i);
+        });
+
+        it("handles unclosed italic tag", () => {
+            const markup = "`*unclosed italic";
+            const html = parser.convertMicronToHtml(markup);
+            expect(typeof html).toBe("string");
+        });
+
+        it("handles mismatched open/close order", () => {
+            const markup = "`!`*bold-italic`!`*";
+            const html = parser.convertMicronToHtml(markup);
+            expect(typeof html).toBe("string");
+        });
+
+        it("handles unclosed link", () => {
+            const markup = "`[link text without closing";
+            const html = parser.convertMicronToHtml(markup);
+            expect(typeof html).toBe("string");
+            expect(html).not.toMatch(/\bhref\s*=\s*["']?\s*javascript:/i);
+        });
+
+        it("handles unclosed input", () => {
+            const markup = "`<24|field_name`value without closing";
+            const html = parser.convertMicronToHtml(markup);
+            expect(typeof html).toBe("string");
+        });
+
+        it("handles unclosed literal mode", () => {
+            const markup = "`=\nsome literal text that never closes";
+            const html = parser.convertMicronToHtml(markup);
+            expect(typeof html).toBe("string");
+        });
+    });
+
+    describe("adversarial: malformed UTF-8 and encoding attacks", () => {
+        it("handles UTF-8 overlong encoding sequences", () => {
+            const markup = "test\xC0\xAFpath\xE0\x80\xAFmore";
+            expect(() => parser.convertMicronToHtml(markup)).not.toThrow();
+        });
+
+        it("handles surrogate halves", () => {
+            const markup = "text\uD800alone\uDC00orphan";
+            expect(() => parser.convertMicronToHtml(markup)).not.toThrow();
+        });
+
+        it("handles BOM characters", () => {
+            const markup = "\uFEFF> Heading with BOM";
+            const html = parser.convertMicronToHtml(markup);
+            expect(typeof html).toBe("string");
+        });
+
+        it("handles zero-width joiner/non-joiner", () => {
+            const markup = "`!\u200Bbold\u200Dtext`!";
+            const html = parser.convertMicronToHtml(markup);
+            expect(typeof html).toBe("string");
+        });
+
+        it("handles full-width characters in tag positions", () => {
+            const markup = "\uFF40\uFF01fullwidth backtick-bang\uFF40\uFF01";
+            expect(() => parser.convertMicronToHtml(markup)).not.toThrow();
+        });
+    });
+
+    describe("adversarial: null bytes and control characters", () => {
+        it("handles null bytes between tag markers", () => {
+            const markup = "`\x00!bold\x00`!";
+            expect(() => parser.convertMicronToHtml(markup)).not.toThrow();
+        });
+
+        it("handles line of only null bytes", () => {
+            const markup = "\x00".repeat(100);
+            expect(() => parser.convertMicronToHtml(markup)).not.toThrow();
+        });
+
+        it("handles ASCII control characters 0x01-0x1F", () => {
+            let markup = "";
+            for (let i = 1; i < 32; i++) markup += String.fromCharCode(i);
+            expect(() => parser.convertMicronToHtml(markup)).not.toThrow();
+            const html = parser.convertMicronToHtml(markup);
+            expect(html).not.toMatch(/<script[\s>]/i);
+        });
+
+        it("handles escape sequences in links", () => {
+            const markup = "`[label`\x1B[31mred\x1B[0m]";
+            const html = parser.convertMicronToHtml(markup);
+            expect(typeof html).toBe("string");
+        });
+
+        it("handles DEL character (0x7F)", () => {
+            const markup = "hello\x7Fworld";
+            expect(() => parser.convertMicronToHtml(markup)).not.toThrow();
+        });
+    });
+
+    describe("adversarial: ReDoS patterns", () => {
+        it("handles alternating backtick-bracket pattern quickly", () => {
+            const markup = "`[".repeat(1000) + "x" + "]".repeat(1000);
+            const start = Date.now();
+            parser.convertMicronToHtml(markup);
+            expect(Date.now() - start).toBeLessThan(10000);
+        });
+
+        it("handles alternating backtick-angle pattern quickly", () => {
+            const markup = "`<".repeat(1000) + "y" + ">".repeat(1000);
+            const start = Date.now();
+            parser.convertMicronToHtml(markup);
+            expect(Date.now() - start).toBeLessThan(10000);
+        });
+
+        it("handles pathological color code pattern quickly", () => {
+            const markup = "`Fabc".repeat(500);
+            const start = Date.now();
+            parser.convertMicronToHtml(markup);
+            expect(Date.now() - start).toBeLessThan(10000);
+        });
+
+        it("handles massive number of newlines quickly", () => {
+            const markup = "\n".repeat(10000);
+            const start = Date.now();
+            parser.convertMicronToHtml(markup);
+            expect(Date.now() - start).toBeLessThan(10000);
+        });
+
+        it("handles rapid format toggle (open/close/open/close) quickly", () => {
+            const markup = "`!x`!".repeat(2000);
+            const start = Date.now();
+            parser.convertMicronToHtml(markup);
+            expect(Date.now() - start).toBeLessThan(10000);
+        });
+    });
+
+    describe("adversarial: XSS bypass attempts", () => {
+        it("strips position fixed even with !important", () => {
+            const html = MicronParser.stripOverlayStyles('<div style="position:fixed !important; color:red">x</div>');
+            expect(html.toLowerCase()).not.toMatch(/position\s*:\s*fixed/);
+            expect(html).toContain("color:red");
+        });
+
+        it("strips position fixed hidden by CSS comments", () => {
+            const html = MicronParser.stripOverlayStyles('<div style="position/**/:fixed; color:blue">x</div>');
+            expect(html.toLowerCase()).not.toMatch(/position/);
+            expect(html).toContain("color:blue");
+        });
+
+        it("blocks SVG onload XSS", () => {
+            const markup = '<svg onload="alert(1)">';
+            const html = parser.convertMicronToHtml(markup);
+            const div = document.createElement("div");
+            div.innerHTML = html;
+            const svgs = div.querySelectorAll("svg");
+            for (const svg of svgs) {
+                expect(svg.getAttribute("onload")).toBeNull();
+            }
+        });
+
+        it("blocks img onerror XSS", () => {
+            const markup = '<img src=x onerror="alert(1)">';
+            const html = parser.convertMicronToHtml(markup);
+            const div = document.createElement("div");
+            div.innerHTML = html;
+            const imgs = div.querySelectorAll("img");
+            for (const img of imgs) {
+                expect(img.getAttribute("onerror")).toBeNull();
+            }
+        });
+
+        it("blocks iframe injection", () => {
+            const markup = '<iframe src="https://evil.com"></iframe>';
+            const html = parser.convertMicronToHtml(markup);
+            expect(html).not.toMatch(/<iframe[\s>]/i);
+        });
+
+        it("blocks style-based data exfiltration", () => {
+            const markup = '<style>body{background:url("https://evil.com/steal")}</style>';
+            const html = parser.convertMicronToHtml(markup);
+            expect(html).not.toMatch(/<style[\s>]/i);
+        });
+
+        it("sanitizeRenderedMicronHtml strips @import and https url from style blocks", () => {
+            const html = MicronParser.sanitizeRenderedMicronHtml(
+                '<style>@import url("https://evil.com/a.css"); p{background:url(https://evil.com/x.png)}</style><p>ok</p>'
+            );
+            expect(html.toLowerCase()).not.toContain("@import");
+            expect(html).not.toMatch(/url\s*\(\s*["']?https?:\/\//i);
+            expect(html).toContain("ok");
+        });
+
+        it("stripOverlayStyles drops inline network url()", () => {
+            const html = MicronParser.stripOverlayStyles(
+                `<div style="color:red; background:url(https://evil.com/x)">x</div>`
+            );
+            expect(html).not.toMatch(/url\s*\(\s*["']?https?:\/\//i);
+            expect(html).toContain("color:red");
+        });
+
+        it("stripOverlayStyles drops inline image-set network paint", () => {
+            const html = MicronParser.stripOverlayStyles(
+                `<div style="color:blue; background:image-set(url(https://evil.com/x) 1x)">x</div>`
+            );
+            expect(html.toLowerCase()).not.toContain("image-set");
+            expect(html.toLowerCase()).not.toContain("evil.com");
+            expect(html).toContain("color:blue");
+        });
+
+        it("blocks javascript: in link with encoding", () => {
+            const markup = "`[click`java\tscript:alert(1)]";
+            const html = parser.convertMicronToHtml(markup);
+            expect(html).not.toMatch(/\bhref\s*=\s*["']?\s*java\s*script:/i);
+        });
+
+        it("blocks vbscript: protocol", () => {
+            const markup = "`[click`vbscript:MsgBox(1)]";
+            const html = parser.convertMicronToHtml(markup);
+            expect(html).not.toMatch(/\bhref\s*=\s*["']?\s*vbscript:/i);
+        });
+
+        it("blocks meta refresh injection", () => {
+            const markup = '<meta http-equiv="refresh" content="0;url=https://evil.com">';
+            const html = parser.convertMicronToHtml(markup);
+            expect(html).not.toMatch(/<meta[\s>]/i);
+        });
+
+        it("blocks object/embed tags", () => {
+            const markup = '<object data="evil.swf"></object><embed src="evil.swf">';
+            const html = parser.convertMicronToHtml(markup);
+            expect(html).not.toMatch(/<object[\s>]/i);
+            expect(html).not.toMatch(/<embed[\s>]/i);
+        });
+
+        it("blocks form action injection", () => {
+            const markup = '<form action="https://evil.com"><input type="submit"></form>';
+            const html = parser.convertMicronToHtml(markup);
+            expect(html).not.toMatch(/<form[\s>]/i);
+        });
+
+        it("blocks base tag hijacking", () => {
+            const markup = '<base href="https://evil.com/">';
+            const html = parser.convertMicronToHtml(markup);
+            expect(html).not.toMatch(/<base[\s>]/i);
+        });
+    });
+
+    describe("adversarial: injection through micron features", () => {
+        it("link URL with attribute injection is entity-encoded", () => {
+            const markup = '`[click`" onclick="alert(1)" data-x="]';
+            const html = parser.convertMicronToHtml(markup);
+            const div = document.createElement("div");
+            div.innerHTML = html;
+            const anchors = div.querySelectorAll("a");
+            for (const a of anchors) {
+                expect(a.getAttribute("onclick")).toBeNull();
+            }
+        });
+
+        it("input field name cannot inject HTML", () => {
+            const markup = '`<24|"><script>alert(1)</script>`val>';
+            const html = parser.convertMicronToHtml(markup);
+            expect(html).not.toMatch(/<script[\s>]/i);
+        });
+
+        it("checkbox value with attribute injection is entity-encoded", () => {
+            const markup = '`<?|name|"><img src=x onerror=alert(1)>|`label>';
+            const html = parser.convertMicronToHtml(markup);
+            const div = document.createElement("div");
+            div.innerHTML = html;
+            const imgs = div.querySelectorAll("img");
+            for (const img of imgs) {
+                expect(img.getAttribute("onerror")).toBeNull();
+            }
+        });
+
+        it("color code cannot inject styles or HTML", () => {
+            const markup = '`F"><script>alert(1)</script>text';
+            const html = parser.convertMicronToHtml(markup);
+            expect(html).not.toMatch(/<script[\s>]/i);
+        });
+
+        it("partial hash cannot inject HTML", () => {
+            const hash = 'a"><script>alert(1)</script>';
+            const markup = "`{" + hash + ":/page/test.mu}";
+            const html = parser.convertMicronToHtml(markup);
+            expect(html).not.toMatch(/<script[\s>]/i);
+        });
+    });
+
+    describe("adversarial: large and extreme payloads", () => {
+        it("handles 100KB of plain text", () => {
+            const markup = "A".repeat(100_000);
+            const start = Date.now();
+            const html = parser.convertMicronToHtml(markup);
+            expect(Date.now() - start).toBeLessThan(10000);
+            expect(typeof html).toBe("string");
+        });
+
+        it("handles 10K lines of formatted text", () => {
+            const lines = Array.from({ length: 10_000 }, (_, i) => `\`!line ${i}\`!`);
+            const markup = lines.join("\n");
+            const start = Date.now();
+            parser.convertMicronToHtml(markup);
+            expect(Date.now() - start).toBeLessThan(30000);
+        }, 30000);
+
+        it("handles single line of 50KB", () => {
+            const markup = "`!" + "X".repeat(50_000) + "`!";
+            expect(() => parser.convertMicronToHtml(markup)).not.toThrow();
+        });
+
+        it("handles empty string", () => {
+            const html = parser.convertMicronToHtml("");
+            expect(typeof html).toBe("string");
+        });
+
+        it("handles only whitespace", () => {
+            const html = parser.convertMicronToHtml("   \t\t\n\n  ");
+            expect(typeof html).toBe("string");
+        });
+    });
+
+    describe("adversarial: polyglot and mixed content", () => {
+        it("handles HTML/micron polyglot", () => {
+            const markup = "> `!<b>Heading</b>`!\n<script>alert(1)</script>\n`[link`http://safe.com]";
+            const html = parser.convertMicronToHtml(markup);
+            expect(html).not.toMatch(/<script[\s>]/i);
+            expect(html).toContain("Heading");
+        });
+
+        it("handles markdown-like input", () => {
+            const markup = "# Not a heading\n**not bold**\n[not a link](http://evil.com)";
+            expect(() => parser.convertMicronToHtml(markup)).not.toThrow();
+        });
+
+        it("handles ANSI escape codes", () => {
+            const markup = "\x1B[31mred text\x1B[0m normal";
+            expect(() => parser.convertMicronToHtml(markup)).not.toThrow();
+        });
+
+        it("handles mixed valid/invalid UTF-8 with micron", () => {
+            const markup = "`!\uFFFD\uFFFE\uFFFF bold\uD83D\uDE00`!";
+            expect(() => parser.convertMicronToHtml(markup)).not.toThrow();
+        });
+    });
+
+    describe("resilience: parse failures", () => {
+        it("renders other lines when parseLine throws for one line", () => {
+            const spy = vi.spyOn(parser, "parseLine").mockImplementation(function (line, state) {
+                if (line === "BAD") {
+                    throw new Error("forced parse failure");
+                }
+                return MicronParser.prototype.parseLine.call(this, line, state);
+            });
+            const html = parser.convertMicronToHtml("good line\nBAD\nanother");
+            spy.mockRestore();
+            expect(html).toContain("good line");
+            expect(html).toContain("mu-line-parse-fallback");
+            expect(html).toContain("BAD");
+            expect(html).toContain("another");
+        });
+
+        it("convertMicronToFragment returns a fragment when parseLine throws", () => {
+            const spy = vi.spyOn(parser, "parseLine").mockImplementation(function (line, state) {
+                if (line === "BAD") {
+                    throw new Error("forced");
+                }
+                return MicronParser.prototype.parseLine.call(this, line, state);
+            });
+            const frag = parser.convertMicronToFragment("ok\nBAD\nok2");
+            spy.mockRestore();
+            expect(frag.childNodes.length).toBeGreaterThan(0);
+        });
+    });
+
+    describe("micron-parser-go WASM integration helpers", () => {
+        afterEach(() => {
+            delete globalThis.micronConvert;
+        });
+
+        it("splitMicronMarkupWasmSegments isolates MeshChat partial lines", () => {
+            const dest = "a".repeat(32);
+            const partialLine = `\`{${dest}:/page/partial.mu}`;
+            const segments = MicronParser.splitMicronMarkupWasmSegments(`> hello\nworld\n${partialLine}\ntrailer`);
+            expect(segments).toEqual([
+                { type: "mu", text: "> hello\nworld" },
+                { type: "partial", line: partialLine },
+                { type: "mu", text: "trailer" },
+            ]);
+        });
+
+        it("convertMicronToHtml falls back to JS when WASM throws", () => {
+            globalThis.micronConvert = vi.fn(() => {
+                throw new Error("forced wasm failure");
+            });
+            const p = new MicronParser(true, false);
+            const html = p.convertMicronToHtml("`!ok`!", {}, { useWasm: true });
+            expect(html.length).toBeGreaterThan(0);
+            expect(html.toLowerCase()).toContain("ok");
+        });
+
+        it("convertMicronToHtml stitches WASM segments with JS partial lines", () => {
+            globalThis.micronConvert = vi.fn(() => '<p data-wasm="1">wasm-body</p>');
+            const dest = "b".repeat(32);
+            const partialLine = `\`{${dest}:/page/inc.mu}`;
+            const p = new MicronParser(true, false);
+            const html = p.convertMicronToHtml(`intro line\n${partialLine}`, {}, { useWasm: true });
+            expect(globalThis.micronConvert).toHaveBeenCalled();
+            expect(html).toContain("wasm-body");
+            expect(html).toContain("mu-partial");
+            expect(html).toContain("data-dest");
+        });
+
+        it("adds main role to WASM rendered output", () => {
+            globalThis.micronConvert = vi.fn(() => "<p>wasm paragraph</p>");
+            const p = new MicronParser(true, false);
+            const html = p.convertMicronToHtml("# Hello", {}, { useWasm: true });
+            expect(html).toMatch(/<div[^>]+role="main"/);
+        });
+    });
+
+    describe("accessibility (A11y) attributes", () => {
+        it("wraps rendered Micron in a main landmark", () => {
+            const html = parser.convertMicronToHtml("Hello");
+            expect(html).toMatch(/<div[^>]+role="main"/);
+        });
+
+        it("marks Micron section headings with role and aria-level", () => {
+            const html = parser.convertMicronToHtml("> Top level\n>> Second level\n>>> Third level");
+            const roles = (html.match(/role="heading"/g) || []).length;
+            expect(roles).toBeGreaterThanOrEqual(3);
+            expect(html).toContain('aria-level="1"');
+            expect(html).toContain('aria-level="2"');
+            expect(html).toContain('aria-level="3"');
+        });
+
+        it("marks nomad network links as links with tabindex", () => {
+            const html = parser.convertMicronToHtml("`[Example`http://example.com]");
+            expect(html).toContain('role="link"');
+            expect(html).toContain('tabindex="0"');
+        });
+
+        it("marks partial placeholders as polite live regions", () => {
+            const dest = "b".repeat(32);
+            const html = parser.convertMicronToHtml(`\`{${dest}:/page/partial.mu}`);
+            expect(html).toContain('class="mu-partial"');
+            expect(html).toContain('role="status"');
+            expect(html).toContain('aria-live="polite"');
+        });
+
+        it("adds an accessible name to text inputs from the prompt", () => {
+            const html = parser.convertMicronToHtml("Name: `<name`>");
+            expect(html).toContain('aria-label="Name:"');
+        });
+
+        it("does not wrap partial content in a main landmark", () => {
+            const html = parser.convertMicronToHtml("partial text", {}, { isPartial: true });
+            expect(html).toContain("partial text");
+            expect(html).not.toMatch(/<div[^>]+role="main"/);
+        });
+
+        it("preserves ARIA attributes through DOMPurify", () => {
+            const html = parser.convertMicronToHtml(
+                `> Heading
+\`[Link\`http://safe.com]`
+            );
+            expect(html).toContain('role="main"');
+            expect(html).toContain('role="heading"');
+            expect(html).toContain('role="link"');
+        });
+
+        it("adds scope to table headers", () => {
+            const html = parser.convertMicronToHtml("`t\n|Col A|Col B|\n|-----|-----|\n|Row|Val|\n`t");
+            expect(html).toContain('scope="col"');
+        });
+
+        it("does not double up role=heading when upstream tags the inner div", () => {
+            const html = parser.convertMicronToHtml("> Section");
+            const roles = (html.match(/role="heading"/g) || []).length;
+            expect(roles).toBe(1);
+        });
+    });
+
+    describe("upstream fold and field support", () => {
+        it("renders open collapsible headings as details/summary", () => {
+            const html = parser.convertMicronToHtml("`+> Section\nBody text");
+            expect(html).toContain("<details");
+            expect(html).toContain("micron-fold");
+            expect(html).toContain("<summary");
+            expect(html).toMatch(/<details[^>]*\bopen\b/);
+        });
+
+        it("renders collapsed collapsible headings without open", () => {
+            const html = parser.convertMicronToHtml("`-> Section\nBody text");
+            expect(html).toContain("<details");
+            expect(html).toContain("micron-fold");
+            expect(html).not.toMatch(/<details[^>]*\bopen\b/);
+        });
+
+        it("nests content inside the fold details element", () => {
+            const html = parser.convertMicronToHtml("`+> Section\ninside fold\n> Next\noutside fold");
+            expect(html).toMatch(/<details[^>]*>[\s\S]*inside fold[\s\S]*<\/details>/);
+            expect(html).not.toMatch(/<details[^>]*>[\s\S]*outside fold[\s\S]*<\/details>/);
+        });
+
+        it("keeps partial placeholders inside an open fold", () => {
+            const dest = "c".repeat(32);
+            const html = parser.convertMicronToHtml(`\`+> Section\n\`{${dest}:/page/p.mu}`);
+            const foldMatch = html.match(/<details[^>]*>([\s\S]*)<\/details>/);
+            expect(foldMatch).not.toBeNull();
+            expect(foldMatch[1]).toContain("mu-partial");
+        });
+
+        it("renders multi-row fields as textarea", () => {
+            const html = parser.convertMicronToHtml("`<20x3|bio`hello>");
+            expect(html).toContain("<textarea");
+            expect(html).toContain('rows="3"');
+        });
+
+        it("applies field width to text inputs", () => {
+            const html = parser.convertMicronToHtml("`<40|name`bob>");
+            expect(html).toContain('size="40"');
+            expect(html).toContain('name="name"');
+        });
+
+        it("keeps field names that shadow DOM properties", () => {
+            const html = parser.convertMicronToHtml("`<20|action`x>");
+            expect(html).toContain('name="action"');
+        });
+    });
+});

@@ -1,0 +1,58 @@
+# Maintainer: Ivan <ivan@quad4.io>
+pkgname=meshchat-next-git
+_pkgname=meshchat-next
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="A simple mesh network communications app powered by the Reticulum Network Stack"
+arch=('x86_64' 'aarch64')
+url=""
+license=('0BSD' 'MIT')
+depends=('opus' 'opusfile' 'portaudio' 'espeak-ng')
+makedepends=('git' 'nodejs' 'pnpm' 'python' 'python-pip' 'python-setuptools' 'python-wheel')
+provides=("$_pkgname")
+conflicts=("$_pkgname")
+source=("$_pkgname-$pkgver.tar.gz"
+        "meshchat-next.desktop")
+sha256sums=('SKIP'
+            '172b7eb9249c10cdeb9cea7fdbe320f063784fbc48ecc707111955a914fff3d2')
+
+
+prepare() {
+  cd "$_pkgname"
+  export PNPM_HOME="$srcdir/.pnpm-home"
+  local _venv="$srcdir/$_pkgname/.build-venv"
+
+  pnpm install --frozen-lockfile
+
+  python -m venv "$_venv"
+  # shellcheck disable=SC1091
+  source "$_venv/bin/activate"
+  pip install --upgrade pip setuptools wheel "uv==0.11.15"
+  uv lock --check
+  uv sync --group dev --active
+  python scripts/patch_lxst_pyogg_ogg_ctypes.py
+  python scripts/patch_lxst_codec2_optional.py
+}
+
+build() {
+  cd "$_pkgname"
+  export PNPM_HOME="$srcdir/.pnpm-home"
+  export PYTHON_CMD="$srcdir/$_pkgname/.build-venv/bin/python"
+
+  pnpm run electron-postinstall
+  pnpm run build
+  pnpm exec electron-builder --linux --dir
+}
+
+package() {
+  cd "$_pkgname"
+
+  install -d "$pkgdir/usr/lib/$_pkgname"
+  cp -a dist/linux-unpacked/* "$pkgdir/usr/lib/$_pkgname/"
+
+  install -d "$pkgdir/usr/bin"
+  ln -s "/usr/lib/$_pkgname/meshchat-next" "$pkgdir/usr/bin/$_pkgname"
+
+  install -Dm644 "$srcdir/meshchat-next.desktop" "$pkgdir/usr/share/applications/meshchat-next.desktop"
+  install -Dm644 logo/logo.png "$pkgdir/usr/share/icons/hicolor/512x512/apps/meshchat-next.png"
+}

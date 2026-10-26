@@ -1,0 +1,142 @@
+# SPDX-License-Identifier: 0BSD
+
+"""Helpers for HTTP API route contract checks (meshchat.py and backend/http)."""
+
+from __future__ import annotations
+
+import json
+import re
+from pathlib import Path
+
+_ROUTE_DECORATOR = re.compile(
+    r"(?<![\w.])@?routes\.(get|post|patch|delete|put)\(\s*(?:\n\s*)?"
+    r"(?:"
+    r"['\"]([^'\"]+)['\"]"
+    r"|API_V1_PREFIX\s*\+\s*f?['\"]([^'\"]+)['\"]"
+    r"|f['\"]\{API_V1_PREFIX\}([^'\"]*)['\"]"
+    r")",
+    re.MULTILINE,
+)
+
+
+def http_route_source_paths(repo_root: Path) -> list[Path]:
+    """Return source files that may declare aiohttp route decorators."""
+    paths: list[Path] = [repo_root / "meshchatnext" / "meshchat.py"]
+    http_root = repo_root / "meshchatnext" / "src" / "backend" / "http"
+    if http_root.is_dir():
+        paths.extend(sorted(http_root.rglob("*.py")))
+    paths.append(repo_root / "meshchatnext/src/backend/meshcore_http.py")
+    return [p for p in paths if p.is_file()]
+
+
+def extract_meshchat_http_routes(meshchat_py: Path) -> list[dict[str, str]]:
+    """Extract route method/path pairs from meshchat.py and backend/http.
+
+    meshchat_py may be the meshchat.py path or any path under the repo.
+    The repo root is derived from a meshchatnext/ parent when present.
+    """
+    meshchat_py = Path(meshchat_py)
+    repo_root = meshchat_py
+    for parent in [meshchat_py, *meshchat_py.parents]:
+        if (parent / "meshchatnext" / "meshchat.py").is_file():
+            repo_root = parent
+            break
+        if parent.name == "meshchatnext" and (parent / "meshchat.py").is_file():
+            repo_root = parent.parent
+            break
+
+    rows: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for path in http_route_source_paths(repo_root):
+        text = path.read_text(encoding="utf-8")
+        for m in _ROUTE_DECORATOR.finditer(text):
+            literal, prefixed, fstring = m.group(2), m.group(3), m.group(4)
+            if literal is not None:
+                path = literal
+            elif prefixed is not None:
+                path = "/api/v1" + prefixed
+            else:
+                path = "/api/v1" + fstring
+            key = (m.group(1).upper(), path)
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append({"method": key[0], "path": key[1]})
+    rows.sort(key=lambda x: (x["path"], x["method"]))
+    return rows
+
+
+def path_matches_aiohttp_route(route: str, path: str) -> bool:
+    pattern = ""
+    i = 0
+    while i < len(route):
+        if route[i] == "{":
+            j = route.find("}", i)
+            if j == -1:
+                return False
+            spec = route[i + 1 : j]
+            if ":" in spec:
+                _name, conv = spec.split(":", 1)
+                pattern += conv if conv else "[^/]+"
+            else:
+                pattern += "[^/]+"
+            i = j + 1
+        else:
+            pattern += re.escape(route[i])
+            i += 1
+    return re.fullmatch(pattern, path) is not None
+
+
+def extract_frontend_api_paths(frontend_root: Path) -> set[str]:
+    out: set[str] = set()
+    for path in list(frontend_root.rglob("*.vue")) + list(frontend_root.rglob("*.js")):
+        if "node_modules" in path.parts:
+            continue
+        text = path.read_text(encoding="utf-8")
+        for m in re.finditer(r"`(/api/v1[^`]+)`", text):
+            s = m.group(1).split("?")[0]
+            s = re.sub(r"\$\{[^}]+\}", "a", s)
+            out.add(s)
+        for m in re.finditer(r'["\'](/api/v1[^"\']+)["\']', text):
+            s = m.group(1).split("?")[0]
+            if "${" in s:
+                continue
+            out.add(s)
+        # apiPath("...") / apiPath(...) from js/constants.js
+        for m in re.finditer(r"apiPath\(\s*[`\"']([^`\"']+)[`\"']", text):
+            s = m.group(1)
+            s = "/api/v1" + s
+            s = s.split("?")[0]
+            if "${" in s:
+                s = re.sub(r"\$\{[^}]+\}", "a", s)
+            out.add(s)
+        # API_V1_PREFIX + "..." string concatenation
+        for m in re.finditer(r"API_V1_PREFIX\s*\+\s*[\"']([^\"']+)[\"']", text):
+            s = "/api/v1" + m.group(1)
+            out.add(s.split("?")[0])
+        # `${API_V1_PREFIX}...` template literals. Skip pure passthroughs
+        # like `${API_V1_PREFIX}${path}` inside the apiPath helper itself.
+        for m in re.finditer(r"`\$\{API_V1_PREFIX\}([^`]+)`", text):
+            tail = m.group(1)
+            if re.fullmatch(r"\$\{[^}]+\}", tail):
+                continue
+            s = "/api/v1" + tail
+            s = s.split("?")[0]
+            s = re.sub(r"\$\{[^}]+\}", "a", s)
+            out.add(s)
+    return out
+
+
+def load_route_fixture(fixture_path: Path) -> list[dict[str, str]]:
+    data = json.loads(fixture_path.read_text(encoding="utf-8"))
+    routes = data["routes"]
+    routes.sort(key=lambda x: (x["path"], x["method"]))
+    return routes
+
+
+def write_route_fixture(fixture_path: Path, routes: list[dict[str, str]]) -> None:
+    fixture_path.parent.mkdir(parents=True, exist_ok=True)
+    fixture_path.write_text(
+        json.dumps({"routes": routes}, indent=4) + "\n",
+        encoding="utf-8",
+    )

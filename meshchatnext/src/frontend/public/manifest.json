@@ -1,0 +1,17 @@
+{
+    "name": "Meshchat neXt",
+    "short_name": "Meshchat neXt",
+    "description": "A local-first mesh network communications app powered by the Reticulum Network Stack.",
+    "scope": "/",
+    "start_url": "/",
+    "icons": [
+        {
+            "src": "/favicons/favicon-512x512.png",
+            "sizes": "512x512",
+            "type": "image/png"
+        }
+    ],
+    "display": "standalone",
+    "theme_color": "#09090b",
+    "background_color": "#09090b"
+}

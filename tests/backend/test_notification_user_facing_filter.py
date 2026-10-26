@@ -1,0 +1,924 @@
+# SPDX-License-Identifier: 0BSD
+
+"""Notification bell must never raise on silent payloads.
+
+Covers:
+  - the pure helper is_user_facing_lxmf_payload
+  - the conversation-row helper
+    compute_lxmf_conversation_unread_from_latest_row with
+    require_user_facing=True
+  - the DAO method
+    MessageDAO.get_latest_user_facing_incoming_message
+  - end-to-end GET /api/v1/notifications integration: reactions,
+    generic telemetry-only payloads, icon-only, empty pings and
+    delivery-status updates must not produce false unread badges or empty
+    dropdown entries. Location shares, telemetry streams, and Sideband
+    location requests must surface with a readable preview.
+"""
+
+from __future__ import annotations
+
+import json
+import time
+from datetime import UTC, datetime
+from unittest.mock import MagicMock
+
+import pytest
+from aiohttp import web
+from aiohttp.test_utils import TestClient, TestServer
+
+from meshchatnext.src.backend.lxmf_utils import (
+    FIELD_REACTION,
+    REACTION_CONTENT,
+    REACTION_TO,
+    compute_lxmf_conversation_unread_from_latest_row,
+    is_user_facing_lxmf_payload,
+)
+from meshchatnext.src.backend.message_handler import MessageHandler
+
+LOCAL_HASH = "aa" * 16
+PEER_HASH = "bb" * 16
+PEER_HASH_2 = "cc" * 16
+
+
+# ---------------------------------------------------------------------------
+# Pure helper: is_user_facing_lxmf_payload
+# ---------------------------------------------------------------------------
+
+
+class TestIsUserFacingLxmfPayload:
+    def test_plain_text_message_is_user_facing(self):
+        assert is_user_facing_lxmf_payload({}, "hello", "")
+        assert is_user_facing_lxmf_payload({}, "hello", None)
+
+    def test_title_only_is_user_facing(self):
+        assert is_user_facing_lxmf_payload({}, "", "Subject")
+        assert is_user_facing_lxmf_payload({}, None, "Subject")
+
+    def test_empty_payload_is_not_user_facing(self):
+        assert not is_user_facing_lxmf_payload({}, "", "")
+        assert not is_user_facing_lxmf_payload({}, None, None)
+        assert not is_user_facing_lxmf_payload({}, "   ", "  \t\n")
+
+    def test_reaction_via_parsed_reaction_field(self):
+        fields = {"reaction": {"reaction_to": "abc", "reaction_content": "fire"}}
+        assert not is_user_facing_lxmf_payload(fields, "", "")
+        assert not is_user_facing_lxmf_payload(fields, None, None)
+
+    def test_reaction_via_raw_lxmf_field(self):
+        fields = {
+            FIELD_REACTION: {
+                REACTION_TO: bytes.fromhex("ab" * 16),
+                REACTION_CONTENT: b"fire",
+            },
+        }
+        assert not is_user_facing_lxmf_payload(fields, "", "")
+
+    def test_reaction_with_text_is_user_facing(self):
+        # Reaction plus body is a hybrid payload and must notify / count as unread.
+        fields = {
+            "reaction": {
+                "reaction_to": "ab" * 16,
+                "reaction_content": "\U0001f44d",
+            },
+        }
+        assert is_user_facing_lxmf_payload(fields, "noise", "noise")
+        assert not is_user_facing_lxmf_payload(fields, "", "")
+
+    def test_telemetry_only_is_not_user_facing(self):
+        fields = {"telemetry": {"some": "data"}}
+        assert not is_user_facing_lxmf_payload(fields, "", "")
+
+    def test_telemetry_with_location_is_user_facing(self):
+        fields = {"telemetry": {"location": {"latitude": 1.0, "longitude": 2.0}}}
+        assert is_user_facing_lxmf_payload(fields, "", "")
+
+    def test_telemetry_stream_is_user_facing(self):
+        fields = {"telemetry_stream": [{"x": 1}]}
+        assert is_user_facing_lxmf_payload(fields, "", "")
+
+    def test_sideband_location_request_command_is_user_facing(self):
+        fields = {"commands": [{"0x01": 1_700_000_000}]}
+        assert is_user_facing_lxmf_payload(fields, "", "")
+
+    def test_icon_only_is_not_user_facing(self):
+        # Icon appearance updates are processed separately and never appear in
+        # the converted fields dict. An icon-only message therefore looks
+        # like an empty payload to this helper.
+        assert not is_user_facing_lxmf_payload({}, "", "")
+
+    def test_image_attachment_is_user_facing(self):
+        fields = {"image": {"image_size": 12345, "image_type": "png"}}
+        assert is_user_facing_lxmf_payload(fields, "", "")
+
+    def test_audio_attachment_is_user_facing(self):
+        fields = {"audio": {"audio_size": 4242, "audio_mode": 1}}
+        assert is_user_facing_lxmf_payload(fields, "", "")
+
+    def test_file_attachment_is_user_facing(self):
+        fields = {"file_attachments": [{"file_name": "hi.txt", "file_size": 5}]}
+        assert is_user_facing_lxmf_payload(fields, "", "")
+
+    def test_empty_file_attachments_list_not_user_facing(self):
+        fields = {"file_attachments": []}
+        assert not is_user_facing_lxmf_payload(fields, "", "")
+
+    def test_accepts_json_string_fields(self):
+        fields = json.dumps(
+            {"reaction": {"reaction_to": "abc", "reaction_content": "\U0001f44d"}},
+        )
+        assert not is_user_facing_lxmf_payload(fields, "", "")
+        fields = json.dumps({"image": {"image_size": 1}})
+        assert is_user_facing_lxmf_payload(fields, "", "")
+
+    def test_garbage_fields_do_not_crash(self):
+        assert not is_user_facing_lxmf_payload(None, "", "")
+        assert not is_user_facing_lxmf_payload("not json {", "", "")
+        assert not is_user_facing_lxmf_payload(12345, "", "")
+        assert is_user_facing_lxmf_payload(None, "hello", "")
+
+    def test_bytes_content_is_handled(self):
+        assert is_user_facing_lxmf_payload({}, b"hello", b"")
+        assert not is_user_facing_lxmf_payload({}, b"", b"")
+        assert not is_user_facing_lxmf_payload({}, b"   ", b"")
+
+
+# ---------------------------------------------------------------------------
+# Row-level helper: compute_lxmf_conversation_unread_from_latest_row
+# ---------------------------------------------------------------------------
+
+
+def _row(*, incoming, content="", title="", fields=None, last_read=None, ts=None):
+    return {
+        "is_incoming": incoming,
+        "content": content,
+        "title": title,
+        "fields": fields if fields is not None else {},
+        "last_read_at": last_read,
+        "timestamp": ts if ts is not None else 1_700_000_000.0,
+    }
+
+
+class TestRequireUserFacingFlag:
+    def test_legacy_behavior_unchanged_without_flag(self):
+        row = _row(
+            incoming=1,
+            fields={
+                "reaction": {"reaction_to": "abc", "reaction_content": "\U0001f44d"},
+            },
+        )
+        # Without require_user_facing the helper preserves its old behavior
+        # so the conversation list (which renders reactions) is unaffected.
+        assert compute_lxmf_conversation_unread_from_latest_row(row) is True
+
+    def test_reaction_filtered_when_require_user_facing(self):
+        row = _row(
+            incoming=1,
+            fields={
+                "reaction": {"reaction_to": "abc", "reaction_content": "\U0001f44d"},
+            },
+        )
+        assert (
+            compute_lxmf_conversation_unread_from_latest_row(
+                row,
+                require_user_facing=True,
+            )
+            is False
+        )
+
+    def test_telemetry_only_filtered_when_require_user_facing(self):
+        row = _row(
+            incoming=1,
+            fields={"telemetry": {"k": "v"}},
+        )
+        assert (
+            compute_lxmf_conversation_unread_from_latest_row(
+                row,
+                require_user_facing=True,
+            )
+            is False
+        )
+
+    def test_telemetry_location_unread_when_require_user_facing(self):
+        row = _row(
+            incoming=1,
+            fields={"telemetry": {"location": {"latitude": 0.0, "longitude": 0.0}}},
+        )
+        assert (
+            compute_lxmf_conversation_unread_from_latest_row(
+                row,
+                require_user_facing=True,
+            )
+            is True
+        )
+
+    def test_user_facing_message_still_unread(self):
+        row = _row(incoming=1, content="hello")
+        assert (
+            compute_lxmf_conversation_unread_from_latest_row(
+                row,
+                require_user_facing=True,
+            )
+            is True
+        )
+
+    def test_outgoing_never_unread_even_user_facing(self):
+        row = _row(incoming=0, content="hello")
+        assert (
+            compute_lxmf_conversation_unread_from_latest_row(
+                row,
+                require_user_facing=True,
+            )
+            is False
+        )
+
+    def test_user_facing_already_read(self):
+        ts = 1_700_000_000.0
+        row = _row(
+            incoming=1,
+            content="hello",
+            last_read=datetime.fromtimestamp(ts + 1, UTC).isoformat(),
+            ts=ts,
+        )
+        assert (
+            compute_lxmf_conversation_unread_from_latest_row(
+                row,
+                require_user_facing=True,
+            )
+            is False
+        )
+
+
+# ---------------------------------------------------------------------------
+# DAO: MessageDAO.get_latest_user_facing_incoming_message
+# ---------------------------------------------------------------------------
+
+
+def _mk_message(
+    *,
+    msg_hash,
+    peer_hash,
+    is_incoming=1,
+    content="",
+    title="",
+    fields=None,
+    timestamp=None,
+    created_at=None,
+    state="delivered",
+):
+    return {
+        "hash": msg_hash,
+        "source_hash": peer_hash if is_incoming else LOCAL_HASH,
+        "destination_hash": LOCAL_HASH if is_incoming else peer_hash,
+        "peer_hash": peer_hash,
+        "state": state,
+        "progress": 100,
+        "is_incoming": is_incoming,
+        "method": "direct",
+        "delivery_attempts": 0,
+        "next_delivery_attempt_at": None,
+        "title": title,
+        "content": content,
+        "fields": fields if fields is not None else {},
+        "timestamp": timestamp if timestamp is not None else time.time(),
+        "created_at": created_at,
+        "rssi": None,
+        "snr": None,
+        "quality": None,
+        "is_spam": 0,
+        "reply_to_hash": None,
+        "attachments_stripped": 0,
+    }
+
+
+def _iso(ts):
+    return datetime.fromtimestamp(ts, UTC).isoformat()
+
+
+class TestGetLatestUserFacingIncomingMessage:
+    def test_returns_none_when_no_messages(self, db):
+        result = db.messages.get_latest_user_facing_incoming_message(PEER_HASH)
+        assert result is None
+
+    def test_returns_latest_when_user_facing(self, db):
+        db.messages.upsert_lxmf_message(
+            _mk_message(
+                msg_hash="h1",
+                peer_hash=PEER_HASH,
+                content="first",
+                timestamp=100,
+            ),
+        )
+        db.messages.upsert_lxmf_message(
+            _mk_message(
+                msg_hash="h2",
+                peer_hash=PEER_HASH,
+                content="second",
+                timestamp=200,
+            ),
+        )
+        result = db.messages.get_latest_user_facing_incoming_message(PEER_HASH)
+        assert result is not None
+        assert result["content"] == "second"
+
+    def test_skips_reactions_returns_prior_message(self, db):
+        db.messages.upsert_lxmf_message(
+            _mk_message(
+                msg_hash="h1",
+                peer_hash=PEER_HASH,
+                content="real message",
+                timestamp=100,
+            ),
+        )
+        db.messages.upsert_lxmf_message(
+            _mk_message(
+                msg_hash="h2",
+                peer_hash=PEER_HASH,
+                content="",
+                fields={
+                    "reaction": {
+                        "reaction_to": "abc",
+                        "reaction_content": "\U0001f44d",
+                    },
+                },
+                timestamp=200,
+            ),
+        )
+        result = db.messages.get_latest_user_facing_incoming_message(PEER_HASH)
+        assert result is not None
+        assert result["content"] == "real message"
+
+    def test_skips_telemetry_only(self, db):
+        db.messages.upsert_lxmf_message(
+            _mk_message(
+                msg_hash="h1",
+                peer_hash=PEER_HASH,
+                content="",
+                fields={"telemetry": {"k": "v"}},
+                timestamp=200,
+            ),
+        )
+        result = db.messages.get_latest_user_facing_incoming_message(PEER_HASH)
+        assert result is None
+
+    def test_returns_incoming_location_telemetry(self, db):
+        db.messages.upsert_lxmf_message(
+            _mk_message(
+                msg_hash="loc1",
+                peer_hash=PEER_HASH,
+                content="",
+                fields={
+                    "telemetry": {
+                        "location": {"latitude": 1.0, "longitude": 2.0},
+                    },
+                },
+                timestamp=200,
+            ),
+        )
+        result = db.messages.get_latest_user_facing_incoming_message(PEER_HASH)
+        assert result is not None
+        assert result["hash"] == "loc1"
+
+    def test_skips_outgoing_messages(self, db):
+        db.messages.upsert_lxmf_message(
+            _mk_message(
+                msg_hash="h1",
+                peer_hash=PEER_HASH,
+                is_incoming=0,
+                content="i sent this",
+                timestamp=200,
+            ),
+        )
+        result = db.messages.get_latest_user_facing_incoming_message(PEER_HASH)
+        assert result is None
+
+    def test_only_returns_messages_for_requested_peer(self, db):
+        db.messages.upsert_lxmf_message(
+            _mk_message(
+                msg_hash="h1",
+                peer_hash=PEER_HASH_2,
+                content="other peer",
+                timestamp=200,
+            ),
+        )
+        result = db.messages.get_latest_user_facing_incoming_message(PEER_HASH)
+        assert result is None
+
+    def test_scan_limit_respected(self, db):
+        # Insert many reactions then a real message past the scan window.
+        # The real message is at the oldest position. With scan_limit=3 only
+        # the 3 newest (all reactions) are scanned, so we should get None.
+        db.messages.upsert_lxmf_message(
+            _mk_message(
+                msg_hash="real",
+                peer_hash=PEER_HASH,
+                content="hello",
+                timestamp=1,
+            ),
+        )
+        for i in range(5):
+            db.messages.upsert_lxmf_message(
+                _mk_message(
+                    msg_hash=f"react{i}",
+                    peer_hash=PEER_HASH,
+                    content="",
+                    fields={
+                        "reaction": {
+                            "reaction_to": "x",
+                            "reaction_content": "\U0001f44d",
+                        },
+                    },
+                    timestamp=100 + i,
+                ),
+            )
+        result = db.messages.get_latest_user_facing_incoming_message(
+            PEER_HASH,
+            scan_limit=3,
+        )
+        assert result is None
+        # With a wider window we find the real message.
+        result = db.messages.get_latest_user_facing_incoming_message(
+            PEER_HASH,
+            scan_limit=50,
+        )
+        assert result is not None
+        assert result["content"] == "hello"
+
+
+# ---------------------------------------------------------------------------
+# Integration: GET /api/v1/notifications must not falsely raise the bell
+# ---------------------------------------------------------------------------
+
+
+pytestmark_integration = pytest.mark.usefixtures("require_loopback_tcp")
+
+
+def _build_aio_app(app):
+    routes = web.RouteTableDef()
+    bad_mw, sqlite_mw, auth_mw, mime_mw, _cache_mw, sec_mw, csrf_mw, ip_mw, demo_mw = (
+        app._define_routes(routes)
+    )
+    aio_app = web.Application(
+        middlewares=[
+            bad_mw,
+            sqlite_mw,
+            auth_mw,
+            mime_mw,
+            _cache_mw,
+            sec_mw,
+            csrf_mw,
+            ip_mw,
+            demo_mw,
+        ],
+    )
+    aio_app.add_routes(routes)
+    return aio_app
+
+
+def _wire_real_message_handler(app):
+    app.message_handler = MessageHandler(app.database)
+    app.local_lxmf_destination = MagicMock()
+    app.local_lxmf_destination.hexhash = LOCAL_HASH
+    app.current_context.running = True
+    app.config.auth_enabled.set(False)
+    # Avoid name lookups touching real DAOs.
+    app.get_lxmf_conversation_name = lambda h, default_name=None: f"peer-{h[:6]}"
+    app.get_lxmf_destination_hash_for_identity_hash = lambda h: None
+    app.get_name_for_identity_hash = lambda h: None
+    return app
+
+
+def _set_read_state(db, peer_hash, when_iso):
+    db.provider.execute(
+        "INSERT INTO lxmf_conversation_read_state (destination_hash, last_read_at, "
+        "created_at, updated_at) VALUES (?, ?, ?, ?) "
+        "ON CONFLICT(destination_hash) DO UPDATE SET "
+        "last_read_at = EXCLUDED.last_read_at, updated_at = EXCLUDED.updated_at",
+        (peer_hash, when_iso, when_iso, when_iso),
+    )
+
+
+@pytest.fixture
+def bell_app(mock_app):
+    return _wire_real_message_handler(mock_app)
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("require_loopback_tcp")
+class TestNotificationsGetUserFacingFilter:
+    """End-to-end checks that the bell never falsely triggers."""
+
+    async def _get(self, app, **params):
+        aio_app = _build_aio_app(app)
+        async with TestClient(TestServer(aio_app)) as client:
+            resp = await client.get("/api/v1/notifications", params=params)
+            assert resp.status == 200
+            return await resp.json()
+
+    async def test_no_data_returns_empty(self, bell_app):
+        body = await self._get(bell_app, unread="true", limit=10)
+        assert body["notifications"] == []
+        assert body["unread_count"] == 0
+
+    async def test_user_facing_message_raises_bell(self, bell_app):
+        bell_app.database.messages.upsert_lxmf_message(
+            _mk_message(
+                msg_hash="h1",
+                peer_hash=PEER_HASH,
+                content="hello world",
+                timestamp=1_700_000_000,
+            ),
+        )
+        body = await self._get(bell_app, unread="true", limit=10)
+        assert body["unread_count"] == 1
+        assert len(body["notifications"]) == 1
+        assert body["notifications"][0]["type"] == "lxmf_message"
+        assert body["notifications"][0]["latest_message_preview"] == "hello world"
+
+    async def test_lone_reaction_does_not_raise_bell(self, bell_app):
+        bell_app.database.messages.upsert_lxmf_message(
+            _mk_message(
+                msg_hash="r1",
+                peer_hash=PEER_HASH,
+                content="",
+                fields={"reaction": {"reaction_to": "abc", "reaction_content": "fire"}},
+                timestamp=1_700_000_000,
+            ),
+        )
+        body = await self._get(bell_app, unread="true", limit=10)
+        assert body["unread_count"] == 0
+        assert body["notifications"] == []
+
+    async def test_reaction_after_read_message_does_not_raise_bell(self, bell_app):
+        # Real message arrived, was read, then a reaction landed afterwards.
+        # Arrival order is modeled with created_at because unread checks use
+        # local arrival time, not the sender-supplied timestamp.
+        bell_app.database.messages.upsert_lxmf_message(
+            _mk_message(
+                msg_hash="m1",
+                peer_hash=PEER_HASH,
+                content="hello",
+                timestamp=1_700_000_000,
+                created_at=_iso(1_700_000_000),
+            ),
+        )
+        # Mark conversation as read AFTER hello but BEFORE reaction.
+        _set_read_state(
+            bell_app.database,
+            PEER_HASH,
+            datetime.fromtimestamp(1_700_000_500, UTC).isoformat(),
+        )
+        bell_app.database.messages.upsert_lxmf_message(
+            _mk_message(
+                msg_hash="r1",
+                peer_hash=PEER_HASH,
+                content="",
+                fields={
+                    "reaction": {"reaction_to": "m1", "reaction_content": "\U0001f44d"},
+                },
+                timestamp=1_700_001_000,
+                created_at=_iso(1_700_001_000),
+            ),
+        )
+        body = await self._get(bell_app, unread="true", limit=10)
+        assert body["unread_count"] == 0
+        assert body["notifications"] == []
+
+    async def test_reaction_after_unread_message_keeps_bell_for_real_message(
+        self,
+        bell_app,
+    ):
+        # Real unread message + later reaction should still surface ONE entry
+        # describing the real message (the reaction itself is silent).
+        bell_app.database.messages.upsert_lxmf_message(
+            _mk_message(
+                msg_hash="m1",
+                peer_hash=PEER_HASH,
+                content="hello",
+                timestamp=1_700_000_000,
+            ),
+        )
+        bell_app.database.messages.upsert_lxmf_message(
+            _mk_message(
+                msg_hash="r1",
+                peer_hash=PEER_HASH,
+                content="",
+                fields={
+                    "reaction": {"reaction_to": "m1", "reaction_content": "\U0001f44d"},
+                },
+                timestamp=1_700_001_000,
+            ),
+        )
+        body = await self._get(bell_app, unread="true", limit=10)
+        assert body["unread_count"] == 1
+        assert len(body["notifications"]) == 1
+        assert body["notifications"][0]["latest_message_preview"] == "hello"
+
+    async def test_telemetry_only_does_not_raise_bell(self, bell_app):
+        bell_app.database.messages.upsert_lxmf_message(
+            _mk_message(
+                msg_hash="t1",
+                peer_hash=PEER_HASH,
+                content="",
+                fields={"telemetry": {"k": "v"}},
+                timestamp=1_700_000_000,
+            ),
+        )
+        body = await self._get(bell_app, unread="true", limit=10)
+        assert body["unread_count"] == 0
+        assert body["notifications"] == []
+
+    async def test_telemetry_location_raises_bell_with_preview(self, bell_app):
+        bell_app.database.messages.upsert_lxmf_message(
+            _mk_message(
+                msg_hash="loc1",
+                peer_hash=PEER_HASH,
+                content="",
+                fields={
+                    "telemetry": {
+                        "location": {"latitude": 1.0, "longitude": 2.0},
+                    },
+                },
+                timestamp=1_700_000_000,
+            ),
+        )
+        body = await self._get(bell_app, unread="true", limit=10)
+        assert body["unread_count"] == 1
+        assert len(body["notifications"]) == 1
+        peer_label = f"peer-{PEER_HASH[:6]}"
+        assert body["notifications"][0]["latest_message_preview"] == (
+            f"{peer_label} shared their location"
+        )
+
+    async def test_sideband_location_request_raises_bell_with_preview(self, bell_app):
+        bell_app.database.messages.upsert_lxmf_message(
+            _mk_message(
+                msg_hash="req1",
+                peer_hash=PEER_HASH,
+                content="",
+                fields={"commands": [{"0x01": 1_700_000_000}]},
+                timestamp=1_700_000_000,
+            ),
+        )
+        body = await self._get(bell_app, unread="true", limit=10)
+        assert body["unread_count"] == 1
+        peer_label = f"peer-{PEER_HASH[:6]}"
+        assert body["notifications"][0]["latest_message_preview"] == (
+            f"{peer_label} requested your location"
+        )
+
+    async def test_empty_payload_does_not_raise_bell(self, bell_app):
+        bell_app.database.messages.upsert_lxmf_message(
+            _mk_message(
+                msg_hash="e1",
+                peer_hash=PEER_HASH,
+                content="",
+                title="",
+                fields={},
+                timestamp=1_700_000_000,
+            ),
+        )
+        body = await self._get(bell_app, unread="true", limit=10)
+        assert body["unread_count"] == 0
+        assert body["notifications"] == []
+
+    async def test_outgoing_message_does_not_raise_bell(self, bell_app):
+        bell_app.database.messages.upsert_lxmf_message(
+            _mk_message(
+                msg_hash="o1",
+                peer_hash=PEER_HASH,
+                is_incoming=0,
+                content="i sent this",
+                timestamp=1_700_000_000,
+            ),
+        )
+        body = await self._get(bell_app, unread="true", limit=10)
+        assert body["unread_count"] == 0
+        assert body["notifications"] == []
+
+    async def test_attachment_only_message_raises_bell(self, bell_app):
+        bell_app.database.messages.upsert_lxmf_message(
+            _mk_message(
+                msg_hash="i1",
+                peer_hash=PEER_HASH,
+                content="",
+                fields={"image": {"image_size": 9999, "image_type": "png"}},
+                timestamp=1_700_000_000,
+            ),
+        )
+        body = await self._get(bell_app, unread="true", limit=10)
+        assert body["unread_count"] == 1
+        assert len(body["notifications"]) == 1
+        peer_label = f"peer-{PEER_HASH[:6]}"
+        assert body["notifications"][0]["latest_message_preview"] == (
+            f"{peer_label} sent an image"
+        )
+
+    async def test_badge_count_matches_dropdown_items(self, bell_app):
+        # Mix of user-facing and silent messages across multiple peers must
+        # produce a badge that exactly equals the dropdown listing size.
+        bell_app.database.messages.upsert_lxmf_message(
+            _mk_message(
+                msg_hash="m1",
+                peer_hash=PEER_HASH,
+                content="hello",
+                timestamp=1_700_000_100,
+            ),
+        )
+        bell_app.database.messages.upsert_lxmf_message(
+            _mk_message(
+                msg_hash="m2",
+                peer_hash=PEER_HASH_2,
+                content="",
+                fields={
+                    "reaction": {"reaction_to": "x", "reaction_content": "\U0001f44d"},
+                },
+                timestamp=1_700_000_200,
+            ),
+        )
+        bell_app.database.messages.upsert_lxmf_message(
+            _mk_message(
+                msg_hash="m3",
+                peer_hash="dd" * 16,
+                content="hi again",
+                timestamp=1_700_000_300,
+            ),
+        )
+        body = await self._get(bell_app, unread="true", limit=50)
+        lxmf_items = [n for n in body["notifications"] if n["type"] == "lxmf_message"]
+        assert body["unread_count"] == len(lxmf_items)
+        assert body["unread_count"] == 2
+
+    async def test_count_is_consistent_with_unread_filter_off(self, bell_app):
+        # When unread=false the lxmf unread_count must still ignore
+        # silent payloads so the badge never disagrees with the dropdown.
+        bell_app.database.messages.upsert_lxmf_message(
+            _mk_message(
+                msg_hash="r1",
+                peer_hash=PEER_HASH,
+                content="",
+                fields={
+                    "reaction": {
+                        "reaction_to": "abc",
+                        "reaction_content": "\U0001f44d",
+                    },
+                },
+                timestamp=1_700_000_000,
+            ),
+        )
+        body = await self._get(bell_app, unread="false", limit=10)
+        assert body["unread_count"] == 0
+
+    async def test_marking_as_viewed_zeroes_count(self, bell_app):
+        bell_app.database.messages.upsert_lxmf_message(
+            _mk_message(
+                msg_hash="m1",
+                peer_hash=PEER_HASH,
+                content="hello",
+                timestamp=1_700_000_000,
+            ),
+        )
+        body = await self._get(bell_app, unread="true", limit=10)
+        assert body["unread_count"] == 1
+        bell_app.database.messages.mark_all_notifications_as_viewed(
+            [PEER_HASH],
+        )
+        body = await self._get(bell_app, unread="true", limit=10)
+        assert body["unread_count"] == 0
+        assert body["notifications"] == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("require_loopback_tcp")
+class TestNotificationsMarkReadSync:
+    """Reading a conversation must clear the bell without opening the dropdown."""
+
+    async def _get(self, app, path="/api/v1/notifications", **params):
+        aio_app = _build_aio_app(app)
+        async with TestClient(TestServer(aio_app)) as client:
+            resp = await client.get(path, params=params)
+            assert resp.status == 200
+            return await resp.json()
+
+    async def _post(self, app, path, payload=None):
+        aio_app = _build_aio_app(app)
+        async with TestClient(TestServer(aio_app)) as client:
+            resp = await client.post(path, json=payload or {})
+            assert resp.status == 200
+            return await resp.json()
+
+    async def test_mark_conversation_read_api_clears_bell(self, bell_app):
+        bell_app.database.messages.upsert_lxmf_message(
+            _mk_message(
+                msg_hash="m1",
+                peer_hash=PEER_HASH,
+                content="hello",
+                timestamp=1_700_000_000,
+            ),
+        )
+        before = await self._get(bell_app, unread="true", limit=10)
+        assert before["unread_count"] == 1
+        assert len(before["notifications"]) == 1
+
+        await self._post(
+            bell_app,
+            f"/api/v1/lxmf/conversations/{PEER_HASH}/mark-as-read",
+        )
+
+        after = await self._get(bell_app, unread="true", limit=10)
+        assert after["unread_count"] == 0
+        assert after["notifications"] == []
+
+    async def test_bulk_mark_read_api_clears_bell(self, bell_app):
+        bell_app.database.messages.upsert_lxmf_message(
+            _mk_message(
+                msg_hash="m1",
+                peer_hash=PEER_HASH,
+                content="one",
+                timestamp=1_700_000_000,
+            ),
+        )
+        bell_app.database.messages.upsert_lxmf_message(
+            _mk_message(
+                msg_hash="m2",
+                peer_hash=PEER_HASH_2,
+                content="two",
+                timestamp=1_700_000_100,
+            ),
+        )
+        before = await self._get(bell_app, unread="true", limit=10)
+        assert before["unread_count"] == 2
+
+        await self._post(
+            bell_app,
+            "/api/v1/lxmf/conversations/bulk-mark-as-read",
+            {"destination_hashes": [PEER_HASH, PEER_HASH_2]},
+        )
+
+        after = await self._get(bell_app, unread="true", limit=10)
+        assert after["unread_count"] == 0
+        assert after["notifications"] == []
+
+    async def test_conversation_list_and_bell_agree_after_mark_read(self, bell_app):
+        bell_app.database.messages.upsert_lxmf_message(
+            _mk_message(
+                msg_hash="m1",
+                peer_hash=PEER_HASH,
+                content="hello",
+                timestamp=1_700_000_000,
+            ),
+        )
+
+        conv_before = await self._get(
+            bell_app,
+            path="/api/v1/lxmf/conversations",
+            filter_unread="true",
+        )
+        assert len(conv_before["conversations"]) == 1
+
+        await self._post(
+            bell_app,
+            f"/api/v1/lxmf/conversations/{PEER_HASH}/mark-as-read",
+        )
+
+        conv_after = await self._get(
+            bell_app,
+            path="/api/v1/lxmf/conversations",
+            filter_unread="true",
+        )
+        bell_after = await self._get(bell_app, unread="true", limit=10)
+        assert conv_after["conversations"] == []
+        assert bell_after["unread_count"] == 0
+        assert bell_after["notifications"] == []
+
+    async def test_read_conversation_with_reaction_latest_stays_clear(self, bell_app):
+        bell_app.database.messages.upsert_lxmf_message(
+            _mk_message(
+                msg_hash="m1",
+                peer_hash=PEER_HASH,
+                content="hello",
+                timestamp=1_700_000_000,
+            ),
+        )
+        bell_app.database.messages.upsert_lxmf_message(
+            _mk_message(
+                msg_hash="r1",
+                peer_hash=PEER_HASH,
+                content="",
+                fields={
+                    "reaction": {"reaction_to": "m1", "reaction_content": "\U0001f44d"},
+                },
+                timestamp=1_700_001_000,
+            ),
+        )
+        before = await self._get(bell_app, unread="true", limit=10)
+        assert before["unread_count"] == 1
+
+        await self._post(
+            bell_app,
+            f"/api/v1/lxmf/conversations/{PEER_HASH}/mark-as-read",
+        )
+
+        after = await self._get(bell_app, unread="true", limit=10)
+        assert after["unread_count"] == 0
+        assert after["notifications"] == []

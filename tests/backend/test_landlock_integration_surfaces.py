@@ -1,0 +1,618 @@
+# SPDX-License-Identifier: 0BSD
+
+"""Landlock regression probes for subprocess and user-local tool surfaces."""
+
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import tempfile
+from pathlib import Path
+
+import pytest
+
+from meshchatnext.src.backend import landlock_sandbox as ll
+from tests.backend.landlock_integration_support import (
+    assert_probe_ok,
+    requires_landlock_integration,
+    run_python_under_landlock,
+    skip_if_landlock_not_applied,
+)
+
+
+def test_collect_user_local_cli_roots_expected_layout(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    local_bin = home / ".local" / "bin"
+    pipx = home / ".local" / "share" / "pipx"
+    local_bin.mkdir(parents=True)
+    pipx.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+
+    roots = set(ll._collect_user_local_cli_roots())
+    assert str(local_bin) in roots
+    assert str(pipx) in roots
+
+
+@requires_landlock_integration
+def test_landlock_denies_write_directly_under_home(tmp_path):
+    """HOME is not an RW root. Only storage, temp, and explicit shares are."""
+    storage = tmp_path / "storage"
+    storage.mkdir()
+    result = run_python_under_landlock(
+        """
+        import os
+        import sys
+
+        path = os.path.join(
+            os.path.expanduser("~"),
+            ".meshchatnext_landlock_write_probe",
+        )
+        try:
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write("x")
+        except PermissionError:
+            print("OK")
+            sys.exit(0)
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        print("WRITE_SHOULD_HAVE_FAILED")
+        sys.exit(3)
+        """,
+        storage=storage,
+    )
+    assert_probe_ok(result)
+
+
+@requires_landlock_integration
+def test_landlock_allows_storage_and_temp_writes(tmp_path):
+    storage = tmp_path / "storage"
+    storage.mkdir()
+    result = run_python_under_landlock(
+        f"""
+        import os
+        import sys
+        import tempfile
+
+        storage = {str(storage)!r}
+        path = os.path.join(storage, "rw-check.txt")
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write("storage")
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            delete=True,
+        ) as tmp:
+            tmp.write("temp")
+        print("OK")
+        sys.exit(0)
+        """,
+        storage=storage,
+    )
+    assert_probe_ok(result)
+
+
+@requires_landlock_integration
+def test_landlock_child_interpreter_spawn():
+    """Same pattern as self_check.check_subprocess_spawn."""
+    storage = tempfile.mkdtemp(prefix="meshchat_ll_spawn_")
+    result = run_python_under_landlock(
+        """
+        import subprocess
+        import sys
+
+        child = subprocess.run(
+            [sys.executable, "-c", "print('meshchatnext-spawn-ok', flush=True)"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+            stdin=subprocess.DEVNULL,
+        )
+        if child.returncode != 0:
+            print("SPAWN_RC", child.returncode, child.stderr)
+            sys.exit(4)
+        if "meshchatnext-spawn-ok" not in (child.stdout or ""):
+            print("SPAWN_BAD_OUT", child.stdout)
+            sys.exit(5)
+        print("OK")
+        sys.exit(0)
+        """,
+        storage=storage,
+    )
+    assert_probe_ok(result)
+
+
+@requires_landlock_integration
+def test_landlock_self_check_subprocess_spawn_helper():
+    storage = tempfile.mkdtemp(prefix="meshchat_ll_selfcheck_")
+    result = run_python_under_landlock(
+        """
+        import sys
+        from meshchatnext.src.backend.self_check import check_subprocess_spawn
+
+        out = check_subprocess_spawn()
+        if out.get("status") != "ok":
+            print("SELF_CHECK_FAIL", out.get("reason", ""))
+            sys.exit(3)
+        print("OK")
+        sys.exit(0)
+        """,
+        storage=storage,
+    )
+    assert_probe_ok(result)
+
+
+@requires_landlock_integration
+def test_landlock_user_local_bin_script_executable(tmp_path):
+    local_bin = os.path.join(os.path.expanduser("~"), ".local", "bin")
+    if not os.path.isdir(local_bin):
+        pytest.skip("~/.local/bin not present")
+    # Pipx-style CLIs only. git-remote-rns imports RNS at startup and is not a
+    # generic --help smoke target for Landlock execute permission.
+    preferred = ()
+    cmd = None
+    cmd_argv = None
+    for name, extra_argv in preferred:
+        path = os.path.join(local_bin, name)
+        if os.path.isfile(path) and os.access(path, os.X_OK):
+            cmd = path
+            cmd_argv = [path, *extra_argv]
+            break
+    if cmd is None or cmd_argv is None:
+        pytest.skip("no known pipx-style CLI in ~/.local/bin")
+    storage = tmp_path / "storage"
+    storage.mkdir()
+    result = run_python_under_landlock(
+        f"""
+        import subprocess
+        import sys
+
+        proc = subprocess.run(
+            {cmd_argv!r},
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        if proc.returncode != 0:
+            print("EXEC_FAIL", proc.stderr)
+            sys.exit(3)
+        print("OK")
+        sys.exit(0)
+        """,
+        storage=storage,
+    )
+    assert_probe_ok(result)
+
+
+@requires_landlock_integration
+def test_landlock_git_version_when_git_on_path(tmp_path):
+    git = shutil.which("git")
+    if not git:
+        pytest.skip("git not on PATH")
+    storage = tmp_path / "storage"
+    storage.mkdir()
+    result = run_python_under_landlock(
+        f"""
+        import subprocess
+        import sys
+
+        proc = subprocess.run(
+            [{git!r}, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+        if proc.returncode != 0:
+            print("GIT_FAIL", proc.stderr)
+            sys.exit(3)
+        if "git version" not in (proc.stdout or ""):
+            print("GIT_BAD_OUT", proc.stdout)
+            sys.exit(4)
+        print("OK")
+        sys.exit(0)
+        """,
+        storage=storage,
+    )
+    assert_probe_ok(result)
+
+
+@requires_landlock_integration
+def test_landlock_rnsh_module_spawn_when_installed(tmp_path):
+    try:
+        import importlib.util
+
+        if importlib.util.find_spec("RNS.Utilities.rnsh.rnsh") is None:
+            pytest.skip("rnsh module not installed")
+    except (ImportError, ValueError, AttributeError):
+        pytest.skip("rnsh module not installed")
+
+    storage = tmp_path / "storage"
+    rns_dir = tmp_path / "rns"
+    rns_dir.mkdir()
+    storage.mkdir()
+    result = run_python_under_landlock(
+        """
+        import subprocess
+        import sys
+
+        proc = subprocess.run(
+            [sys.executable, "-m", "RNS.Utilities.rnsh.rnsh", "--help"],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+        out = (proc.stdout or "") + (proc.stderr or "")
+        if proc.returncode not in (0, 1, 2) and "rnsh" not in out.lower():
+            print("RNSH_HELP_FAIL", proc.returncode, out[-500:])
+            sys.exit(3)
+        print("OK")
+        sys.exit(0)
+        """,
+        storage=storage,
+        reticulum_config_dir=rns_dir,
+    )
+    assert_probe_ok(result)
+
+
+@requires_landlock_integration
+def test_landlock_executable_page_script_spawn(tmp_path):
+    storage = tmp_path / "storage"
+    storage.mkdir()
+    result = run_python_under_landlock(
+        """
+        import os
+        import stat
+        import subprocess
+        import sys
+
+        pages_dir = os.path.join(storage, "pages")
+        os.makedirs(pages_dir, exist_ok=True)
+        script_path = os.path.join(pages_dir, "dyn.mu")
+        with open(script_path, "w", encoding="utf-8") as handle:
+            handle.write("#!/usr/bin/env python3\\nprint('landlock-page-ok', flush=True)\\n")
+        os.chmod(
+            script_path,
+            os.stat(script_path).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH,
+        )
+        env = {}
+        if "PATH" in os.environ:
+            env["PATH"] = os.environ["PATH"]
+        child = subprocess.run(
+            [script_path],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            env=env,
+        )
+        if "landlock-page-ok" not in (child.stdout or ""):
+            print("BAD_OUT", child.stdout, child.stderr, child.returncode)
+            sys.exit(4)
+        print("OK")
+        sys.exit(0)
+        """,
+        storage=storage,
+    )
+    assert_probe_ok(result)
+
+
+@pytest.mark.parametrize(
+    ("path_name", "collector"),
+    [
+        ("local_bin", lambda home: os.path.join(home, ".local", "bin")),
+        ("pipx", lambda home: os.path.join(home, ".local", "share", "pipx")),
+    ],
+)
+def test_read_roots_cover_user_local_paths_when_present(path_name, collector):
+    home = os.path.expanduser("~")
+    target = collector(home)
+    if not os.path.isdir(target):
+        pytest.skip(f"{path_name} not present on this host")
+    roots = ll._collect_read_roots()
+    assert any(
+        target == root or target.startswith(root.rstrip("/") + "/") for root in roots
+    ), f"{target!r} not covered by landlock read roots ({path_name})"
+
+
+@requires_landlock_integration
+def test_landlock_allows_sysfs_tty_and_pyserial_comports(tmp_path):
+    """RNode port listing needs open() of /sys/class/tty, not only stat()."""
+    storage = tmp_path / "storage"
+    storage.mkdir()
+    result = run_python_under_landlock(
+        """
+        import os
+        import sys
+
+        tty_class = "/sys/class/tty"
+        names = os.listdir(tty_class)
+        if not names:
+            print("OK")
+            sys.exit(0)
+        uevent = os.path.join(tty_class, names[0], "uevent")
+        if os.path.exists(uevent):
+            with open(uevent, encoding="utf-8", errors="replace") as handle:
+                handle.read(64)
+        from serial.tools import list_ports
+
+        ports = list_ports.comports()
+        print("OK", len(ports))
+        sys.exit(0)
+        """,
+        storage=storage,
+    )
+    assert_probe_ok(result)
+
+
+@requires_landlock_integration
+def test_landlock_allows_translation_pack_storage(tmp_path):
+    """Translation pack archives and extracted models live under storage."""
+    storage = tmp_path / "storage"
+    storage.mkdir()
+    packs_dir = storage / "translation-packs"
+    packs_dir.mkdir()
+    result = run_python_under_landlock(
+        f"""
+        import os
+        import sys
+
+        packs = {str(packs_dir)!r}
+        archive = os.path.join(packs, "test.zip")
+        extracted = os.path.join(packs, "incoming", "enes")
+        with open(archive, "w", encoding="utf-8") as handle:
+            handle.write("fake-zip")
+        os.makedirs(extracted, exist_ok=True)
+        model = os.path.join(extracted, "model.enes.intgemm8.bin")
+        with open(model, "w", encoding="utf-8") as handle:
+            handle.write("fake-model")
+        with open(archive, encoding="utf-8") as handle:
+            a = handle.read()
+        with open(model, encoding="utf-8") as handle:
+            m = handle.read()
+        if a != "fake-zip" or m != "fake-model":
+            print("BAD_READ", a, m)
+            sys.exit(3)
+        print("OK")
+        sys.exit(0)
+        """,
+        storage=storage,
+    )
+    assert_probe_ok(result)
+
+
+@requires_landlock_integration
+def test_landlock_loads_custom_interface_module_from_configdir(tmp_path):
+    """RNS interfacepath is under reticulum_config_dir, already an RW root."""
+    storage = tmp_path / "storage"
+    storage.mkdir()
+    rns_dir = tmp_path / "rns"
+    iface_dir = rns_dir / "interfaces"
+    iface_dir.mkdir(parents=True)
+    result = run_python_under_landlock(
+        f"""
+        import sys
+
+        path = {str(iface_dir / "ExampleInterface.py")!r}
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write("interface_class = object\\n")
+        with open(path, encoding="utf-8") as handle:
+            code = handle.read()
+        ns = {{}}
+        exec(code, ns)
+        if ns.get("interface_class") is not object:
+            print("BAD_NS", ns)
+            sys.exit(3)
+        print("OK")
+        sys.exit(0)
+        """,
+        storage=storage,
+        reticulum_config_dir=rns_dir,
+    )
+    assert_probe_ok(result)
+
+
+@requires_landlock_integration
+def test_landlock_loads_python_plugin_from_storage(tmp_path):
+    storage = tmp_path / "storage"
+    plugin_dir = storage / "plugins" / "installed" / "demo"
+    plugin_dir.mkdir(parents=True)
+    result = run_python_under_landlock(
+        f"""
+        import importlib.util
+        import sys
+
+        path = {str(plugin_dir / "main.py")!r}
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write("VALUE = 7\\n")
+        spec = importlib.util.spec_from_file_location("meshchatnext_plugin_demo", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        if getattr(module, "VALUE", None) != 7:
+            print("BAD_VALUE", getattr(module, "VALUE", None))
+            sys.exit(3)
+        print("OK")
+        sys.exit(0)
+        """,
+        storage=storage,
+    )
+    assert_probe_ok(result)
+
+
+@requires_landlock_integration
+def test_landlock_extra_read_root_allows_sideband_plugin_dir(tmp_path):
+    storage = tmp_path / "storage"
+    storage.mkdir()
+    sideband = tmp_path / "sideband-plugins"
+    sideband.mkdir()
+    script = sideband / "cmd.py"
+    script.write_text("COMMAND = 'ping'\\n", encoding="utf-8")
+    result = run_python_under_landlock(
+        f"""
+        import sys
+
+        path = {str(script)!r}
+        with open(path, encoding="utf-8") as handle:
+            text = handle.read()
+        if "ping" not in text:
+            print("BAD_TEXT", text)
+            sys.exit(3)
+        print("OK")
+        sys.exit(0)
+        """,
+        storage=storage,
+        extra_read_roots=[str(sideband)],
+    )
+    assert_probe_ok(result)
+
+
+@requires_landlock_integration
+def test_landlock_extra_read_root_allows_custom_ssl_cert_dir(tmp_path):
+    """--ssl-cert/--ssl-key under a mounted dir (e.g. a k8s Secret at /tls).
+
+    run() loads the chain after the sandbox applies, so the cert dir must be
+    granted as a read root or load_cert_chain fails with EACCES. The cert dir
+    lives under home so it is outside the standard read/RW roots (tmp is a
+    root and would mask the regression).
+    """
+    from meshchatnext.src.ssl_self_signed import generate_ssl_certificate
+
+    tls_dir = Path(
+        tempfile.mkdtemp(prefix="meshchat_ll_tls_", dir=os.path.expanduser("~")),
+    )
+    cert = tls_dir / "tls.crt"
+    key = tls_dir / "tls.key"
+    generate_ssl_certificate(str(cert), str(key))
+
+    storage = tmp_path / "storage"
+    storage.mkdir()
+    body = f"""
+    import ssl
+    import sys
+
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.load_cert_chain({str(cert)!r}, {str(key)!r})
+    print("OK")
+    sys.exit(0)
+    """
+    try:
+        result = run_python_under_landlock(
+            body,
+            storage=storage,
+            extra_read_roots=[str(tls_dir)],
+        )
+        assert_probe_ok(result)
+    finally:
+        shutil.rmtree(tls_dir, ignore_errors=True)
+
+
+@requires_landlock_integration
+def test_landlock_denies_ssl_cert_dir_without_extra_read_root(tmp_path):
+    """Regression reference for the reverse: without the extra root, EACCES."""
+    tls_dir = Path(
+        tempfile.mkdtemp(prefix="meshchat_ll_tls_", dir=os.path.expanduser("~")),
+    )
+    probe = tls_dir / "tls.crt"
+    probe.write_text("dummy", encoding="utf-8")
+
+    storage = tmp_path / "storage"
+    storage.mkdir()
+    try:
+        result = run_python_under_landlock(
+            f"""
+            import sys
+
+            try:
+                with open({str(probe)!r}, encoding="utf-8") as handle:
+                    handle.read()
+            except PermissionError:
+                print("OK")
+                sys.exit(0)
+            print("READ_SHOULD_HAVE_FAILED")
+            sys.exit(3)
+            """,
+            storage=storage,
+        )
+        assert_probe_ok(result)
+    finally:
+        shutil.rmtree(tls_dir, ignore_errors=True)
+
+
+def test_extra_read_roots_from_app_uses_command_plugins_path(tmp_path):
+    class _Path:
+        def __init__(self, value):
+            self._value = value
+
+        def get(self):
+            return self._value
+
+    class _Cfg:
+        def __init__(self, value):
+            self.command_plugins_path = _Path(value)
+
+    class _App:
+        def __init__(self, value):
+            self.config = _Cfg(value)
+
+    missing = tmp_path / "nope"
+    assert ll.extra_read_roots_from_app(_App(str(missing))) == []
+    present = tmp_path / "plugins"
+    present.mkdir()
+    assert ll.extra_read_roots_from_app(_App(str(present))) == [
+        os.path.realpath(str(present)),
+    ]
+    assert ll.extra_read_roots_from_app(_App(None)) == []
+    assert ll.extra_read_roots_from_app(_App(os.sep)) == []
+    home = os.path.expanduser("~")
+    if home and home != "~" and os.path.isdir(home):
+        assert ll.extra_read_roots_from_app(_App(home)) == []
+    nested = tmp_path / "homeish" / "plugins"
+    nested.mkdir(parents=True)
+    assert ll.extra_read_roots_from_app(_App(str(nested))) == [
+        os.path.realpath(str(nested)),
+    ]
+
+
+def test_collect_external_filesync_rw_roots_unit(tmp_path):
+    from meshchatnext.src.backend.rns_filesync_handler import (
+        collect_external_filesync_rw_roots,
+    )
+
+    storage = tmp_path / "storage"
+    settings = storage / "identities" / ("cd" * 16) / "filesync" / "settings.json"
+    settings.parent.mkdir(parents=True)
+    shared = tmp_path / "ext_sync"
+    shared.mkdir()
+    settings.write_text(
+        json.dumps({"sync_directory": str(shared)}),
+        encoding="utf-8",
+    )
+    assert collect_external_filesync_rw_roots(str(storage)) == [
+        str(shared.resolve()),
+    ]
+
+
+@requires_landlock_integration
+def test_landlock_extra_rw_root_allows_external_filesync_dir(tmp_path):
+    storage = tmp_path / "storage"
+    storage.mkdir()
+    external = tmp_path / "filesync_external"
+    external.mkdir()
+    probe = external / "ok.txt"
+    result = run_python_under_landlock(
+        f"""
+        path = {str(probe)!r}
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write("ok")
+        print("OK", open(path, encoding="utf-8").read(), flush=True)
+        """,
+        storage=storage,
+        extra_rw_roots=[str(external)],
+    )
+    skip_if_landlock_not_applied(result)
+    assert_probe_ok(result)
+    assert "ok" in (result.stdout or "")

@@ -1,0 +1,110 @@
+packages:
+    - "."
+
+nodeLinker: hoisted
+verifyStoreIntegrity: true
+strictPeerDependencies: false
+
+minimumReleaseAge: 10080
+minimumReleaseAgeStrict: false
+blockExoticSubdeps: true
+# pnpm 12: refuse lockfile entries that downgrade a resolved version
+# below what was previously installed (blocks malicious downgrade attacks).
+trustPolicy: no-downgrade
+
+allowBuilds:
+    "@parcel/watcher": true
+    electron: true
+    electron-winstaller: true
+    esbuild: true
+
+overrides:
+    "@electron/get": "3.1.0"
+    eslint>ajv: "6.14.0"
+    "@eslint/eslintrc>ajv": "6.14.0"
+    app-builder-lib>ajv: ^8.18.0
+    "@commitlint/config-validator>ajv": ">=8.18.0"
+    "@opentelemetry/core": ">=2.8.0"
+    ansi-regex: ">=6.0.1"
+    strip-ansi: "6.0.1"
+    "strip-ansi>ansi-regex": "5.0.1"
+    braces: ">=3.0.3"
+    brace-expansion: ">=5.0.12"
+    browserslist: ">=4.16.5"
+    cross-spawn: ">=7.0.5"
+    debug: ">=4.3.1"
+    "@babel/core": ">=7.29.6 <8"
+    "@babel/traverse": ">=7.29.6 <8"
+    dompurify: ">=3.4.13"
+    form-data: ">=4.0.6"
+    socks: ">=2.8.0"
+    source-map-js: ">=1.2.2"
+    ejs: ">=3.1.10"
+    glob: ">=10.5.0"
+    "@electron/asar>glob": "7.2.3"
+    "minimatch@3.1.4>brace-expansion": "1.1.21"
+    got: ">=11.8.6"
+    hosted-git-info: ">=2.8.9"
+    http-cache-semantics: ">=4.1.1"
+    ini: ">=1.3.6"
+    js-yaml: ">=5.4.1"
+    lodash: ">=4.17.24"
+    micromatch: ">=4.0.8"
+    minimatch: ">=10.2.3"
+    "@electron/asar>minimatch": "3.1.4"
+    minimist: ">=1.2.8"
+    fast-uri: ">=4.2.3"
+    fflate: ">=0.8.3"
+    "@xmldom/xmldom": ">=0.9.12"
+    "ws@>=8": ">=8.21.0"
+    ms: ">=2.0.0"
+    picomatch: ">=4.0.4"
+    plist: "3.1.1"
+    protocol-buffers-schema: ">=3.6.1"
+    semver: ">=7.5.2"
+    serialize-javascript: ">=7.0.3"
+    flatted: ">=3.4.2"
+    tar: ">=7.5.16"
+    tmp: ">=0.2.7"
+    undici: "7.30.1"
+    nanoid: ">=3.3.18 <4.0.0"
+    postcss: ">=8.5.23"
+    ip-address: ">=10.3.1"
+    webpack: ">=5.104.0"
+    y18n: ">=5.0.5"
+    yargs-parser: "21.1.1"
+    "@isaacs/brace-expansion": ">=5.0.9"
+    "@tootallnate/once": ">=3.0.1"
+    "@opentelemetry/instrumentation-knex@<0.65.0": ^0.65.0
+    "@opentelemetry/instrumentation-mongoose@<0.67.0": ^0.67.0
+    "@opentelemetry/instrumentation-mysql2@<0.67.0": ^0.67.0
+    "@opentelemetry/instrumentation-mysql@<0.67.0": ^0.67.0
+    "@opentelemetry/instrumentation-pg@<0.73.0": ^0.73.0
+    "@opentelemetry/instrumentation-tedious@<0.40.0": ^0.40.0
+    brace-expansion@<1.1.21: ^1.1.21
+    brace-expansion@>=4.0.0 <5.0.12: ^5.0.12
+    fast-uri@>=4.0.0 <4.2.3: ^4.2.3
+    http-cache-semantics@<=4.2.0: ^4.3.0
+    ip-address@<=10.7.3: ^10.7.4
+    js-yaml@>=5.0.0 <=5.4.0: ^5.4.1
+    postcss-selector-parser@<7.1.6: ^7.1.6
+    smol-toml@<=1.8.0: ^1.9.0
+    undici@>=7.0.0 <7.30.1: ^7.30.1
+    zod@<4.6.6: ^4.6.6
+
+minimumReleaseAgeExclude:
+    - fast-uri@4.1.3 || 4.1.4 || 4.2.3
+    - lighthouse@13.4.1
+    - "@puppeteer/browsers@3.0.6"
+    - puppeteer-core@25.3.0
+    - electron@44.5.1 || 44.9.1
+    - source-map-js@1.2.2
+
+patchedDependencies:
+    ol@10.10.0: patches/ol@10.10.0.patch
+    ol-mapbox-style@13.4.3: patches/ol-mapbox-style@13.4.3.patch
+
+peerDependencyRules:
+    allowedVersions:
+        vis-data>uuid: ">=14.0.0"
+        vis-network>uuid: ">=14.0.0"

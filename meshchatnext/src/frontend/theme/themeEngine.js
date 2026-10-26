@@ -1,0 +1,1151 @@
+// SPDX-License-Identifier: 0BSD
+
+import { MESHCHAT_THEME_VARIABLES_DARK, MESHCHAT_THEME_VARIABLES_LIGHT } from "./designTokens.js";
+
+export const THEME_PREFERENCE_VALUES = ["light", "dark", "system"];
+export const THEME_PRESET_IDS = [
+    "default",
+    "high_contrast",
+    "oled",
+    "solarized",
+    "nord",
+    "gruvbox",
+    "catppuccin",
+    "dracula",
+    "rose_pine",
+    "forest",
+    "midnight",
+    "warm_paper",
+    "tokyo",
+    "atom_one",
+    "neo_brutalist",
+    "glass",
+    "void",
+    "custom",
+];
+
+/** Settings UI order and i18n keys for color presets. */
+export const THEME_PRESET_CATALOG = [
+    { id: "default", labelKey: "app.theme_preset_default" },
+    { id: "high_contrast", labelKey: "app.theme_preset_high_contrast" },
+    { id: "oled", labelKey: "app.theme_preset_oled" },
+    { id: "solarized", labelKey: "app.theme_preset_solarized" },
+    { id: "nord", labelKey: "app.theme_preset_nord" },
+    { id: "gruvbox", labelKey: "app.theme_preset_gruvbox" },
+    { id: "catppuccin", labelKey: "app.theme_preset_catppuccin" },
+    { id: "dracula", labelKey: "app.theme_preset_dracula" },
+    { id: "rose_pine", labelKey: "app.theme_preset_rose_pine" },
+    { id: "forest", labelKey: "app.theme_preset_forest" },
+    { id: "midnight", labelKey: "app.theme_preset_midnight" },
+    { id: "warm_paper", labelKey: "app.theme_preset_warm_paper" },
+    { id: "tokyo", labelKey: "app.theme_preset_tokyo" },
+    { id: "atom_one", labelKey: "app.theme_preset_atom_one" },
+    { id: "neo_brutalist", labelKey: "app.theme_preset_neo_brutalist" },
+    { id: "glass", labelKey: "app.theme_preset_glass" },
+    { id: "void", labelKey: "app.theme_preset_void" },
+    { id: "custom", labelKey: "app.theme_preset_custom" },
+];
+
+const MESHCHAT_THEME_OVERRIDES_STYLE_ID = "meshchat-theme-overrides";
+const MESHCHAT_THEME_COLOR_META_ID = "meshchat-theme-color-meta";
+
+/**
+ * @param {unknown} value
+ * @returns {"light" | "dark" | "system"}
+ */
+export function normalizeThemePreference(value) {
+    if (value === "dark" || value === "system") {
+        return value;
+    }
+    return "light";
+}
+
+/**
+ * @param {unknown} value
+ * @returns {string}
+ */
+export function normalizeThemePreset(value) {
+    if (value === "hister") {
+        return "neo_brutalist";
+    }
+    if (typeof value === "string" && THEME_PRESET_IDS.includes(value)) {
+        return value;
+    }
+    return "void";
+}
+
+/**
+ * @param {Window | null | undefined} windowObj
+ * @returns {boolean}
+ */
+export function systemPrefersDark(windowObj = typeof window !== "undefined" ? window : null) {
+    if (!windowObj?.matchMedia) {
+        return false;
+    }
+    return windowObj.matchMedia("(prefers-color-scheme: dark)").matches;
+}
+
+/**
+ * @param {unknown} themePreference
+ * @param {boolean} [prefersDark]
+ * @returns {"light" | "dark"}
+ */
+export function resolveEffectiveTheme(themePreference, prefersDark = systemPrefersDark()) {
+    const pref = normalizeThemePreference(themePreference);
+    if (pref === "dark") {
+        return "dark";
+    }
+    if (pref === "system") {
+        return prefersDark ? "dark" : "light";
+    }
+    return "light";
+}
+
+/**
+ * @param {unknown} value
+ * @returns {string | null}
+ */
+export function normalizeOptionalHexColor(value) {
+    if (value == null || value === "") {
+        return null;
+    }
+    if (typeof value === "string" && /^#[0-9A-Fa-f]{6}$/.test(value.trim())) {
+        return value.trim();
+    }
+    return null;
+}
+
+/**
+ * @param {string} hex
+ * @returns {{ r: number, g: number, b: number } | null}
+ */
+export function parseHexColor(hex) {
+    const normalized = normalizeOptionalHexColor(hex);
+    if (!normalized) {
+        return null;
+    }
+    return {
+        r: parseInt(normalized.slice(1, 3), 16),
+        g: parseInt(normalized.slice(3, 5), 16),
+        b: parseInt(normalized.slice(5, 7), 16),
+    };
+}
+
+/**
+ * @param {number} r
+ * @param {number} g
+ * @param {number} b
+ * @returns {string}
+ */
+export function rgbToHex(r, g, b) {
+    const clamp = (n) => Math.max(0, Math.min(255, Math.round(n)));
+    const part = (n) => clamp(n).toString(16).padStart(2, "0");
+    return `#${part(r)}${part(g)}${part(b)}`;
+}
+
+/**
+ * @param {string} hex
+ * @param {number} amount
+ * @returns {string}
+ */
+export function adjustHex(hex, amount) {
+    const rgb = parseHexColor(hex);
+    if (!rgb) {
+        return hex;
+    }
+    return rgbToHex(rgb.r + amount, rgb.g + amount, rgb.b + amount);
+}
+
+/**
+ * Relative luminance check for choosing on-fill text color. Returns true when
+ * the fill is light enough that dark text outperforms white on it.
+ * @param {string} hex
+ * @returns {boolean}
+ */
+export function isLightFill(hex) {
+    const rgb = parseHexColor(hex);
+    if (!rgb) {
+        return false;
+    }
+    const lum = (0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b) / 255;
+    return lum > 0.45;
+}
+
+/**
+ * Text color guaranteed readable on top of the given action fill.
+ * @param {string} fillHex
+ * @param {string} [darkText]
+ * @returns {string}
+ */
+export function actionTextForFill(fillHex, darkText = "#111827") {
+    return isLightFill(fillHex) ? darkText : "#ffffff";
+}
+
+/**
+ * @param {string} a
+ * @param {string} b
+ * @param {number} ratio
+ * @returns {string}
+ */
+export function mixHex(a, b, ratio = 0.5) {
+    const left = parseHexColor(a);
+    const right = parseHexColor(b);
+    if (!left || !right) {
+        return a;
+    }
+    return rgbToHex(
+        left.r + (right.r - left.r) * ratio,
+        left.g + (right.g - left.g) * ratio,
+        left.b + (right.b - left.b) * ratio
+    );
+}
+
+/**
+ * @param {string} accentHex
+ * @param {boolean} isDark
+ * @returns {Record<string, string>}
+ */
+export function accentDerivativeVars(accentHex, isDark) {
+    const hover = isDark ? adjustHex(accentHex, 20) : adjustHex(accentHex, 15);
+    return {
+        "--mc-accent": isDark ? mixHex(accentHex, "#ffffff", 0.25) : accentHex,
+        "--mc-accent-hover": hover,
+        "--mc-action-primary": accentHex,
+        "--mc-action-primary-hover": hover,
+        "--mc-action-primary-text": actionTextForFill(accentHex),
+        "--mc-focus": hover,
+        "--mc-focus-border": hover,
+        "--mc-secondary-chip-hover-border": hover,
+        "--mc-address-action-hover-border": hover,
+    };
+}
+
+/** @type {Record<string, { light: Record<string, string>, dark: Record<string, string> }>} */
+export const THEME_PRESETS = {
+    default: {
+        light: {},
+        dark: {},
+    },
+    high_contrast: {
+        light: {
+            "--mc-bubble-failed": "#b91c1c",
+            "--mc-text": "#000000",
+            "--mc-text-secondary": "#000000",
+            "--mc-text-muted": "#374151",
+            // Hairline dividers stay visible without reading as solid bars;
+            // strong/card borders keep full contrast for real boundaries.
+            "--mc-border": "#4b5563",
+            "--mc-border-card": "#000000",
+            "--mc-border-strong": "#000000",
+        },
+        dark: {
+            "--mc-bubble-failed": "#ff5252",
+            "--mc-text": "#ffffff",
+            "--mc-text-secondary": "#ffffff",
+            "--mc-text-muted": "#d4d4d8",
+            "--mc-border": "#9ca3af",
+            "--mc-border-card": "#ffffff",
+            "--mc-border-strong": "#ffffff",
+        },
+    },
+    oled: {
+        light: {
+            "--mc-canvas": "#ffffff",
+            "--mc-surface": "#fafafa",
+            "--mc-border": "#e4e4e7",
+            "--mc-border-card": "#e4e4e7",
+            "--mc-text": "#09090b",
+            "--mc-text-secondary": "#18181b",
+            "--mc-text-muted": "#52525b",
+        },
+        dark: {
+            "--mc-canvas": "#000000",
+            "--mc-surface": "#000000",
+            "--mc-border-card": "#141414",
+            "--mc-glass-surface": "rgb(0 0 0 / 0.94)",
+            "--mc-surface-muted": "rgb(20 20 20 / 0.9)",
+            "--mc-surface-raised": "rgb(20 20 20 / 0.85)",
+        },
+    },
+    solarized: {
+        light: {
+            "--mc-bubble-failed": "#dc322f",
+            "--mc-canvas": "#fdf6e3",
+            "--mc-surface": "#eee8d5",
+            "--mc-border": "#93a1a1",
+            "--mc-text": "#073642",
+            "--mc-text-secondary": "#073642",
+            "--mc-text-muted": "#586e75",
+            "--mc-accent": "#268bd2",
+            "--mc-accent-hover": "#2aa198",
+            "--mc-action-primary": "#268bd2",
+            "--mc-action-primary-hover": "#2aa198",
+        },
+        dark: {
+            "--mc-bubble-failed": "#dc322f",
+            "--mc-canvas": "#002b36",
+            "--mc-surface": "#073642",
+            "--mc-border": "#586e75",
+            "--mc-text": "#fdf6e3",
+            "--mc-text-secondary": "#eee8d5",
+            "--mc-text-muted": "#93a1a1",
+            "--mc-accent": "#2aa198",
+            "--mc-accent-hover": "#268bd2",
+            "--mc-action-primary": "#268bd2",
+            "--mc-action-primary-hover": "#2aa198",
+        },
+    },
+    nord: {
+        light: {
+            "--mc-bubble-failed": "#bf616a",
+            "--mc-canvas": "#eceff4",
+            "--mc-surface": "#e5e9f0",
+            "--mc-border": "#d8dee9",
+            "--mc-border-card": "#d8dee9",
+            "--mc-text": "#2e3440",
+            "--mc-text-secondary": "#2e3440",
+            "--mc-text-muted": "#4c566a",
+            "--mc-accent": "#5e81ac",
+            "--mc-accent-hover": "#81a1c1",
+            "--mc-action-primary": "#5e81ac",
+            "--mc-action-primary-hover": "#81a1c1",
+        },
+        dark: {
+            "--mc-bubble-failed": "#bf616a",
+            "--mc-canvas": "#2e3440",
+            "--mc-surface": "#3b4252",
+            "--mc-border": "#4c566a",
+            "--mc-border-card": "#434c5e",
+            "--mc-text": "#eceff4",
+            "--mc-text-secondary": "#e5e9f0",
+            "--mc-text-muted": "#d8dee9",
+            "--mc-accent": "#88c0d0",
+            "--mc-accent-hover": "#8fbcbb",
+            "--mc-action-primary": "#81a1c1",
+            "--mc-action-primary-hover": "#88c0d0",
+            "--mc-action-primary-text": "#2e3440",
+        },
+    },
+    gruvbox: {
+        light: {
+            "--mc-bubble-failed": "#cc241d",
+            "--mc-canvas": "#fbf1c7",
+            "--mc-surface": "#ebdbb2",
+            "--mc-border": "#d5c4a1",
+            "--mc-border-card": "#d5c4a1",
+            "--mc-text": "#3c3836",
+            "--mc-text-secondary": "#504945",
+            "--mc-text-muted": "#665c54",
+            "--mc-accent": "#458588",
+            "--mc-accent-hover": "#076678",
+            "--mc-action-primary": "#458588",
+            "--mc-action-primary-hover": "#076678",
+        },
+        dark: {
+            "--mc-bubble-failed": "#fb4934",
+            "--mc-canvas": "#282828",
+            "--mc-surface": "#3c3836",
+            "--mc-border": "#504945",
+            "--mc-border-card": "#504945",
+            "--mc-text": "#ebdbb2",
+            "--mc-text-secondary": "#d5c4a1",
+            "--mc-text-muted": "#bdae93",
+            "--mc-accent": "#83a598",
+            "--mc-accent-hover": "#8ec07c",
+            "--mc-action-primary": "#83a598",
+            "--mc-action-primary-hover": "#8ec07c",
+            "--mc-action-primary-text": "#282828",
+        },
+    },
+    catppuccin: {
+        light: {
+            "--mc-bubble-failed": "#d20f39",
+            "--mc-canvas": "#eff1f5",
+            "--mc-surface": "#e6e9ef",
+            "--mc-border": "#ccd0da",
+            "--mc-border-card": "#ccd0da",
+            "--mc-text": "#4c4f69",
+            "--mc-text-secondary": "#5c5f77",
+            "--mc-text-muted": "#6c6f85",
+            "--mc-accent": "#1e66f5",
+            "--mc-accent-hover": "#0284c7",
+            "--mc-action-primary": "#1e66f5",
+            "--mc-action-primary-hover": "#0284c7",
+        },
+        dark: {
+            "--mc-bubble-failed": "#f38ba8",
+            "--mc-canvas": "#1e1e2e",
+            "--mc-surface": "#313244",
+            "--mc-border": "#45475a",
+            "--mc-border-card": "#45475a",
+            "--mc-text": "#cdd6f4",
+            "--mc-text-secondary": "#bac2de",
+            "--mc-text-muted": "#a6adc8",
+            "--mc-accent": "#89b4fa",
+            "--mc-accent-hover": "#74c7ec",
+            "--mc-action-primary": "#89b4fa",
+            "--mc-action-primary-hover": "#74c7ec",
+            "--mc-action-primary-text": "#1e1e2e",
+        },
+    },
+    dracula: {
+        light: {
+            "--mc-bubble-failed": "#ff5555",
+            "--mc-canvas": "#f8f8f2",
+            "--mc-surface": "#ffffff",
+            "--mc-border": "#e2e2dc",
+            "--mc-border-card": "#e2e2dc",
+            "--mc-text": "#282a36",
+            "--mc-text-secondary": "#44475a",
+            "--mc-text-muted": "#6272a4",
+            "--mc-accent": "#7c6fbf",
+            "--mc-accent-hover": "#6c5ce7",
+            "--mc-action-primary": "#7c6fbf",
+            "--mc-action-primary-hover": "#6c5ce7",
+        },
+        dark: {
+            "--mc-bubble-failed": "#ff5555",
+            "--mc-canvas": "#282a36",
+            "--mc-surface": "#44475a",
+            "--mc-border": "#6272a4",
+            "--mc-border-card": "#44475a",
+            "--mc-text": "#f8f8f2",
+            "--mc-text-secondary": "#f8f8f2",
+            "--mc-text-muted": "#bd93f9",
+            "--mc-accent": "#bd93f9",
+            "--mc-accent-hover": "#ff79c6",
+            "--mc-action-primary": "#bd93f9",
+            "--mc-action-primary-hover": "#ff79c6",
+            "--mc-action-primary-text": "#282a36",
+        },
+    },
+    rose_pine: {
+        light: {
+            "--mc-bubble-failed": "#b4637a",
+            "--mc-canvas": "#faf4ed",
+            "--mc-surface": "#fffaf3",
+            "--mc-border": "#dfdad9",
+            "--mc-border-card": "#dfdad9",
+            "--mc-text": "#575279",
+            "--mc-text-secondary": "#575279",
+            "--mc-text-muted": "#797593",
+            "--mc-accent": "#286983",
+            "--mc-accent-hover": "#56949f",
+            "--mc-action-primary": "#286983",
+            "--mc-action-primary-hover": "#56949f",
+        },
+        dark: {
+            "--mc-bubble-failed": "#eb6f92",
+            "--mc-canvas": "#191724",
+            "--mc-surface": "#1f1d2e",
+            "--mc-border": "#403d52",
+            "--mc-border-card": "#26233a",
+            "--mc-text": "#e0def4",
+            "--mc-text-secondary": "#e0def4",
+            "--mc-text-muted": "#908caa",
+            "--mc-accent": "#c4a7e7",
+            "--mc-accent-hover": "#eb6f92",
+            "--mc-action-primary": "#c4a7e7",
+            "--mc-action-primary-hover": "#eb6f92",
+            "--mc-action-primary-text": "#191724",
+        },
+    },
+    forest: {
+        light: {
+            "--mc-canvas": "#f0f7f4",
+            "--mc-surface": "#ffffff",
+            "--mc-border": "#b7e4c7",
+            "--mc-border-card": "#b7e4c7",
+            "--mc-text": "#1b4332",
+            "--mc-text-secondary": "#2d6a4f",
+            "--mc-text-muted": "#40916c",
+            "--mc-accent": "#2d6a4f",
+            "--mc-accent-hover": "#40916c",
+            "--mc-action-primary": "#2d6a4f",
+            "--mc-action-primary-hover": "#40916c",
+        },
+        dark: {
+            "--mc-canvas": "#081c15",
+            "--mc-surface": "#1b4332",
+            "--mc-border": "#2d6a4f",
+            "--mc-border-card": "#1b4332",
+            "--mc-text": "#d8f3dc",
+            "--mc-text-secondary": "#b7e4c7",
+            "--mc-text-muted": "#95d5b2",
+            "--mc-accent": "#52b788",
+            "--mc-accent-hover": "#74c69d",
+            "--mc-action-primary": "#52b788",
+            "--mc-action-primary-hover": "#74c69d",
+            "--mc-action-primary-text": "#081c15",
+        },
+    },
+    midnight: {
+        light: {
+            "--mc-canvas": "#f0f4ff",
+            "--mc-surface": "#ffffff",
+            "--mc-border": "#c7d2fe",
+            "--mc-border-card": "#c7d2fe",
+            "--mc-text": "#1e293b",
+            "--mc-text-secondary": "#334155",
+            "--mc-text-muted": "#64748b",
+            "--mc-accent": "#3b82f6",
+            "--mc-accent-hover": "#2563eb",
+            "--mc-action-primary": "#3b82f6",
+            "--mc-action-primary-hover": "#2563eb",
+        },
+        dark: {
+            "--mc-canvas": "#0f172a",
+            "--mc-surface": "#1e293b",
+            "--mc-border": "#334155",
+            "--mc-border-card": "#1e293b",
+            "--mc-text": "#e2e8f0",
+            "--mc-text-secondary": "#cbd5e1",
+            "--mc-text-muted": "#94a3b8",
+            "--mc-accent": "#60a5fa",
+            "--mc-accent-hover": "#38bdf8",
+            "--mc-action-primary": "#60a5fa",
+            "--mc-action-primary-hover": "#38bdf8",
+            "--mc-action-primary-text": "#0f172a",
+        },
+    },
+    warm_paper: {
+        light: {
+            "--mc-canvas": "#faf6f0",
+            "--mc-surface": "#fffdf8",
+            "--mc-border": "#e7d8c9",
+            "--mc-border-card": "#e7d8c9",
+            "--mc-text": "#3d3229",
+            "--mc-text-secondary": "#5c4a3d",
+            "--mc-text-muted": "#8a7560",
+            "--mc-accent": "#b45309",
+            "--mc-accent-hover": "#d97706",
+            "--mc-action-primary": "#b45309",
+            "--mc-action-primary-hover": "#d97706",
+        },
+        dark: {
+            "--mc-canvas": "#1c1917",
+            "--mc-surface": "#292524",
+            "--mc-border": "#44403c",
+            "--mc-border-card": "#292524",
+            "--mc-text": "#fafaf9",
+            "--mc-text-secondary": "#e7e5e4",
+            "--mc-text-muted": "#a8a29e",
+            "--mc-accent": "#f59e0b",
+            "--mc-accent-hover": "#fbbf24",
+            "--mc-action-primary": "#f59e0b",
+            "--mc-action-primary-hover": "#fbbf24",
+            "--mc-action-primary-text": "#1c1917",
+        },
+    },
+    tokyo: {
+        light: {
+            "--mc-bubble-failed": "#f52a65",
+            "--mc-canvas": "#e6e7ea",
+            "--mc-surface": "#d5d6db",
+            "--mc-border": "#c0c2ca",
+            "--mc-border-card": "#c0c2ca",
+            "--mc-text": "#343b59",
+            "--mc-text-secondary": "#343b59",
+            "--mc-text-muted": "#565f89",
+            "--mc-accent": "#295cdb",
+            "--mc-accent-hover": "#188092",
+            "--mc-action-primary": "#295cdb",
+            "--mc-action-primary-hover": "#188092",
+        },
+        dark: {
+            "--mc-bubble-failed": "#f7768e",
+            "--mc-canvas": "#1a1b26",
+            "--mc-surface": "#24283b",
+            "--mc-border": "#414868",
+            "--mc-border-card": "#24283b",
+            "--mc-text": "#c0caf5",
+            "--mc-text-secondary": "#a9b1d6",
+            "--mc-text-muted": "#737aa2",
+            "--mc-accent": "#7aa2f7",
+            "--mc-accent-hover": "#bb9af7",
+            "--mc-action-primary": "#7aa2f7",
+            "--mc-action-primary-hover": "#bb9af7",
+            "--mc-action-primary-text": "#1a1b26",
+        },
+    },
+    atom_one: {
+        light: {
+            "--mc-bubble-failed": "#e45649",
+            "--mc-canvas": "#fafafa",
+            "--mc-surface": "#ffffff",
+            "--mc-border": "#e5e5e6",
+            "--mc-border-card": "#e5e5e6",
+            "--mc-text": "#383a42",
+            "--mc-text-secondary": "#383a42",
+            "--mc-text-muted": "#696c77",
+            "--mc-accent": "#4078f2",
+            "--mc-accent-hover": "#0184bc",
+            "--mc-action-primary": "#4078f2",
+            "--mc-action-primary-hover": "#0184bc",
+        },
+        dark: {
+            "--mc-bubble-failed": "#e06c75",
+            "--mc-canvas": "#282c34",
+            "--mc-surface": "#21252b",
+            "--mc-border": "#3e4451",
+            "--mc-border-card": "#21252b",
+            "--mc-text": "#abb2bf",
+            "--mc-text-secondary": "#abb2bf",
+            "--mc-text-muted": "#828997",
+            "--mc-accent": "#61afef",
+            "--mc-accent-hover": "#56b6c2",
+            "--mc-action-primary": "#61afef",
+            "--mc-action-primary-hover": "#56b6c2",
+            "--mc-action-primary-text": "#282c34",
+        },
+    },
+    neo_brutalist: {
+        // Cream canvas, white cards, hard black everything. The squaring and
+        // offset shadows live in style.css on html[data-theme-preset].
+        light: {
+            "--mc-bubble-failed": "#ff6b6b",
+            "--mc-canvas": "#f0ece3",
+            "--mc-surface": "#ffffff",
+            "--mc-surface-muted": "#f5f2e8",
+            "--mc-surface-raised": "#ffffff",
+            "--mc-border": "#000000",
+            "--mc-border-card": "#000000",
+            "--mc-border-strong": "#000000",
+            "--mc-text": "#000000",
+            "--mc-text-secondary": "#000000",
+            "--mc-text-muted": "#3d3d3d",
+            "--mc-accent": "#a388ee",
+            "--mc-accent-hover": "#88aaee",
+            "--mc-action-primary": "#a388ee",
+            "--mc-action-primary-hover": "#88aaee",
+            "--mc-action-primary-text": "#000000",
+            "--mc-secondary-chip-hover-border": "#a388ee",
+            "--mc-address-action-hover-border": "#a388ee",
+        },
+        dark: {
+            "--mc-bubble-failed": "#ff6b6b",
+            "--mc-canvas": "#1b1b1e",
+            "--mc-surface": "#26262b",
+            "--mc-surface-muted": "#2e2e34",
+            "--mc-surface-raised": "#33333a",
+            "--mc-border": "#ffffff",
+            "--mc-border-card": "#ffffff",
+            "--mc-border-strong": "#ffffff",
+            "--mc-text": "#ffffff",
+            "--mc-text-secondary": "#ffffff",
+            "--mc-text-muted": "#c4c4cd",
+            "--mc-accent": "#a388ee",
+            "--mc-accent-hover": "#88aaee",
+            "--mc-action-primary": "#a388ee",
+            "--mc-action-primary-hover": "#88aaee",
+            "--mc-action-primary-text": "#000000",
+            "--mc-secondary-chip-hover-border": "#a388ee",
+            "--mc-address-action-hover-border": "#a388ee",
+        },
+    },
+    glass: {
+        // Frosted-glass material: translucent surfaces over a tinted canvas
+        // so backdrop blur reads. Borders stay luminous hairlines. The CSS
+        // hooks on html[data-theme-preset="glass"] apply the blur itself.
+        light: {
+            "--mc-bubble-failed": "#dc2626",
+            "--mc-canvas": "#dfe6f5",
+            "--mc-surface": "rgb(255 255 255 / 0.55)",
+            "--mc-surface-solid": "#ffffff",
+            "--mc-surface-muted": "rgb(244 247 255 / 0.45)",
+            "--mc-surface-raised": "rgb(255 255 255 / 0.7)",
+            "--mc-glass-surface": "rgb(255 255 255 / 0.55)",
+            "--mc-border": "rgb(255 255 255 / 0.6)",
+            "--mc-border-card": "rgb(255 255 255 / 0.65)",
+            "--mc-border-strong": "rgb(100 116 139 / 0.4)",
+            "--mc-context-hover": "rgb(255 255 255 / 0.5)",
+            "--mc-text": "#0f172a",
+            "--mc-text-secondary": "#1e293b",
+            "--mc-text-muted": "#475569",
+            "--mc-accent": "#2563eb",
+            "--mc-accent-hover": "#4f46e5",
+            "--mc-action-primary": "#2563eb",
+            "--mc-action-primary-hover": "#4f46e5",
+        },
+        dark: {
+            // Neutral dark glass: white-tinted translucent panes on a
+            // near-black canvas, hairline white borders. Avoid tinted
+            // surfaces or the whole UI reads blue.
+            "--mc-bubble-failed": "#f87171",
+            "--mc-canvas": "#030304",
+            "--mc-surface": "rgb(255 255 255 / 0.07)",
+            "--mc-surface-solid": "#1c1c20",
+            "--mc-surface-muted": "rgb(255 255 255 / 0.04)",
+            "--mc-surface-raised": "rgb(255 255 255 / 0.11)",
+            "--mc-glass-surface": "rgb(18 18 20 / 0.55)",
+            "--mc-border": "rgb(255 255 255 / 0.12)",
+            "--mc-border-card": "rgb(255 255 255 / 0.15)",
+            "--mc-border-strong": "rgb(255 255 255 / 0.22)",
+            "--mc-context-hover": "rgb(255 255 255 / 0.09)",
+            "--mc-text": "#ffffff",
+            "--mc-text-secondary": "#ececee",
+            "--mc-text-muted": "#a3a3ab",
+            "--mc-accent": "#ffffff",
+            "--mc-accent-hover": "#e4e4e7",
+            "--mc-action-primary": "#f4f4f5",
+            "--mc-action-primary-hover": "#e4e4e7",
+            "--mc-action-primary-text": "#000000",
+        },
+    },
+    void: {
+        // Pure monochrome - near-black canvas, white accent, muted gray text.
+        // Mirrors quad4.io branding.
+        light: {
+            "--mc-canvas": "#fafafa",
+            "--mc-surface": "#ffffff",
+            "--mc-surface-muted": "rgb(244 244 245 / 0.9)",
+            "--mc-surface-raised": "rgb(255 255 255 / 0.85)",
+            "--mc-border": "#e4e4e7",
+            "--mc-border-card": "#d4d4d8",
+            "--mc-border-strong": "#a1a1aa",
+            "--mc-text": "#0a0a0b",
+            "--mc-text-secondary": "#16161a",
+            "--mc-text-muted": "#52525b",
+            "--mc-accent": "#0a0a0b",
+            "--mc-accent-hover": "#2a2a31",
+            "--mc-action-primary": "#0a0a0b",
+            "--mc-action-primary-hover": "#2a2a31",
+            "--mc-action-primary-text": "#fafafa",
+            "--mc-context-hover": "#f4f4f5",
+            "--mc-context-divider": "#e4e4e7",
+            "--mc-context-section": "#71717a",
+            "--mc-context-item-text": "#16161a",
+            "--mc-input-option-bg": "#ffffff",
+            "--mc-input-option-text": "#0a0a0b",
+            "--mc-file-input-bg": "#f4f4f5",
+            "--mc-file-input-text": "#0a0a0b",
+            "--mc-file-input-border": "#d4d4d8",
+            "--mc-address-action-bg": "#ffffff",
+            "--mc-address-action-text": "#16161a",
+            "--mc-address-action-border": "#d4d4d8",
+            "--mc-address-action-hover-bg": "#f4f4f5",
+            "--mc-address-action-hover-text": "#0a0a0b",
+            "--mc-address-action-hover-border": "#0a0a0b",
+            "--mc-secondary-chip-bg": "#f4f4f5",
+            "--mc-secondary-chip-text": "#16161a",
+            "--mc-secondary-chip-border": "#d4d4d8",
+            "--mc-secondary-chip-hover-bg": "#e4e4e7",
+            "--mc-secondary-chip-hover-text": "#0a0a0b",
+            "--mc-secondary-chip-hover-border": "#a1a1aa",
+            "--mc-bubble-outbound": "#16161a",
+            "--mc-bubble-failed": "#dc2626",
+            "--mc-bubble-failed-text": "#ffffff",
+            "--mc-bubble-waiting": "#e4e4e7",
+            "--mc-bubble-waiting-text": "#16161a",
+            "--mc-glass-surface": "rgb(250 250 250 / 0.95)",
+            "--mc-scrollbar-thumb": "#a1a1aa",
+            "--mc-scrollbar-track": "#f4f4f5",
+            "--mc-scrollbar-thumb-border": "#fafafa",
+            "--mc-focus": "#71717a",
+            "--mc-focus-border": "#71717a",
+            "--mc-danger-chip-bg": "#fef2f2",
+            "--mc-danger-chip-text": "#991b1b",
+            "--mc-danger-chip-border": "#fecaca",
+            "--mc-danger-chip-hover-bg": "#fee2e2",
+            "--mc-danger-chip-hover-text": "#7f1d1d",
+        },
+        dark: {
+            "--mc-canvas": "#0a0a0b",
+            "--mc-surface": "#101013",
+            "--mc-surface-muted": "rgb(16 16 19 / 0.85)",
+            "--mc-surface-raised": "rgb(22 22 26 / 0.9)",
+            "--mc-border": "#1f1f24",
+            "--mc-border-card": "#1f1f24",
+            "--mc-border-strong": "#3a3a42",
+            "--mc-text": "#f4f4f5",
+            "--mc-text-secondary": "#e9e9ec",
+            "--mc-text-muted": "#a1a1aa",
+            "--mc-accent": "#fafafa",
+            "--mc-accent-hover": "#d4d4d8",
+            "--mc-action-primary": "#fafafa",
+            "--mc-action-primary-hover": "#d4d4d8",
+            "--mc-action-primary-text": "#0a0a0b",
+            "--mc-context-hover": "#16161a",
+            "--mc-context-divider": "#1f1f24",
+            "--mc-context-section": "#52525b",
+            "--mc-context-item-text": "#e9e9ec",
+            "--mc-input-option-bg": "#101013",
+            "--mc-input-option-text": "#f4f4f5",
+            "--mc-file-input-bg": "#16161a",
+            "--mc-file-input-text": "#f4f4f5",
+            "--mc-file-input-border": "#1f1f24",
+            "--mc-address-action-bg": "#16161a",
+            "--mc-address-action-text": "#e9e9ec",
+            "--mc-address-action-border": "#2a2a31",
+            "--mc-address-action-hover-bg": "#1f1f24",
+            "--mc-address-action-hover-text": "#fafafa",
+            "--mc-address-action-hover-border": "#3a3a42",
+            "--mc-secondary-chip-bg": "#16161a",
+            "--mc-secondary-chip-text": "#e9e9ec",
+            "--mc-secondary-chip-border": "#1f1f24",
+            "--mc-secondary-chip-hover-bg": "#1f1f24",
+            "--mc-secondary-chip-hover-text": "#fafafa",
+            "--mc-secondary-chip-hover-border": "#3a3a42",
+            "--mc-bubble-outbound": "#fafafa",
+            "--mc-bubble-failed": "#f87171",
+            "--mc-bubble-failed-text": "#0a0a0b",
+            "--mc-bubble-waiting": "#1f1f24",
+            "--mc-bubble-waiting-text": "#e9e9ec",
+            "--mc-glass-surface": "rgb(16 16 19 / 0.85)",
+            "--mc-scrollbar-thumb": "#3a3a42",
+            "--mc-scrollbar-track": "#101013",
+            "--mc-scrollbar-thumb-border": "#0a0a0b",
+            "--mc-focus": "#a1a1aa",
+            "--mc-focus-border": "#a1a1aa",
+            "--mc-danger-chip-bg": "#450a0a",
+            "--mc-danger-chip-text": "#fca5a5",
+            "--mc-danger-chip-border": "#7f1d1d",
+            "--mc-danger-chip-hover-bg": "#5f0f0f",
+            "--mc-danger-chip-hover-text": "#fecaca",
+        },
+    },
+    custom: {
+        light: {},
+        dark: {},
+    },
+};
+
+/**
+ * @param {string | null | undefined} canvasHex
+ * @param {string | null | undefined} surfaceHex
+ * @param {"light" | "dark"} effectiveMode
+ * @returns {Record<string, string>}
+ */
+export function customThemeColorOverrides(canvasHex, surfaceHex, effectiveMode) {
+    const canvas = normalizeOptionalHexColor(canvasHex);
+    const surfaceInput = normalizeOptionalHexColor(surfaceHex);
+    if (!canvas && !surfaceInput) {
+        return {};
+    }
+
+    const isDark = effectiveMode === "dark";
+    const overrides = {};
+    if (canvas) {
+        overrides["--mc-canvas"] = canvas;
+    }
+    if (surfaceInput) {
+        overrides["--mc-surface"] = surfaceInput;
+    }
+
+    let resolvedSurface = overrides["--mc-surface"];
+    if (canvas && surfaceInput && canvas.toLowerCase() === surfaceInput.toLowerCase()) {
+        resolvedSurface = isDark ? adjustHex(surfaceInput, 14) : adjustHex(surfaceInput, -12);
+        overrides["--mc-surface"] = resolvedSurface;
+    }
+
+    const canvasForMix =
+        overrides["--mc-canvas"] ||
+        (isDark ? MESHCHAT_THEME_VARIABLES_DARK["--mc-canvas"] : MESHCHAT_THEME_VARIABLES_LIGHT["--mc-canvas"]);
+    const surfaceForMix =
+        resolvedSurface ||
+        overrides["--mc-surface"] ||
+        (isDark ? MESHCHAT_THEME_VARIABLES_DARK["--mc-surface"] : MESHCHAT_THEME_VARIABLES_LIGHT["--mc-surface"]);
+    const border = mixHex(canvasForMix, surfaceForMix, isDark ? 0.55 : 0.45);
+    overrides["--mc-border"] = border;
+    overrides["--mc-border-card"] = border;
+    overrides["--mc-surface-muted"] = mixHex(canvasForMix, surfaceForMix, isDark ? 0.4 : 0.6);
+
+    return overrides;
+}
+
+/**
+ * @param {Record<string, unknown> | null | undefined} config
+ * @param {"light" | "dark"} effectiveMode
+ * @returns {Record<string, string>}
+ */
+export function buildThemeVariableOverrides(config, effectiveMode) {
+    const presetId = normalizeThemePreset(config?.theme_preset);
+    const preset = THEME_PRESETS[presetId] || THEME_PRESETS.default;
+    const overrides = { ...(preset[effectiveMode] || {}) };
+
+    if (presetId === "custom") {
+        Object.assign(
+            overrides,
+            customThemeColorOverrides(config?.custom_canvas_color, config?.custom_surface_color, effectiveMode)
+        );
+    }
+
+    const accent = normalizeOptionalHexColor(config?.accent_color);
+    if (accent) {
+        Object.assign(overrides, accentDerivativeVars(accent, effectiveMode === "dark"));
+    }
+
+    const base = effectiveMode === "dark" ? MESHCHAT_THEME_VARIABLES_DARK : MESHCHAT_THEME_VARIABLES_LIGHT;
+    const resolved = { ...base, ...overrides };
+
+    // Message bubble colors follow the theme unless the preset sets its own.
+    if (overrides["--mc-bubble-outbound"] == null) {
+        overrides["--mc-bubble-outbound"] = overrides["--mc-accent"] ?? resolved["--mc-info"];
+    }
+    if (overrides["--mc-bubble-failed"] == null) {
+        overrides["--mc-bubble-failed"] = resolved["--mc-error"];
+    }
+    if (overrides["--mc-bubble-failed-text"] == null) {
+        overrides["--mc-bubble-failed-text"] = actionTextForFill(overrides["--mc-bubble-failed"]);
+    }
+    if (overrides["--mc-bubble-waiting"] == null) {
+        const isDark = effectiveMode === "dark";
+        overrides["--mc-bubble-waiting"] = mixHex(resolved["--mc-canvas"], resolved["--mc-text"], isDark ? 0.25 : 0.08);
+    }
+    if (overrides["--mc-bubble-waiting-text"] == null) {
+        overrides["--mc-bubble-waiting-text"] = resolved["--mc-text"];
+    }
+
+    return overrides;
+}
+
+/**
+ * @param {Record<string, unknown> | null | undefined} config
+ * @param {"light" | "dark"} effectiveMode
+ * @returns {string}
+ */
+export function resolveCanvasColor(config, effectiveMode) {
+    const overrides = buildThemeVariableOverrides(config, effectiveMode);
+    if (overrides["--mc-canvas"]) {
+        return overrides["--mc-canvas"];
+    }
+    const base = effectiveMode === "dark" ? MESHCHAT_THEME_VARIABLES_DARK : MESHCHAT_THEME_VARIABLES_LIGHT;
+    return base["--mc-canvas"];
+}
+
+/**
+ * @param {string} hex
+ * @returns {{ r: number, g: number, b: number, a: number }}
+ */
+export function hexToRgba(hex, alpha = 1) {
+    const rgb = parseHexColor(hex);
+    if (!rgb) {
+        return { r: 248, g: 250, b: 252, a: alpha };
+    }
+    return { r: rgb.r, g: rgb.g, b: rgb.b, a: alpha };
+}
+
+/**
+ * @param {Record<string, unknown> | null | undefined} config
+ * @param {"light" | "dark"} effectiveMode
+ * @returns {string}
+ */
+export function shellCanvasBackgroundStyle(config, effectiveMode) {
+    const raw = Number(config?.ui_transparency ?? 0);
+    const t = Number.isFinite(raw) ? Math.max(0, Math.min(100, raw)) : 0;
+    const factor = t / 100;
+    const alpha = 1 - factor * 0.42;
+    const canvas = resolveCanvasColor(config, effectiveMode);
+    const { r, g, b } = hexToRgba(canvas, alpha);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+function serializeVarsBlock(vars) {
+    return Object.entries(vars)
+        .map(([k, v]) => `  ${k}: ${v};`)
+        .join("\n");
+}
+
+/**
+ * @param {Document | null | undefined} doc
+ * @param {Record<string, string>} overrides
+ * @param {"light" | "dark"} effectiveMode
+ */
+export function injectThemeOverrideVariables(
+    doc = typeof document !== "undefined" ? document : null,
+    overrides = {},
+    effectiveMode = "light"
+) {
+    if (!doc?.head) {
+        return;
+    }
+    doc.getElementById(MESHCHAT_THEME_OVERRIDES_STYLE_ID)?.remove();
+    if (!overrides || Object.keys(overrides).length === 0) {
+        return;
+    }
+    const selector = effectiveMode === "dark" ? ".dark" : ":root";
+    const el = doc.createElement("style");
+    el.id = MESHCHAT_THEME_OVERRIDES_STYLE_ID;
+    el.textContent = [`${selector} {`, serializeVarsBlock(overrides), "}"].join("\n");
+    doc.head.appendChild(el);
+}
+
+/**
+ * @param {Document | null | undefined} doc
+ * @param {string} canvasHex
+ */
+export function updateThemeColorMeta(doc = typeof document !== "undefined" ? document : null, canvasHex) {
+    if (!doc?.head) {
+        return;
+    }
+    let meta = doc.getElementById(MESHCHAT_THEME_COLOR_META_ID);
+    if (!meta) {
+        meta = doc.querySelector('meta[name="theme-color"]');
+    }
+    if (!meta) {
+        meta = doc.createElement("meta");
+        meta.setAttribute("name", "theme-color");
+        meta.id = MESHCHAT_THEME_COLOR_META_ID;
+        doc.head.appendChild(meta);
+    } else if (!meta.id) {
+        meta.id = MESHCHAT_THEME_COLOR_META_ID;
+    }
+    meta.setAttribute("content", canvasHex);
+}
+
+/**
+ * @param {Record<string, unknown> | null | undefined} config
+ * @param {object | null | undefined} options
+ */
+/**
+ * Read-only theme snapshot for plugin workers and host APIs.
+ * @param {Record<string, unknown> | null | undefined} config
+ * @param {{ prefersDark?: boolean }} [options]
+ */
+export function getThemeSnapshot(config, options = {}) {
+    const prefersDark = options.prefersDark !== undefined ? Boolean(options.prefersDark) : systemPrefersDark();
+    return {
+        preference: normalizeThemePreference(config?.theme),
+        effective: resolveEffectiveTheme(config?.theme, prefersDark),
+        preset: normalizeThemePreset(config?.theme_preset),
+        accent: typeof config?.accent_color === "string" ? config.accent_color : "",
+    };
+}
+
+export function applyAppearanceTheme(config, options = {}) {
+    const doc = options.doc ?? (typeof document !== "undefined" ? document : null);
+    const windowObj = options.windowObj ?? (typeof window !== "undefined" ? window : null);
+    const prefersDark = options.prefersDark !== undefined ? Boolean(options.prefersDark) : systemPrefersDark(windowObj);
+    const effectiveMode = resolveEffectiveTheme(config?.theme, prefersDark);
+    const preference = normalizeThemePreference(config?.theme);
+    const overrides = buildThemeVariableOverrides(config, effectiveMode);
+
+    if (doc?.documentElement) {
+        doc.documentElement.classList.toggle("dark", effectiveMode === "dark");
+        doc.documentElement.dataset.bootTheme = effectiveMode;
+        doc.documentElement.dataset.themePreference = preference;
+        doc.documentElement.dataset.themePreset = normalizeThemePreset(config?.theme_preset);
+        doc.documentElement.style.colorScheme = effectiveMode;
+    }
+
+    injectThemeOverrideVariables(doc, overrides, effectiveMode);
+
+    const canvasHex = resolveCanvasColor(config, effectiveMode);
+    updateThemeColorMeta(doc, canvasHex);
+
+    const persistMode = preference === "system" ? "system" : effectiveMode;
+    try {
+        windowObj?.localStorage?.setItem("meshchatnext_ui_theme", persistMode);
+    } catch {
+        // ignore quota / private mode
+    }
+
+    try {
+        const electronBridge = windowObj?.electron;
+        if (electronBridge && typeof electronBridge.setUiTheme === "function") {
+            void electronBridge.setUiTheme(persistMode);
+        }
+    } catch {
+        // ignore missing bridge
+    }
+
+    try {
+        const bridge = windowObj?.MeshchatNextAndroid;
+        if (bridge && typeof bridge.setUiTheme === "function") {
+            bridge.setUiTheme(effectiveMode);
+        }
+    } catch {
+        // ignore missing bridge
+    }
+
+    const snapshot = {
+        preference,
+        effective: effectiveMode,
+        preset: normalizeThemePreset(config?.theme_preset),
+        accent: typeof config?.accent_color === "string" ? config.accent_color : "",
+    };
+    try {
+        windowObj?.dispatchEvent?.(
+            new CustomEvent("meshchatnext-theme-changed", {
+                detail: snapshot,
+            })
+        );
+    } catch {
+        // ignore missing window
+    }
+
+    return {
+        effectiveMode,
+        preference,
+        canvasHex,
+        overrides,
+        snapshot,
+    };
+}
+
+/**
+ * @param {Window | null | undefined} windowObj
+ * @param {(prefersDark: boolean) => void} callback
+ * @returns {(() => void) | null}
+ */
+export function subscribeSystemTheme(windowObj = typeof window !== "undefined" ? window : null, callback) {
+    if (!windowObj?.matchMedia) {
+        return null;
+    }
+    const media = windowObj.matchMedia("(prefers-color-scheme: dark)");
+    const handler = (event) => {
+        callback(Boolean(event.matches));
+    };
+    if (typeof media.addEventListener === "function") {
+        media.addEventListener("change", handler);
+        return () => media.removeEventListener("change", handler);
+    }
+    media.addListener(handler);
+    return () => media.removeListener(handler);
+}
+
+/**
+ * @param {Record<string, unknown>} config
+ */
+export function sanitizeThemeConfigFields(config) {
+    if (!config) {
+        return;
+    }
+    config.theme = normalizeThemePreference(config.theme);
+    config.theme_preset = normalizeThemePreset(config.theme_preset);
+    config.accent_color = normalizeOptionalHexColor(config.accent_color);
+    config.custom_canvas_color = normalizeOptionalHexColor(config.custom_canvas_color);
+    config.custom_surface_color = normalizeOptionalHexColor(config.custom_surface_color);
+}
+
+/**
+ * @param {Record<string, unknown> | null | undefined} config
+ * @param {"light" | "dark"} effectiveMode
+ * @returns {{ canvas: string, surface: string, accent: string, border: string }}
+ */
+export function getThemePresetPreviewColors(config, effectiveMode = "light") {
+    const overrides = buildThemeVariableOverrides(config, effectiveMode);
+    const base = effectiveMode === "dark" ? MESHCHAT_THEME_VARIABLES_DARK : MESHCHAT_THEME_VARIABLES_LIGHT;
+    return {
+        canvas: overrides["--mc-canvas"] || base["--mc-canvas"],
+        surface: overrides["--mc-surface"] || base["--mc-surface"],
+        accent:
+            overrides["--mc-action-primary"] ||
+            overrides["--mc-accent"] ||
+            base["--mc-action-primary"] ||
+            base["--mc-accent"],
+        border: overrides["--mc-border-strong"] || overrides["--mc-border"] || base["--mc-border"],
+    };
+}
+
+/**
+ * @param {{ canvas: string, surface: string, accent: string, border: string }} colors
+ * @returns {string}
+ */
+export function themePresetPreviewStripStyle(colors) {
+    const canvas = colors.canvas || "#f8fafc";
+    const surface = colors.surface || "#ffffff";
+    const accent = colors.accent || "#2563eb";
+    const border = colors.border || "#e5e7eb";
+    return `linear-gradient(to right, ${canvas} 0% 25%, ${surface} 25% 50%, ${accent} 50% 75%, ${border} 75% 100%)`;
+}

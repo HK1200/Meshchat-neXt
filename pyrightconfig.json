@@ -1,0 +1,26 @@
+{
+    "include": ["meshchatnext/src/backend", "meshchatnext/src/env_utils.py"],
+    "exclude": [
+        "**/vendor/**",
+        "**/build/**",
+        "**/node_modules/**",
+        "**/__pycache__/**",
+        "meshchatnext/src/backend/data/interfaces/**"
+    ],
+    "extraPaths": [".", "vendor/lxmfy", "vendor/rns_filesync"],
+    "stubPath": "typings",
+    "pythonVersion": "3.11",
+    "typeCheckingMode": "basic",
+    "reportMissingTypeArgument": "none",
+    "reportUnknownArgumentType": "none",
+    "reportUnknownMemberType": "none",
+    "reportUnknownVariableType": "none",
+    "reportUnknownParameterType": "none",
+    "reportMissingTypeStubs": "none",
+    "reportPrivateImportUsage": "none",
+    "reportOptionalMemberAccess": "none",
+    "reportOptionalSubscript": "none",
+    "reportOptionalOperand": "none",
+    "reportOptionalContextManager": "none",
+    "reportAttributeAccessIssue": "none"
+}

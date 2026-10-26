@@ -1,0 +1,331 @@
+/* SPDX-License-Identifier: 0BSD */
+/*
+ * Shared Nomad / Micron page chrome for the shell and NomadCrashTab iframe.
+ * The crash-tab document does not inherit shell CSS. Keep typography here.
+ */
+
+.nodeContainer input.Mu-armed {
+    outline: 1px dashed #fbbf24;
+    outline-offset: 1px;
+}
+
+.nodeContainer textarea {
+    font: inherit;
+    color: inherit;
+    background: inherit;
+}
+
+.nodeContainer textarea.Mu-multiline {
+    outline: 1px solid #34d399;
+    outline-offset: 1px;
+    resize: vertical;
+}
+
+/* NomadNet #!bg= / #!fg= page shell: fill the crash-tab viewport. */
+.nodeContainer .mu-page {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    min-height: 100%;
+    box-sizing: border-box;
+    overflow-x: hidden;
+}
+
+.nodeContainer {
+    font-family:
+        "Roboto Mono Nerd Font", ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    line-height: 1.25;
+    letter-spacing: normal;
+    font-variant-ligatures: none;
+    font-feature-settings: normal;
+    max-width: 100%;
+    overflow-x: hidden;
+}
+
+.nodeContainer .nomad-page-rich {
+    line-height: 1.25;
+}
+
+.nodeContainer pre {
+    font-family: inherit;
+    line-height: normal;
+    letter-spacing: inherit;
+    font-variant-ligatures: inherit;
+    font-feature-settings: inherit;
+}
+
+/*
+ * Mobile-only: keep Micron ASCII on one line visually. Clip rather than
+ * introducing a page-level horizontal scrollbar.
+ */
+@media (max-width: 640px) {
+    .nodeContainer .Mu-mws {
+        flex-wrap: nowrap;
+    }
+
+    .nodeContainer pre,
+    .nodeContainer .mu-parse-fallback,
+    .nodeContainer .mu-line-parse-fallback {
+        white-space: pre;
+        max-width: 100%;
+        overflow-x: hidden;
+    }
+}
+
+pre.text-wrap > div {
+    display: flex;
+    max-width: 100%;
+    min-width: 0;
+    white-space: pre;
+}
+
+pre.text-wrap > div > :last-child {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.nodeContainer pre a:hover {
+    text-decoration: underline;
+}
+
+/*
+ * NomadNet / Micron: no default link underline. Only _underline_ in markup
+ * (inline text-decoration from the parser) should underline. Kill the browser
+ * default <a> underline.
+ */
+.nodeContainer a.Mu-nl,
+.nodeContainer a.nomadnet-link,
+.nodeContainer a.lxmf-link,
+.nodeContainer a[data-action="openNode"] {
+    cursor: pointer;
+    text-decoration: none;
+    color: inherit;
+}
+
+/* Opt-in Micron image placeholders. The actual <img> is hidden until the user
+ * or policy allows loading, and the placeholder falls back to a text link when
+ * the client cannot render images. */
+.nodeContainer .mu-image {
+    display: block;
+    width: fit-content;
+    border: 1px dashed currentColor;
+    padding: 0.5rem;
+    margin: 0.25rem 0;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+/* Once loaded the image is shown bare, like an upstream ImageWidget: no
+ * placeholder chrome, and the box shrink-wraps the image. */
+.nodeContainer .mu-image.mu-image-loaded {
+    border: none;
+    padding: 0;
+}
+
+.nodeContainer .mu-image.mu-image-loaded .mu-image-meta,
+.nodeContainer .mu-image.mu-image-loaded .mu-image-actions {
+    display: none;
+}
+
+.nodeContainer .mu-image.mu-image-loaded .mu-image-output {
+    margin-top: 0;
+}
+
+.nodeContainer .mu-image .mu-image-meta {
+    display: block;
+    margin-bottom: 0.25rem;
+}
+
+.nodeContainer .mu-image .mu-image-alt {
+    font-weight: bold;
+}
+
+.nodeContainer .mu-image .mu-image-size {
+    color: #9ca3af;
+    margin-left: 0.5rem;
+}
+
+.nodeContainer .mu-image .mu-image-action {
+    cursor: pointer;
+    text-decoration: underline;
+    color: #60a5fa;
+    margin-right: 0.75rem;
+}
+
+.nodeContainer .mu-image .mu-image-output {
+    display: block;
+    max-width: 100%;
+    margin-top: 0.25rem;
+}
+
+.nodeContainer .mu-image .mu-image-output[hidden] {
+    display: none;
+}
+
+.nodeContainer input[type="text"],
+.nodeContainer input[type="password"] {
+    font-family: inherit;
+    font-size: 1em;
+    line-height: 1;
+    padding: 0;
+    margin: 0;
+    border: 0;
+    border-bottom: 1px solid currentColor;
+    border-radius: 0;
+    background: transparent;
+    color: inherit;
+    caret-color: currentColor;
+    -webkit-text-fill-color: currentColor;
+    box-sizing: content-box;
+}
+
+.nodeContainer.bg-black input[type="text"],
+.nodeContainer.bg-black input[type="password"],
+.nodeContainer.bg-black textarea,
+.nodeContainer.nomad-shell-dark input[type="text"],
+.nodeContainer.nomad-shell-dark input[type="password"],
+.nodeContainer.nomad-shell-dark textarea {
+    color: #f3f4f6;
+    caret-color: currentColor;
+    -webkit-text-fill-color: currentColor;
+}
+
+.nodeContainer.pad {
+    padding: 0.75rem;
+    box-sizing: border-box;
+}
+
+.nodeContainer.source {
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.nodeContainer.plaintext-page {
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.nomad-markdown-host {
+    font-family: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+}
+
+.nomad-markdown-host .nomad-markdown {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+.nomad-markdown-host .nomad-markdown table {
+    white-space: normal;
+}
+
+.nomad-markdown-host .nomad-markdown h1 {
+    font-size: 1.875rem;
+    line-height: 2.25rem;
+    font-weight: 700;
+    margin: 0.75rem 0 0.5rem;
+}
+
+.nomad-markdown-host .nomad-markdown h2 {
+    font-size: 1.5rem;
+    line-height: 2rem;
+    font-weight: 700;
+    margin: 0.65rem 0 0.45rem;
+}
+
+.nomad-markdown-host .nomad-markdown h3 {
+    font-size: 1.25rem;
+    line-height: 1.75rem;
+    font-weight: 600;
+    margin: 0.55rem 0 0.4rem;
+}
+
+.nomad-markdown-host .nomad-markdown h4 {
+    font-size: 1.125rem;
+    line-height: 1.75rem;
+    font-weight: 600;
+    margin: 0.5rem 0 0.35rem;
+}
+
+.nomad-markdown-host .nomad-markdown h5,
+.nomad-markdown-host .nomad-markdown h6 {
+    font-size: 1rem;
+    line-height: 1.5rem;
+    font-weight: 600;
+    margin: 0.45rem 0 0.3rem;
+}
+
+.nomad-markdown-host .nomad-markdown p {
+    margin: 0.4rem 0;
+}
+
+.nomad-markdown-host .nomad-markdown ul,
+.nomad-markdown-host .nomad-markdown ol {
+    margin: 0.4rem 0;
+    padding-left: 1.5rem;
+}
+
+.nomad-markdown-host .nomad-markdown blockquote {
+    margin: 0.5rem 0;
+    padding-left: 0.75rem;
+    border-left: 3px solid rgb(107 114 128);
+}
+
+.nomad-markdown-host .nomad-markdown pre {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    overflow-x: hidden;
+    max-width: 100%;
+}
+
+.nomad-markdown-host .nomad-markdown a.nomadnet-link,
+.nomad-markdown-host .nomad-markdown a[href^="#"]:not([href="#"]) {
+    cursor: pointer;
+    pointer-events: auto;
+    color: #60a5fa;
+    text-decoration: underline;
+}
+
+.nomad-page-html-host {
+    font-family: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+    min-height: 100%;
+    width: 100%;
+}
+
+.nomad-page-html-host .nomad-html-root {
+    color: rgb(229 231 235);
+    min-height: 100%;
+    box-sizing: border-box;
+}
+
+.nomad-page-html-host .nomad-html-root a.nomadnet-link,
+.nomad-page-html-host .nomad-html-root a[href^="#"]:not([href="#"]) {
+    cursor: pointer;
+    pointer-events: auto;
+    color: #60a5fa;
+    text-decoration: underline;
+}
+
+/*
+ * Accessibility: the document root is the reading surface, not a widget.
+ * Suppress the default focus ring on the root so a tab stop does not draw a
+ * full-page outline, while keeping visible focus for actual controls.
+ */
+.nodeContainer[role="document"]:focus,
+.nodeContainer[role="document"]:focus-visible {
+    outline: none;
+}
+
+.nodeContainer a.Mu-nl:focus-visible,
+.nodeContainer a.nomadnet-link:focus-visible,
+.nodeContainer a.lxmf-link:focus-visible,
+.nodeContainer a[data-action="openNode"]:focus-visible,
+.nodeContainer .mu-image-action:focus-visible,
+.nodeContainer input[type="text"]:focus,
+.nodeContainer input[type="password"]:focus,
+.nodeContainer textarea:focus {
+    outline: 1px solid currentColor;
+    outline-offset: 1px;
+}

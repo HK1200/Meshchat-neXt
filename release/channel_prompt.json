@@ -1,0 +1,11 @@
+{
+    "bug_report_lxmf": "",
+    "bug_report_url": "https://github.com/hk1200/Meshchat-neXt/issues",
+    "bug_report_steps": [
+        "Use Meshchat neXt Relay: bug reports for problems, feature requests & suggestions for ideas, and general for community chat.",
+        "Include version, build channel, platform, and steps to reproduce.",
+        "Share diagnostics only after reviewing them for private information."
+    ],
+    "focus_areas": [],
+    "notes": "Signed Meshchat neXt releases with verified in-app updates."
+}

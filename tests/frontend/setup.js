@@ -1,0 +1,146 @@
+import "fake-indexeddb/auto";
+import { readFileSync, existsSync } from "fs";
+import { join } from "path";
+import { beforeEach, afterEach, vi } from "vitest";
+import { createPinia, setActivePinia } from "pinia";
+import { config } from "@vue/test-utils";
+import createDOMPurify from "dompurify";
+import { injectMeshchatThemeVariables } from "../../meshchatnext/src/frontend/theme/designTokens.js";
+import { useAuthStore } from "../../meshchatnext/src/frontend/js/stores/authStore";
+import { clearConversationPrefetchCache } from "../../meshchatnext/src/frontend/js/conversationPrefetch.js";
+
+// CI and slower local machines can need more than the default 1000ms for async
+// conditions. Extend vitest's waitFor default while still allowing overrides.
+const _originalWaitFor = vi.waitFor;
+vi.waitFor = (callback, options) => _originalWaitFor(callback, { timeout: 5000, ...options });
+
+injectMeshchatThemeVariables(typeof document !== "undefined" ? document : undefined);
+
+// Domain state lives in Pinia stores. Activate a fresh one per test.
+// Installing the plugin covers inject(piniaSymbol) and this.$pinia for
+// mapStores, while setActivePinia keeps bare use*Store() calls in sync.
+setActivePinia(createPinia());
+beforeEach(() => {
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    config.global.plugins = [pinia];
+});
+
+// App shell tests assume auth is settled with auth disabled unless a case overrides.
+beforeEach(() => {
+    const authStore = useAuthStore();
+    authStore.authSessionResolved = true;
+    authStore.authEnabled = false;
+    authStore.authenticated = false;
+    authStore.demoMode = false;
+    clearConversationPrefetchCache();
+});
+
+// Some tests enable fake timers and may throw before calling useRealTimers().
+// Reset them after each test so later suites that rely on real timers do not hang.
+afterEach(() => {
+    vi.useRealTimers();
+});
+
+if (typeof Blob !== "undefined" && typeof Blob.prototype.stream !== "function") {
+    Blob.prototype.stream = function streamPolyfill() {
+        const blob = this;
+        return new ReadableStream({
+            async start(controller) {
+                const u8 = new Uint8Array(await blob.arrayBuffer());
+                controller.enqueue(u8);
+                controller.close();
+            },
+        });
+    };
+}
+
+const EMOJI_PICKER_DATA_PATH = join(
+    process.cwd(),
+    "node_modules",
+    "emoji-picker-element-data",
+    "en",
+    "emojibase",
+    "data.json"
+);
+
+const origFetch = globalThis.fetch;
+globalThis.fetch = async (input, init) => {
+    const reqUrl = typeof input === "string" ? input : (input?.url ?? "");
+    if (
+        reqUrl.includes("emoji-picker-element-data") &&
+        reqUrl.includes("data.json") &&
+        existsSync(EMOJI_PICKER_DATA_PATH)
+    ) {
+        const data = readFileSync(EMOJI_PICKER_DATA_PATH, "utf8");
+        return new Response(data, { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    if (typeof origFetch === "function") {
+        return origFetch(input, init);
+    }
+    throw new Error(`fetch not available for ${reqUrl}`);
+};
+
+// Initialize DOMPurify with the jsdom window
+let DOMPurify;
+try {
+    if (typeof createDOMPurify === "function") {
+        DOMPurify = createDOMPurify(window);
+    } else if (createDOMPurify && typeof createDOMPurify.default === "function") {
+        DOMPurify = createDOMPurify.default(window);
+    } else {
+        DOMPurify = createDOMPurify;
+    }
+} catch (e) {
+    console.error("Failed to initialize DOMPurify:", e);
+}
+
+// Global mocks
+if (DOMPurify) {
+    global.DOMPurify = DOMPurify;
+    window.DOMPurify = DOMPurify;
+}
+global.performance.mark = vi.fn();
+global.performance.measure = vi.fn();
+global.performance.getEntriesByName = vi.fn(() => []);
+global.performance.clearMarks = vi.fn();
+global.performance.clearMeasures = vi.fn();
+
+// Mock window.api by default to prevent TypeErrors
+global.api = {
+    get: vi.fn().mockResolvedValue({ data: {} }),
+    post: vi.fn().mockResolvedValue({ data: {} }),
+    put: vi.fn().mockResolvedValue({ data: {} }),
+    patch: vi.fn().mockResolvedValue({ data: {} }),
+    delete: vi.fn().mockResolvedValue({ data: {} }),
+    isCancel: vi.fn().mockReturnValue(false),
+};
+window.api = global.api;
+
+config.global.stubs = {
+    MaterialDesignIcon: { template: '<div class="mdi-stub"><slot /></div>' },
+    RouterLink: { template: "<a><slot /></a>" },
+    RouterView: { template: "<div><slot /></div>" },
+    AppModal: {
+        template: '<div class="app-modal-stub"><slot /><slot name="header" /><slot name="actions" /></div>',
+        props: ["modelValue"],
+    },
+    ClickPopover: {
+        template: '<div class="click-popover-stub"><slot name="activator" /><slot /></div>',
+    },
+};
+
+// Mock window.matchMedia
+Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    value: vi.fn().mockImplementation((query) => ({
+        matches: false,
+        media: query,
+        onchange: null,
+        addListener: vi.fn(), // deprecated
+        removeListener: vi.fn(), // deprecated
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+    })),
+});

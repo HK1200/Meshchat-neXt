@@ -1,0 +1,1124 @@
+# SPDX-License-Identifier: 0BSD
+
+import html
+import io
+import json
+import logging
+import os
+import posixpath
+import re
+import shutil
+import stat
+import zipfile
+
+from meshchatnext.src.backend.markdown_renderer import MarkdownRenderer
+from meshchatnext.src.path_utils import (
+    PathJailError,
+    is_safe_archive_member,
+    normalize_relpath,
+    resolve_under_root,
+)
+
+logger = logging.getLogger(__name__)
+
+BUNDLED_DOCS_SUBDIR = os.path.join("reticulum-docs-bundled", "current")
+MANIFEST_FILENAME = "manifest.json"
+DOC_FILE_SUFFIXES = (".md", ".txt")
+# Binary doc assets (screenshots, diagrams, clips) live beside the markdown
+# and must be synced so /meshchatnext-docs/ can serve them in-app.
+DOC_ASSET_SUFFIXES = (
+    ".webp",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".svg",
+    ".webm",
+    ".mp4",
+    ".ico",
+)
+
+
+MAX_DOCS_ZIP_BYTES = 256 * 1024 * 1024
+MAX_DOCS_ZIP_FILES = 50_000
+
+
+def _docs_zip_member_is_safe(name: str) -> bool:
+    return is_safe_archive_member(name)
+
+
+class DocsManager:
+    """Manages the bundled Reticulum manual and any user-uploaded overrides.
+
+    The Reticulum manual is shipped with the application under
+    <public_dir>/reticulum-docs-bundled/current. Users may upload a
+    replacement archive which is extracted into <storage_dir>/reticulum-docs
+    and takes precedence at request time. Removing the user upload restores the
+    bundled copy. There is no runtime download path. Fresh manuals are staged at
+    build time with scripts/build/fetch_reticulum_manual.py (pnpm run build-docs).
+    """
+
+    def __init__(
+        self,
+        config,
+        public_dir,
+        project_root=None,
+        storage_dir=None,
+        *,
+        populate: bool = True,
+    ):
+        self.config = config
+        self.public_dir = public_dir
+        self.project_root = project_root
+        self.storage_dir = storage_dir
+
+        if self.storage_dir:
+            self.docs_base_dir = os.path.join(self.storage_dir, "reticulum-docs")
+            self.meshchatnext_docs_dir = os.path.join(
+                self.storage_dir, "meshchatnext-docs"
+            )
+        else:
+            self.docs_base_dir = os.path.join(self.public_dir, "reticulum-docs")
+            self.meshchatnext_docs_dir = os.path.join(
+                self.public_dir, "meshchatnext-docs"
+            )
+
+        self.docs_dir = os.path.join(self.docs_base_dir, "current")
+        self.versions_dir = os.path.join(self.docs_base_dir, "versions")
+        self.bundled_docs_dir = os.path.join(self.public_dir, BUNDLED_DOCS_SUBDIR)
+
+        self.upload_status = "idle"
+        self.upload_progress = 0
+        self.last_error = None
+
+        try:
+            for d in [
+                self.docs_base_dir,
+                self.versions_dir,
+                self.docs_dir,
+                self.meshchatnext_docs_dir,
+            ]:
+                if not os.path.exists(d):
+                    os.makedirs(d)
+
+            if not os.path.exists(self.docs_dir) or not os.listdir(self.docs_dir):
+                self._update_current_link()
+
+        except OSError as e:
+            logger.exception("Failed to create documentation directories: %s", e)
+            self.last_error = str(e)
+
+        if populate:
+            self.ensure_meshchatnext_docs_populated()
+
+    def ensure_meshchatnext_docs_populated(self):
+        """Copy/render Meshchat neXt docs into storage when writable."""
+        if os.path.exists(self.meshchatnext_docs_dir) and os.access(
+            self.meshchatnext_docs_dir,
+            os.W_OK,
+        ):
+            self.populate_meshchatnext_docs()
+
+    def _update_current_link(self, version=None):
+        """Update the 'current' directory to point at the chosen or latest version."""
+        if not os.path.exists(self.versions_dir):
+            return
+
+        versions = self.get_available_versions()
+        if not versions:
+            return
+
+        target_version = version or versions[-1]
+
+        version_path = os.path.join(self.versions_dir, target_version)
+        if not os.path.exists(version_path):
+            return
+
+        if os.path.exists(self.docs_dir):
+            if os.path.islink(self.docs_dir):
+                os.unlink(self.docs_dir)
+            else:
+                self._remove_tree_force_writable(self.docs_dir)
+
+        try:
+            rel_target = os.path.relpath(version_path, os.path.dirname(self.docs_dir))
+            os.symlink(rel_target, self.docs_dir)
+        except (OSError, AttributeError):
+            shutil.copytree(version_path, self.docs_dir)
+
+    def get_available_versions(self):
+        if not os.path.exists(self.versions_dir):
+            return []
+        # os.path.isdir follows links: a symlinked entry would let
+        # switch_version point 'current' outside the docs root, and
+        # delete_version could tree-remove a target elsewhere.
+        versions = [
+            d
+            for d in os.listdir(self.versions_dir)
+            if os.path.isdir(os.path.join(self.versions_dir, d))
+            and not os.path.islink(os.path.join(self.versions_dir, d))
+        ]
+        return sorted(versions)
+
+    def get_current_version(self):
+        if not os.path.exists(self.docs_dir):
+            return None
+
+        if os.path.islink(self.docs_dir):
+            return os.path.basename(os.readlink(self.docs_dir))
+
+        version_file = os.path.join(self.docs_dir, ".version")
+        if os.path.exists(version_file):
+            try:
+                with open(version_file) as f:
+                    return f.read().strip()
+            except OSError:
+                pass
+
+        if self.has_user_docs():
+            return "unknown"
+        if self.has_bundled_docs():
+            return "bundled"
+        return None
+
+    def switch_version(self, version):
+        if version in self.get_available_versions():
+            self._update_current_link(version)
+            return True
+        return False
+
+    def delete_version(self, version):
+        """Delete a specific user-uploaded version of the documentation."""
+        if version not in self.get_available_versions():
+            return False
+
+        version_path = os.path.join(self.versions_dir, version)
+        if not os.path.exists(version_path):
+            return False
+
+        try:
+            current_version = self.get_current_version()
+            if current_version == version:
+                if os.path.exists(self.docs_dir):
+                    if os.path.islink(self.docs_dir):
+                        os.unlink(self.docs_dir)
+                    else:
+                        self._remove_tree_force_writable(self.docs_dir)
+
+            self._remove_tree_force_writable(version_path)
+
+            if current_version == version:
+                self._update_current_link()
+
+            return True
+        except Exception as e:
+            logger.exception("Failed to delete docs version %s: %s", version, e)
+            return False
+
+    def clear_reticulum_docs(self):
+        """Remove every user-uploaded Reticulum doc. Bundled copy is untouched."""
+        try:
+            if os.path.exists(self.docs_base_dir):
+                for item in os.listdir(self.docs_base_dir):
+                    item_path = os.path.join(self.docs_base_dir, item)
+                    if os.path.islink(item_path):
+                        os.unlink(item_path)
+                    elif os.path.isdir(item_path):
+                        self._remove_tree_force_writable(item_path)
+                    else:
+                        os.remove(item_path)
+
+                for d in [self.versions_dir, self.docs_dir]:
+                    if not os.path.exists(d):
+                        os.makedirs(d)
+                return True
+        except Exception as e:
+            logger.exception("Failed to clear Reticulum docs: %s", e)
+            return False
+
+    def populate_meshchatnext_docs(self):
+        """Copy the project's bundled Meshchat neXt markdown docs into storage."""
+        search_paths = []
+        if self.project_root:
+            search_paths.append(os.path.join(self.project_root, "docs"))
+
+        search_paths.append(os.path.join(self.public_dir, "meshchatnext-docs"))
+
+        this_dir = os.path.dirname(os.path.abspath(__file__))
+        search_paths.append(
+            os.path.abspath(os.path.join(this_dir, "..", "..", "..", "docs")),
+        )
+
+        candidate_dirs = [p for p in search_paths if os.path.isdir(p)]
+        if not candidate_dirs:
+            logger.warning("Meshchat neXt docs source directory not found.")
+            return
+
+        src_docs = candidate_dirs[0]
+        for base in candidate_dirs:
+            if os.path.isfile(os.path.join(base, MANIFEST_FILENAME)):
+                src_docs = base
+                break
+
+        if not os.access(self.meshchatnext_docs_dir, os.W_OK):
+            logger.warning("Meshchat neXt docs directory is not writable.")
+            return
+
+        try:
+            self._sync_docs_tree(src_docs, self.meshchatnext_docs_dir)
+            self._render_meshchatnext_html_exports()
+        except Exception as e:
+            logger.exception("Failed to populate Meshchat neXt docs: %s", e)
+
+    def _sync_docs_tree(self, src_docs, dest_dir):
+        """Copy manifest, markdown, and text files from src_docs into dest_dir.
+
+        Skips a top-level agents/ directory if one is present under docs/.
+        Agent guidance lives at repo-root .agents/ and is not in-app docs.
+        """
+        for root, dirnames, files in os.walk(src_docs):
+            rel_root = os.path.relpath(root, src_docs)
+            if rel_root == ".":
+                dirnames[:] = [d for d in dirnames if d != "agents"]
+            elif rel_root == "agents" or rel_root.startswith(f"agents{os.sep}"):
+                dirnames[:] = []
+                continue
+            target_root = (
+                dest_dir if rel_root == "." else os.path.join(dest_dir, rel_root)
+            )
+            os.makedirs(target_root, exist_ok=True)
+            for file in files:
+                suffix = os.path.splitext(file)[1].lower()
+                if (
+                    file == MANIFEST_FILENAME
+                    or file.endswith(DOC_FILE_SUFFIXES)
+                    or suffix in DOC_ASSET_SUFFIXES
+                    or (
+                        rel_root == "guide"
+                        and file
+                        in ("index.html", "content.js", "guide.js", "guide.css")
+                    )
+                ):
+                    src_path = os.path.join(root, file)
+                    dest_path = os.path.join(target_root, file)
+                    if os.path.abspath(src_path) != os.path.abspath(dest_path):
+                        shutil.copy2(src_path, dest_path)
+
+    def _render_meshchatnext_html_exports(self):
+        index_links: list[str] = []
+        manifest, _manifest_error = self._read_manifest()
+        if manifest and manifest.get("sections"):
+            for section in sorted(
+                manifest["sections"],
+                key=lambda s: s.get("order", 0),
+            ):
+                section_title = self._localized_text(
+                    section.get("title"),
+                    manifest.get("default_language", "en"),
+                )
+                if section_title:
+                    index_links.append(
+                        f'<li class="mb-1 text-sm font-bold text-zinc-300 mt-4">{html.escape(section_title)}</li>',
+                    )
+                for item in section.get("items", []):
+                    rel_path = item.get("path")
+                    if not rel_path or not rel_path.endswith(DOC_FILE_SUFFIXES):
+                        continue
+                    title = self._localized_text(
+                        item.get("title"),
+                        item.get("lang") or manifest.get("default_language", "en"),
+                    )
+                    html_file = self._doc_html_name(rel_path)
+                    if title:
+                        index_links.append(
+                            f'<li class="mb-2 ml-3"><a href="{html.escape(html_file)}" class="text-blue-400 hover:text-blue-300">{html.escape(title)}</a></li>',
+                        )
+                    self._write_doc_html_export(rel_path)
+        else:
+            for doc in self._collect_flat_docs():
+                rel_path = doc["path"]
+                html_file = self._write_doc_html_export(rel_path)
+                if html_file:
+                    label = os.path.basename(rel_path)
+                    index_links.append(
+                        f'<li class="mb-2"><a href="{html.escape(html_file)}" class="text-blue-400 hover:text-blue-300">{html.escape(label)}</a></li>',
+                    )
+
+        if index_links:
+            index_html = self._standalone_html_shell(
+                "Meshchat neXt Documentation",
+                f'<h1 class="text-2xl font-bold mb-4">Meshchat neXt Documentation</h1><ul class="list-none pl-0">{"".join(index_links)}</ul>',
+            )
+            with open(
+                os.path.join(self.meshchatnext_docs_dir, "index.html"),
+                "w",
+                encoding="utf-8",
+            ) as f:
+                f.write(index_html)
+
+    def _write_doc_html_export(self, rel_path):
+        full_path = os.path.join(self.meshchatnext_docs_dir, rel_path)
+        if not os.path.isfile(full_path):
+            return None
+        try:
+            with open(full_path, encoding="utf-8") as f:
+                content = f.read()
+            if rel_path.endswith(".md"):
+                body = MarkdownRenderer.render(content)
+            else:
+                body = f"<pre class='whitespace-pre-wrap font-mono'>{html.escape(content)}</pre>"
+            title = os.path.basename(rel_path)
+            html_file = self._doc_html_name(rel_path)
+            html_path = os.path.join(self.meshchatnext_docs_dir, html_file)
+            os.makedirs(os.path.dirname(html_path), exist_ok=True)
+            doc_html = self._standalone_html_shell(
+                title,
+                f'<div class="max-w-none break-words">{body}</div>',
+            )
+            with open(html_path, "w", encoding="utf-8") as f:
+                f.write(doc_html)
+            return html_file
+        except Exception as e:
+            logger.exception("Failed to render %s to HTML: %s", rel_path, e)
+            return None
+
+    @staticmethod
+    def _doc_html_name(rel_path):
+        base, _ext = os.path.splitext(rel_path)
+        return f"{base}.html"
+
+    @staticmethod
+    def _standalone_html_shell(title, body_html):
+        safe_title = html.escape(title)
+        # Static layout CSS only. The former browser Tailwind runtime JS is not
+        # shipped; utility class names below are expanded here.
+        return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <title>{safe_title}</title>
+    <style>
+        :root {{
+            color-scheme: light dark;
+            --mc-bg: #f8fafc;
+            --mc-fg: #111827;
+            --mc-muted: #6b7280;
+            --mc-code-bg: #1e293b;
+            --mc-code-fg: #f1f5f9;
+            --mc-border: #e5e7eb;
+            --mc-link: #2563eb;
+            --mc-link-hover: #1d4ed8;
+        }}
+        @media (prefers-color-scheme: dark) {{
+            :root {{
+                --mc-bg: #09090b;
+                --mc-fg: #f4f4f5;
+                --mc-muted: #a1a1aa;
+                --mc-code-bg: #18181b;
+                --mc-code-fg: #f4f4f5;
+                --mc-border: #3f3f46;
+                --mc-link: #60a5fa;
+                --mc-link-hover: #93c5fd;
+            }}
+        }}
+        * {{ box-sizing: border-box; }}
+        body {{
+            margin: 0 auto;
+            padding: 1rem;
+            max-width: 56rem;
+            background-color: var(--mc-bg);
+            color: var(--mc-fg);
+            font-family: ui-sans-serif, system-ui, sans-serif;
+            line-height: 1.5;
+        }}
+        @media (min-width: 768px) {{
+            body {{ padding: 2rem; }}
+        }}
+        a {{ color: var(--mc-link); text-decoration: none; }}
+        a:hover {{ color: var(--mc-link-hover); text-decoration: underline; }}
+        h1 {{
+            margin: 0 0 1rem;
+            font-size: 1.5rem;
+            font-weight: 700;
+            line-height: 2rem;
+        }}
+        ul {{ list-style: none; margin: 0; padding: 0; }}
+        li.mb-1 {{
+            margin: 1rem 0 0.25rem;
+            font-size: 0.875rem;
+            font-weight: 700;
+            color: var(--mc-muted);
+        }}
+        li.mb-2 {{ margin: 0 0 0.5rem; }}
+        li.ml-3 {{ margin-left: 0.75rem; }}
+        .max-w-none {{ max-width: none; }}
+        .break-words {{ overflow-wrap: anywhere; word-break: break-word; }}
+        .whitespace-pre-wrap {{ white-space: pre-wrap; }}
+        .font-mono {{
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        }}
+        pre, code {{
+            background-color: var(--mc-code-bg);
+            color: var(--mc-code-fg);
+        }}
+        pre {{
+            margin: 0.75rem 0;
+            padding: 0.75rem 1rem;
+            overflow-x: auto;
+            border-radius: 0.5rem;
+        }}
+        code {{
+            padding: 0.1rem 0.35rem;
+            border-radius: 0.25rem;
+            font-size: 0.9em;
+        }}
+        pre code {{
+            padding: 0;
+            background: transparent;
+        }}
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+            margin: 0.75rem 0;
+        }}
+        th, td {{
+            border: 1px solid var(--mc-border);
+            padding: 0.4rem 0.6rem;
+            text-align: left;
+            vertical-align: top;
+        }}
+        img {{ max-width: 100%; height: auto; }}
+    </style>
+</head>
+<body>
+    {body_html}
+</body>
+</html>"""
+
+    def get_status(self):
+        return {
+            "status": self.upload_status,
+            "progress": self.upload_progress,
+            "last_error": self.last_error,
+            "has_docs": self.has_docs(),
+            "has_bundled_docs": self.has_bundled_docs(),
+            "has_user_docs": self.has_user_docs(),
+            "has_meshchatnext_docs": self.has_meshchatnext_docs(),
+            "versions": self.get_available_versions(),
+            "current_version": self.get_current_version(),
+        }
+
+    def has_meshchatnext_docs(self):
+        if not os.path.exists(self.meshchatnext_docs_dir):
+            return False
+        return len(self._collect_flat_docs()) > 0
+
+    def get_meshchatnext_docs_list(self, lang="en"):
+        manifest, manifest_error = self._read_manifest()
+        flat_docs = self._collect_flat_docs()
+        languages = manifest.get("languages") if manifest else None
+        if not languages:
+            languages = [{"code": "en", "name": "English"}]
+        default_language = manifest.get("default_language", "en") if manifest else "en"
+        sections = self._build_sections(manifest, lang, default_language, flat_docs)
+        result = {
+            "docs": flat_docs,
+            "sections": sections,
+            "languages": languages,
+            "default_language": default_language,
+        }
+        if manifest_error:
+            result["manifest_error"] = manifest_error
+        return result
+
+    @staticmethod
+    def _is_safe_doc_path(path):
+        if not path or not isinstance(path, str):
+            return False
+        normalized = path.replace("\\", "/").strip()
+        if not normalized:
+            return False
+        try:
+            normalize_relpath(normalized, strict=True)
+        except PathJailError:
+            return False
+        return True
+
+    def _read_manifest(self):
+        manifest_path = os.path.join(self.meshchatnext_docs_dir, MANIFEST_FILENAME)
+        if not os.path.isfile(manifest_path):
+            return None, None
+        try:
+            with open(manifest_path, encoding="utf-8") as f:
+                data = json.load(f)
+            if not isinstance(data, dict):
+                return None, "Manifest must be a JSON object"
+            return data, None
+        except json.JSONDecodeError as e:
+            logger.exception("Failed to parse docs manifest: %s", e)
+            return None, "Invalid manifest JSON"
+        except OSError as e:
+            logger.exception("Failed to read docs manifest: %s", e)
+            return None, "Could not read manifest file"
+
+    def _collect_flat_docs(self):
+        docs = []
+        if not os.path.exists(self.meshchatnext_docs_dir):
+            return docs
+
+        for root, _, files in os.walk(self.meshchatnext_docs_dir):
+            for file in files:
+                if not file.endswith(DOC_FILE_SUFFIXES):
+                    continue
+                file_path = os.path.join(root, file)
+                try:
+                    rel_path = os.path.relpath(file_path, self.meshchatnext_docs_dir)
+                except ValueError:
+                    continue
+                rel_path = rel_path.replace("\\", "/")
+                docs.append(
+                    {
+                        "name": file,
+                        "path": rel_path,
+                        "type": "markdown" if file.endswith(".md") else "text",
+                    },
+                )
+        return sorted(docs, key=lambda x: x["path"])
+
+    def _build_sections(self, manifest, lang, default_language, flat_docs):
+        if not manifest or not manifest.get("sections"):
+            return [
+                {
+                    "id": "all",
+                    "title": self._localized_text(
+                        {"en": "Guides"},
+                        lang,
+                        default_language,
+                    ),
+                    "items": [
+                        {
+                            "path": doc["path"],
+                            "title": self._title_from_path(doc["path"]),
+                            "lang": default_language,
+                            "type": doc["type"],
+                        }
+                        for doc in flat_docs
+                    ],
+                },
+            ]
+
+        available = {doc["path"] for doc in flat_docs}
+        sections = []
+        for section in sorted(
+            manifest.get("sections", []),
+            key=lambda s: s.get("order", 0),
+        ):
+            items = []
+            for item in section.get("items", []):
+                rel_path = item.get("path")
+                if not rel_path or rel_path not in available:
+                    continue
+                item_lang = item.get("lang") or default_language
+                doc_type = "markdown" if rel_path.endswith(".md") else "text"
+                items.append(
+                    {
+                        "path": rel_path,
+                        "title": self._localized_text(
+                            item.get("title"),
+                            lang,
+                            item_lang or default_language,
+                        )
+                        or self._title_from_path(rel_path),
+                        "lang": item_lang,
+                        "type": doc_type,
+                    },
+                )
+            if items:
+                sections.append(
+                    {
+                        "id": section.get("id") or section.get("title", "section"),
+                        "title": self._localized_text(
+                            section.get("title"),
+                            lang,
+                            default_language,
+                        ),
+                        "items": items,
+                    },
+                )
+        return sections
+
+    @staticmethod
+    def _localized_text(value, lang, fallback="en"):
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return value
+        if isinstance(value, dict):
+            return (
+                value.get(lang) or value.get(fallback) or next(iter(value.values()), "")
+            )
+        return str(value)
+
+    @staticmethod
+    def _title_from_path(rel_path):
+        base = os.path.basename(rel_path)
+        return os.path.splitext(base)[0].replace("-", " ").replace("_", " ")
+
+    def get_doc_content(self, path):
+        if not self._is_safe_doc_path(path):
+            return None
+        try:
+            full_path = resolve_under_root(
+                self.meshchatnext_docs_dir,
+                path,
+                strict=True,
+                must_be_file=True,
+            )
+        except PathJailError:
+            return None
+
+        try:
+            with open(full_path, encoding="utf-8", errors="ignore") as f:
+                content = f.read()
+        except OSError as e:
+            logger.exception("Failed to read Meshchat neXt doc %s: %s", path, e)
+            return None
+
+        try:
+            if path.endswith(".md"):
+                # Relative image srcs resolve under /meshchatnext-docs/<dir>/ so
+                # docs can ship sibling assets (docs/en/assets/x.webp) and have
+                # them render in-app while staying relative for web readers.
+                doc_dir = posixpath.dirname(path)
+                img_base = (
+                    f"/meshchatnext-docs/{doc_dir}/"
+                    if doc_dir
+                    else "/meshchatnext-docs/"
+                )
+                return {
+                    "content": content,
+                    "html": MarkdownRenderer.render(content, img_base=img_base),
+                    "type": "markdown",
+                }
+            return {
+                "content": content,
+                "html": f"<pre class='whitespace-pre-wrap font-mono'>{html.escape(content)}</pre>",
+                "type": "text",
+            }
+        except Exception as e:
+            logger.exception("Failed to render Meshchat neXt doc %s: %s", path, e)
+            return None
+
+    def export_docs(self):
+        """Build a ZIP archive containing the active Reticulum docs and Meshchat neXt docs."""
+        buffer = io.BytesIO()
+        active_docs_dir = self._active_reticulum_docs_dir()
+        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+            if active_docs_dir and os.path.isdir(active_docs_dir):
+                for root, _, files in os.walk(active_docs_dir):
+                    for file in files:
+                        file_path = os.path.join(root, file)
+                        rel_path = os.path.join(
+                            "reticulum-docs",
+                            os.path.relpath(file_path, active_docs_dir),
+                        )
+                        zip_file.write(file_path, rel_path)
+
+            for root, _, files in os.walk(self.meshchatnext_docs_dir):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    rel_path = os.path.join(
+                        "meshchatnext-docs",
+                        os.path.relpath(file_path, self.meshchatnext_docs_dir),
+                    )
+                    zip_file.write(file_path, rel_path)
+
+        buffer.seek(0)
+        return buffer.getvalue()
+
+    def export_reticulum_docs(self, root_folder="reticulum_manual"):
+        """Build a ZIP of the active Reticulum manual in upload-compatible form.
+
+        The archive lays out files under <root_folder>/docs/ so that another
+        Meshchat neXt instance can re-import it via the /api/v1/docs/upload
+        endpoint without modification. Returns None when no Reticulum docs
+        are currently available (neither user-uploaded nor bundled).
+        """
+        active_docs_dir = self._active_reticulum_docs_dir()
+        if not active_docs_dir or not os.path.isdir(active_docs_dir):
+            return None
+
+        safe_root = os.path.basename(root_folder.strip()) or "reticulum_manual"
+        if safe_root in (".", ".."):
+            safe_root = "reticulum_manual"
+
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+            for root, _, files in os.walk(active_docs_dir):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    arcname = os.path.join(
+                        safe_root,
+                        "docs",
+                        os.path.relpath(file_path, active_docs_dir),
+                    )
+                    zip_file.write(file_path, arcname)
+        buffer.seek(0)
+        return buffer.getvalue()
+
+    def search(self, query, lang="en"):
+        if not query:
+            return []
+
+        results = []
+        query = query.lower()
+
+        if os.path.exists(self.meshchatnext_docs_dir):
+            for root, _, files in os.walk(self.meshchatnext_docs_dir):
+                for file in files:
+                    if not file.endswith(DOC_FILE_SUFFIXES):
+                        continue
+                    file_path = os.path.join(root, file)
+                    try:
+                        with open(
+                            file_path,
+                            encoding="utf-8",
+                            errors="ignore",
+                        ) as f:
+                            content = f.read()
+                            if query in content.lower():
+                                idx = content.lower().find(query)
+                                start = max(0, idx - 80)
+                                end = min(len(content), idx + len(query) + 120)
+                                snippet = content[start:end]
+                                if start > 0:
+                                    snippet = "..." + snippet
+                                if end < len(content):
+                                    snippet = snippet + "..."
+
+                                results.append(
+                                    {
+                                        "title": file,
+                                        "path": f"/meshchatnext-docs/{os.path.relpath(file_path, self.meshchatnext_docs_dir).replace(os.sep, '/')}",
+                                        "snippet": snippet,
+                                        "source": "Meshchat neXt",
+                                    },
+                                )
+                    except Exception as e:
+                        logger.exception(
+                            "Error searching Meshchat neXt doc %s: %s", file, e
+                        )
+
+        active_docs_dir = self._active_reticulum_docs_dir()
+        if active_docs_dir and os.path.isdir(active_docs_dir):
+            known_langs = ["de", "es", "jp", "nl", "pl", "pt-br", "tr", "uk", "zh-cn"]
+
+            target_files = []
+            try:
+                for root, _, files in os.walk(active_docs_dir):
+                    for file in files:
+                        if file.endswith(".html"):
+                            if lang != "en":
+                                if f"_{lang}.html" in file:
+                                    target_files.append(os.path.join(root, file))
+                            else:
+                                has_lang_suffix = False
+                                for lang_code in known_langs:
+                                    if f"_{lang_code}.html" in file:
+                                        has_lang_suffix = True
+                                        break
+                                if not has_lang_suffix:
+                                    target_files.append(os.path.join(root, file))
+
+                if not target_files and lang != "en":
+                    for root, _, files in os.walk(active_docs_dir):
+                        for file in files:
+                            if file.endswith(".html"):
+                                has_lang_suffix = False
+                                for lang_code in known_langs:
+                                    if f"_{lang_code}.html" in file:
+                                        has_lang_suffix = True
+                                        break
+                                if not has_lang_suffix:
+                                    target_files.append(os.path.join(root, file))
+
+                for file_path in target_files:
+                    try:
+                        with open(file_path, encoding="utf-8", errors="ignore") as f:
+                            content = f.read()
+
+                            text_content = re.sub(r"<[^>]+>", " ", content)
+                            text_content = " ".join(text_content.split())
+
+                            if query in text_content.lower():
+                                title_match = re.search(
+                                    r"<title>(.*?)</title>",
+                                    content,
+                                    re.IGNORECASE | re.DOTALL,
+                                )
+                                title = (
+                                    title_match.group(1).strip()
+                                    if title_match
+                                    else os.path.basename(file_path)
+                                )
+                                title = re.sub(r"\s+[\u2014-].*$", "", title)
+
+                                idx = text_content.lower().find(query)
+                                start = max(0, idx - 80)
+                                end = min(len(text_content), idx + len(query) + 120)
+                                snippet = text_content[start:end]
+                                if start > 0:
+                                    snippet = "..." + snippet
+                                if end < len(text_content):
+                                    snippet = snippet + "..."
+
+                                rel_path = os.path.relpath(file_path, active_docs_dir)
+                                results.append(
+                                    {
+                                        "title": title,
+                                        "path": f"/reticulum-docs/{rel_path}",
+                                        "snippet": snippet,
+                                        "source": "Reticulum",
+                                    },
+                                )
+
+                                if len(results) >= 25:
+                                    break
+                    except Exception as e:
+                        logger.exception("Error searching file %s: %s", file_path, e)
+            except Exception as e:
+                logger.exception("Search failed: %s", e)
+
+        return results
+
+    def has_docs(self):
+        """True if either user-uploaded or bundled Reticulum docs are available."""
+        return self.has_user_docs() or self.has_bundled_docs()
+
+    def has_user_docs(self):
+        if os.path.exists(os.path.join(self.docs_dir, "index.html")):
+            return True
+        return len(self.get_available_versions()) > 0
+
+    def has_bundled_docs(self):
+        return os.path.exists(os.path.join(self.bundled_docs_dir, "index.html"))
+
+    def find_docs_file(self, rel_path):
+        """Resolve rel_path against user docs first, then bundled docs.
+
+        Returns the absolute on-disk path of the matching file, or None when
+        the path either escapes the docs roots or no file exists in either
+        location. Path traversal attempts are rejected.
+        """
+        if rel_path is None:
+            rel_path = ""
+        for base in (self.docs_dir, self.bundled_docs_dir):
+            if not base or not os.path.isdir(base):
+                continue
+            try:
+                return resolve_under_root(base, rel_path, must_be_file=True)
+            except PathJailError:
+                continue
+        return None
+
+    def _active_reticulum_docs_dir(self):
+        if os.path.exists(os.path.join(self.docs_dir, "index.html")):
+            return self.docs_dir
+        if self.has_bundled_docs():
+            return self.bundled_docs_dir
+        return None
+
+    def upload_zip(self, zip_bytes, version):
+        """Extract a user-uploaded docs ZIP into a new version and switch to it."""
+        self.upload_status = "extracting"
+        self.upload_progress = 0
+        self.last_error = None
+
+        try:
+            zip_path = os.path.join(self.docs_base_dir, "uploaded.zip")
+            with open(zip_path, "wb") as f:
+                f.write(zip_bytes)
+
+            self._extract_docs(zip_path, version)
+
+            if os.path.exists(zip_path):
+                os.remove(zip_path)
+
+            self.upload_status = "completed"
+            self.upload_progress = 100
+            self.switch_version(version)
+            return True
+        except Exception as e:
+            self.last_error = str(e)
+            self.upload_status = "error"
+            logger.exception("Failed to upload docs: %s", e)
+            return False
+
+    def _extract_docs(self, zip_path, version):
+        safe_version = os.path.basename(version)
+        if not safe_version or safe_version in (".", ".."):
+            raise ValueError(f"Invalid version name: {version}")
+
+        version_dir = os.path.join(self.versions_dir, safe_version)
+        try:
+            resolve_under_root(self.versions_dir, safe_version)
+        except PathJailError:
+            raise ValueError(f"Invalid version name: {version}") from None
+
+        if os.path.exists(version_dir):
+            self._remove_tree_force_writable(version_dir)
+        os.makedirs(version_dir, exist_ok=True)
+        self._ensure_dir_writable(version_dir)
+
+        temp_extract = os.path.join(self.docs_base_dir, "temp_extract")
+        if os.path.exists(temp_extract):
+            self._remove_tree_force_writable(temp_extract)
+
+        with zipfile.ZipFile(zip_path, "r") as zip_ref:
+            infos = zip_ref.infolist()
+            if not infos:
+                raise Exception("Zip file is empty")
+
+            # Symlink entries must never land on disk: the version copy below
+            # would follow them out of the docs tree.
+            # Bounded extraction: declared sizes are metadata, so count real
+            # bytes per member as they are written.
+            total_written = [0]
+
+            def _extract_capped(zip_ref_obj, info, dest_root):
+                name = info.filename
+                target = os.path.join(dest_root, name)
+                os.makedirs(os.path.dirname(target) or dest_root, exist_ok=True)
+                with zip_ref_obj.open(info) as src, open(target, "wb") as dst:
+                    while True:
+                        chunk = src.read(1 << 16)
+                        if not chunk:
+                            break
+                        total_written[0] += len(chunk)
+                        if total_written[0] > MAX_DOCS_ZIP_BYTES:
+                            raise ValueError("docs archive too large when extracted")
+                        dst.write(chunk)
+
+            symlink_members = {
+                info.filename
+                for info in infos
+                if stat.S_ISLNK(info.external_attr >> 16)
+            }
+            if len(infos) > MAX_DOCS_ZIP_FILES:
+                raise ValueError("docs archive has too many entries")
+
+            namelist = zip_ref.namelist()
+            root_folder = namelist[0].split("/")[0]
+
+            docs_prefix = f"{root_folder}/docs/"
+            has_docs_subfolder = any(m.startswith(docs_prefix) for m in namelist)
+
+            if has_docs_subfolder:
+                members_to_extract = [m for m in namelist if m.startswith(docs_prefix)]
+                for member in members_to_extract:
+                    if member in symlink_members:
+                        continue
+                    if not _docs_zip_member_is_safe(member):
+                        continue
+                    _extract_capped(zip_ref, zip_ref.getinfo(member), temp_extract)
+
+                src_path = os.path.join(temp_extract, root_folder, "docs")
+                for item in os.listdir(src_path):
+                    s = os.path.join(src_path, item)
+                    d = os.path.join(version_dir, item)
+                    if os.path.isdir(s):
+                        self._copy_tree_no_metadata(s, d)
+                    else:
+                        self._copy_file_no_metadata(s, d)
+            else:
+                safe_members = [
+                    m
+                    for m in namelist
+                    if _docs_zip_member_is_safe(m) and m not in symlink_members
+                ]
+                for member in safe_members:
+                    info = zip_ref.getinfo(member)
+                    if info.is_dir():
+                        continue
+                    _extract_capped(zip_ref, info, temp_extract)
+                src_path = os.path.join(temp_extract, root_folder)
+                if os.path.exists(src_path) and os.path.isdir(src_path):
+                    for item in os.listdir(src_path):
+                        s = os.path.join(src_path, item)
+                        d = os.path.join(version_dir, item)
+                        if os.path.isdir(s):
+                            self._copy_tree_no_metadata(s, d)
+                        else:
+                            self._copy_file_no_metadata(s, d)
+                else:
+                    for item in os.listdir(temp_extract):
+                        s = os.path.join(temp_extract, item)
+                        d = os.path.join(version_dir, item)
+                        if os.path.isdir(s):
+                            self._copy_tree_no_metadata(s, d)
+                        else:
+                            self._copy_file_no_metadata(s, d)
+
+        with open(os.path.join(version_dir, ".version"), "w") as f:
+            f.write(version)
+
+        if os.path.exists(temp_extract):
+            self._remove_tree_force_writable(temp_extract)
+
+    def _ensure_dir_writable(self, path):
+        if not os.path.isdir(path):
+            return
+        try:
+            os.chmod(path, 0o750)  # noqa: S103 - group-readable docs dir
+        except OSError:
+            pass
+
+    def _remove_tree_force_writable(self, path):
+        if not os.path.exists(path):
+            return
+        for root, dirs, files in os.walk(path, topdown=False):
+            for name in files:
+                file_path = os.path.join(root, name)
+                try:
+                    os.chmod(file_path, 0o644)
+                except OSError:
+                    pass
+            for name in dirs:
+                dir_path = os.path.join(root, name)
+                self._ensure_dir_writable(dir_path)
+        self._ensure_dir_writable(path)
+        shutil.rmtree(path)
+
+    def _copy_file_no_metadata(self, src, dst):
+        if os.path.islink(src):
+            return
+        parent = os.path.dirname(dst)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+            self._ensure_dir_writable(parent)
+        shutil.copyfile(src, dst, follow_symlinks=False)
+        try:
+            os.chmod(dst, 0o644)
+        except OSError:
+            pass
+
+    def _copy_tree_no_metadata(self, src, dst):
+        os.makedirs(dst, exist_ok=True)
+        self._ensure_dir_writable(dst)
+        for root, dirs, files in os.walk(src):
+            dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(root, d))]
+            rel_root = os.path.relpath(root, src)
+            target_root = dst if rel_root == "." else os.path.join(dst, rel_root)
+            os.makedirs(target_root, exist_ok=True)
+            self._ensure_dir_writable(target_root)
+            for dirname in dirs:
+                target_dir = os.path.join(target_root, dirname)
+                os.makedirs(target_dir, exist_ok=True)
+                self._ensure_dir_writable(target_dir)
+            for filename in files:
+                self._copy_file_no_metadata(
+                    os.path.join(root, filename),
+                    os.path.join(target_root, filename),
+                )

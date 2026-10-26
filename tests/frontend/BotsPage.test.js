@@ -1,0 +1,200 @@
+import { mount } from "@vue/test-utils";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import BotsPage from "@/components/tools/BotsPage.vue";
+import DownloadUtils from "@/js/DownloadUtils";
+import ToastUtils from "@/js/ToastUtils";
+
+vi.mock("@/js/DownloadUtils", () => ({
+    default: {
+        downloadFromApiResponse: vi.fn(() => Promise.resolve()),
+    },
+}));
+
+vi.mock("@/js/ToastUtils", () => ({
+    default: {
+        success: vi.fn(),
+        error: vi.fn(),
+        info: vi.fn(),
+    },
+}));
+
+describe("BotsPage.vue", () => {
+    let axiosMock;
+    let routerPush;
+
+    beforeEach(() => {
+        routerPush = vi.fn();
+        axiosMock = {
+            get: vi.fn(),
+            post: vi.fn(),
+            patch: vi.fn(),
+        };
+        window.api = axiosMock;
+
+        axiosMock.get.mockImplementation((url) => {
+            if (url === "/api/v1/bots/status") {
+                return Promise.resolve({
+                    data: {
+                        status: {
+                            bots: [
+                                {
+                                    id: "bot1",
+                                    name: "Test Bot",
+                                    address: "<addr1>",
+                                    lxmf_address: "a".repeat(32),
+                                    running: true,
+                                    template_id: "echo",
+                                },
+                            ],
+                        },
+                        templates: [{ id: "echo", name: "Echo Bot", description: "Echos messages" }],
+                    },
+                });
+            }
+            return Promise.resolve({ data: {} });
+        });
+    });
+
+    afterEach(() => {
+        delete window.api;
+        vi.clearAllMocks();
+    });
+
+    const mountBotsPage = () => {
+        return mount(BotsPage, {
+            global: {
+                mocks: {
+                    $t: (key) => key,
+                    $router: { push: routerPush },
+                    $route: { meta: {} },
+                },
+                stubs: {
+                    MaterialDesignIcon: {
+                        template: '<div class="mdi-stub" :data-icon-name="iconName"></div>',
+                        props: ["iconName"],
+                    },
+                },
+            },
+        });
+    };
+
+    it("renders and loads bots and templates", async () => {
+        const wrapper = mountBotsPage();
+        await vi.waitFor(() => expect(wrapper.vm.loading).toBe(false));
+
+        expect(wrapper.text()).toContain("bots.title");
+        expect(wrapper.text()).toContain("Echo Bot");
+        expect(wrapper.text()).toContain("Test Bot");
+    });
+
+    it("navigates to the setup page when a template is selected", async () => {
+        const wrapper = mountBotsPage();
+        await vi.waitFor(() => expect(wrapper.vm.loading).toBe(false));
+
+        const cards = wrapper.findAll("div.cursor-pointer");
+        const templateCard = cards.filter(
+            (d) => d.text().includes("Echo Bot") && d.text().includes("Echos messages")
+        )[0];
+        await templateCard.trigger("click");
+
+        expect(routerPush).toHaveBeenCalledWith({
+            name: "bot-setup",
+            query: { template: "echo" },
+        });
+    });
+
+    it("calls stop bot API when stop button is clicked", async () => {
+        const wrapper = mountBotsPage();
+        await vi.waitFor(() => expect(wrapper.vm.loading).toBe(false));
+
+        const stopButton = wrapper.find("button[title='bots.stop_bot']");
+        await stopButton.trigger("click");
+
+        expect(axiosMock.post).toHaveBeenCalledWith("/api/v1/bots/stop", {
+            bot_id: "bot1",
+        });
+    });
+
+    it("navigates to messages when chat is clicked", async () => {
+        const wrapper = mountBotsPage();
+        await vi.waitFor(() => expect(wrapper.vm.loading).toBe(false));
+
+        const chatButton = wrapper.find("button[title='bots.chat_with_bot']");
+        await chatButton.trigger("click");
+
+        expect(routerPush).toHaveBeenCalledWith({
+            name: "messages",
+            params: { destinationHash: "a".repeat(32) },
+        });
+    });
+
+    it("exports bot identity through window.api and DownloadUtils", async () => {
+        axiosMock.post.mockResolvedValue({
+            data: new ArrayBuffer(4),
+            headers: { "content-disposition": 'attachment; filename="bot_bot1_identity"' },
+        });
+        const wrapper = mountBotsPage();
+        await vi.waitFor(() => expect(wrapper.vm.loading).toBe(false));
+        await wrapper.vm.exportIdentity("bot1");
+        expect(axiosMock.post).toHaveBeenCalledWith(
+            "/api/v1/bots/export",
+            { bot_id: "bot1" },
+            { responseType: "arraybuffer" }
+        );
+        expect(DownloadUtils.downloadFromApiResponse).toHaveBeenCalled();
+    });
+
+    it("toasts when bot identity export fails", async () => {
+        axiosMock.post.mockRejectedValue({ response: { data: { message: "nope" } } });
+        const wrapper = mountBotsPage();
+        await vi.waitFor(() => expect(wrapper.vm.loading).toBe(false));
+        await wrapper.vm.exportIdentity("bot1");
+        expect(ToastUtils.error).toHaveBeenCalledWith("nope");
+    });
+
+    it("opens lxmf config modal and saves patch", async () => {
+        axiosMock.patch.mockResolvedValue({ data: { success: true, lxmf_config: {} } });
+        const wrapper = mountBotsPage();
+        await vi.waitFor(() => expect(wrapper.vm.loading).toBe(false));
+
+        const bot = wrapper.vm.bots[0];
+        await wrapper.vm.openLxmfConfig(bot);
+        expect(wrapper.vm.lxmfConfigModalBot).toEqual(bot);
+
+        wrapper.vm.lxmfConfigDraft.propagation_mode = "autopeer";
+        await wrapper.vm.saveLxmfConfig();
+
+        expect(axiosMock.patch).toHaveBeenCalledWith("/api/v1/bots/lxmf-config", {
+            bot_id: "bot1",
+            lxmf_config: {
+                propagation_mode: "autopeer",
+                propagation_node: null,
+                propagation_fallback_enabled: null,
+                opportunistic_sending: null,
+                announce_enabled: null,
+                announce_immediately: null,
+                first_message_enabled: null,
+                lxmf_commands_enabled: null,
+                signature_verification_enabled: null,
+                require_message_signatures: null,
+                require_stamps: null,
+                request_unknown_identities: null,
+                identity_pinning_enabled: null,
+                permissions_enabled: null,
+                message_persistence_enabled: null,
+                direct_delivery_retries: null,
+                announce_interval_seconds: null,
+                stamp_cost: null,
+                rate_limit: null,
+                cooldown: null,
+                max_warnings: null,
+                warning_timeout: null,
+                message_queue_size: null,
+                autopeer_maxdepth: null,
+                command_prefix: null,
+                admins: null,
+            },
+        });
+        expect(ToastUtils.success).toHaveBeenCalledWith("bots.lxmf_config_saved");
+    });
+});

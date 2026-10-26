@@ -1,0 +1,771 @@
+# SPDX-License-Identifier: 0BSD
+
+"""Adversarial regression and Hypothesis fuzz coverage for RNS FileSync."""
+
+from __future__ import annotations
+
+import json
+import os
+import threading
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
+
+import pytest
+from hypothesis import HealthCheck, given, settings
+from hypothesis import strategies as st
+from rns_filesync.paths import PathJailError, normalize_relpath
+
+from meshchatnext.src.backend.rns_filesync_handler import (
+    RnsFilesyncHandler,
+    _is_forbidden_entry_name,
+)
+
+_TRAVERSAL_PAYLOADS = (
+    "../etc/passwd",
+    "..\\windows\\system32",
+    "a/../../b",
+    "/etc/passwd",
+    "C:\\Windows\\System32",
+    "a\x00b",
+    "",
+    ".",
+    "..",
+    "//evil",
+    "\\\\evil",
+    "foo/../../../etc/shadow",
+    ".rns-filesync.db",
+    "dir/.rns-xfer-temp",
+)
+
+_BAD_HASHES = (
+    "",
+    " ",
+    "zz",
+    "not-hex",
+    "../aabb",
+    "a" * 15,
+    "g" * 32,
+    "\x00" * 16,
+    "' OR '1'='1",
+    "../../identity",
+    "а" * 32,  # noqa: RUF001 - intentional Cyrillic homoglyph
+    "all",
+)
+
+
+@pytest.fixture
+def handler(tmp_path):
+    storage = tmp_path / "identity_a"
+    storage.mkdir()
+    identity = SimpleNamespace(hash=b"\xaa" * 16)
+    return RnsFilesyncHandler(
+        reticulum_instance=MagicMock(name="reticulum"),
+        identity=identity,
+        storage_dir=str(storage),
+    )
+
+
+def test_path_traversal_payloads_rejected_by_normalize():
+    for payload in _TRAVERSAL_PAYLOADS:
+        with pytest.raises(PathJailError):
+            normalize_relpath(payload)
+
+
+def test_download_rejects_path_traversal_before_service(handler):
+    """Handler must jail paths itself, not wait for peer connectivity."""
+    service = MagicMock()
+    handler.service = service
+    for payload in _TRAVERSAL_PAYLOADS:
+        if not str(payload).strip():
+            result = handler.download_file("bb" * 16, payload)
+            assert result["ok"] is False
+            assert result["error"] == "path is required"
+            service.download_file.assert_not_called()
+            continue
+        service.reset_mock()
+        result = handler.download_file("bb" * 16, payload)
+        assert result["ok"] is False, payload
+        assert "error" in result
+        service.download_file.assert_not_called()
+
+
+def test_download_and_browse_require_running(handler):
+    assert handler.download_file("bb" * 16, "a.txt")["ok"] is False
+    assert handler.browse_peer("bb" * 16)["ok"] is False
+    assert handler.connect_peer("bb" * 16)["ok"] is False
+
+
+def test_list_directories_rejects_traversal(handler):
+    for payload in ("../etc", "/etc/passwd", handler.storage_dir + "/../"):
+        result = handler.list_directories(payload)
+        # parent of storage may resolve outside and fail jail
+        if result.get("ok"):
+            assert result["current"].startswith(handler.storage_dir)
+        else:
+            assert (
+                "not allowed" in result["error"]
+                or "not a directory" in result["error"]
+                or "does not exist" in result["error"]
+            )
+
+
+def test_create_directory_rejects_dotfiles_and_separators(handler):
+    assert handler.create_directory(handler._root, ".hidden")["ok"] is False
+    assert handler.create_directory(handler._root, "a/b")["ok"] is False
+    assert handler.create_directory("/etc", "nope")["ok"] is False
+
+
+@pytest.mark.parametrize("bad_hash", _BAD_HASHES)
+def test_connect_rejects_bad_hashes(handler, bad_hash):
+    handler.service = MagicMock()
+    result = handler.connect_peer(bad_hash)
+    assert result["ok"] is False
+    assert "invalid" in result["error"] or "required" in result["error"]
+    handler.service.connect_peer.assert_not_called()
+
+
+@pytest.mark.parametrize("bad_hash", [h for h in _BAD_HASHES if h != "all"])
+def test_acl_grant_rejects_bad_hashes(handler, bad_hash):
+    result = handler.update_acl(
+        identity_hash=bad_hash,
+        perms=["read"],
+        enforce=True,
+    )
+    assert result["ok"] is False
+    assert "invalid" in result["error"]
+    acl = handler.get_acl()
+    assert bad_hash not in acl["rules"].get("read", [])
+    assert "../escape" not in acl["rules"].get("read", [])
+
+
+def test_acl_grant_accepts_all_alias(handler):
+    result = handler.update_acl(identity_hash="all", perms=["read"], enforce=True)
+    assert result["ok"] is True
+    assert "all" in result["rules"]["read"]
+    assert handler.get_acl()["rules"]["read"] == ["all"]
+
+
+def test_acl_enforce_false_persists_across_reload(tmp_path):
+    storage = tmp_path / "id"
+    storage.mkdir()
+    identity = SimpleNamespace(hash=b"\xaa" * 16)
+    peer = "cc" * 16
+    first = RnsFilesyncHandler(MagicMock(), identity, str(storage))
+    first.update_acl(identity_hash=peer, perms=["read"], enforce=True)
+    disabled = first.update_acl(enforce=False)
+    assert disabled["ok"] is True
+    assert disabled["enforce"] is False
+    assert first.get_acl()["enforce"] is False
+    assert peer in first.get_acl()["rules"]["read"]
+
+    second = RnsFilesyncHandler(MagicMock(), identity, str(storage))
+    acl = second.get_acl()
+    assert acl["enforce"] is False
+    assert peer in acl["rules"]["read"]
+
+
+def test_acl_get_matches_update_result(handler):
+    peer = "dd" * 16
+    updated = handler.update_acl(
+        identity_hash=peer,
+        perms=["read", "write"],
+        enforce=True,
+    )
+    fetched = handler.get_acl()
+    assert updated["enforce"] is True
+    assert fetched["enforce"] is True
+    assert fetched["rules"] == updated["rules"]
+    assert peer in fetched["rules"]["read"]
+    assert peer in fetched["rules"]["write"]
+
+
+def test_sync_directory_allows_external_and_blocks_reserved(handler, tmp_path):
+    outside = tmp_path / "shared_sync"
+    outside.mkdir()
+    result = handler.update_settings(sync_directory=str(outside))
+    assert result["ok"] is True
+    assert result["sync_directory"] == str(outside.resolve())
+
+    nested = handler.storage_dir + "/filesync/custom"
+    ok = handler.update_settings(sync_directory=nested)
+    assert ok["ok"] is True
+    assert ok["sync_directory"] == nested or ok["sync_directory"].endswith(
+        "/filesync/custom",
+    )
+
+    # Identity root and reserved top-level trees must never be sync roots.
+    root_reject = handler.update_settings(sync_directory=handler.storage_dir)
+    assert root_reject["ok"] is False
+    bots = os.path.join(handler.storage_dir, "bots")
+    os.makedirs(bots, exist_ok=True)
+    bots_reject = handler.update_settings(sync_directory=bots)
+    assert bots_reject["ok"] is False
+    page_nodes = os.path.join(handler.storage_dir, "page_nodes")
+    os.makedirs(page_nodes, exist_ok=True)
+    page_nodes_reject = handler.update_settings(sync_directory=page_nodes)
+    assert page_nodes_reject["ok"] is False
+
+    # Ancestor of identity storage would expose keys/DB.
+    parent_reject = handler.update_settings(sync_directory=str(tmp_path))
+    assert parent_reject["ok"] is False
+
+    # Sibling identity under .../identities/<hash>
+    identities = tmp_path / "identities"
+    peer = identities / "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    peer.mkdir(parents=True)
+    own = identities / "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    own.mkdir(parents=True)
+    sibling_handler = RnsFilesyncHandler(
+        MagicMock(),
+        SimpleNamespace(hash=b"\xaa" * 16),
+        str(own),
+    )
+    sibling_reject = sibling_handler.update_settings(sync_directory=str(peer / "sync"))
+    assert sibling_reject["ok"] is False
+    shared = tmp_path / "Documents" / "Meshchat neXt" / "aaaaaaaa" / "sync"
+    shared.mkdir(parents=True)
+    sibling_ok = sibling_handler.update_settings(sync_directory=str(shared))
+    assert sibling_ok["ok"] is True
+
+
+def test_start_rejects_forbidden_system_sync_directory(handler):
+    with patch(
+        "meshchatnext.src.backend.rns_filesync_handler.FileSyncService"
+    ) as mocked:
+        result = handler.start(sync_directory="/etc")
+        assert result["ok"] is False
+        mocked.assert_not_called()
+        home = os.path.expanduser("~")
+        if home and home != "~" and os.path.isdir(home):
+            home_result = handler.start(sync_directory=home)
+            assert home_result["ok"] is False
+            mocked.assert_not_called()
+
+
+def test_suggest_shared_sync_directory(handler):
+    suggestion = handler.suggest_shared_sync_directory()
+    assert suggestion["ok"] is True
+    assert "Meshchat neXt" in suggestion["path"]
+    full_hash = "aa" * 16
+    assert full_hash in suggestion["path"]
+    assert suggestion["path"].endswith(os.path.join(full_hash, "sync")) or suggestion[
+        "path"
+    ].endswith(f"{full_hash}/sync")
+    assert handler._resolve_sync_directory(suggestion["path"]) == suggestion["path"]
+
+
+def test_relative_dotdot_cannot_become_external_sibling(handler, tmp_path):
+    sibling = tmp_path / "escape"
+    sibling.mkdir()
+    assert handler._resolve_sync_directory("../escape") is None
+    assert handler.update_settings(sync_directory="../escape")["ok"] is False
+    # Absolute sibling outside identity storage remains allowed.
+    assert handler.update_settings(sync_directory=str(sibling))["ok"] is True
+
+
+def test_relative_sync_path_joins_identity_storage_not_cwd(handler, tmp_path):
+    cwd_probe = Path.cwd() / ".__filesync_cwd_should_not_win__"
+    cwd_probe.mkdir(exist_ok=True)
+    try:
+        resolved = handler._resolve_sync_directory("filesync/custom")
+        assert resolved is not None
+        assert resolved.startswith(handler.storage_dir)
+        assert resolved.endswith("filesync/custom") or resolved.endswith(
+            "filesync\\custom",
+        )
+        assert ".__filesync_cwd_should_not_win__" not in resolved
+        # Basename-only relative names land under identity storage, not CWD.
+        named = handler._resolve_sync_directory(".__filesync_cwd_should_not_win__")
+        assert named is not None
+        assert named.startswith(handler.storage_dir)
+        assert str(cwd_probe.resolve()) != named
+    finally:
+        cwd_probe.rmdir()
+
+
+def test_collect_external_rejects_home_and_etc(tmp_path):
+    from meshchatnext.src.backend.rns_filesync_handler import (
+        collect_external_filesync_rw_roots,
+    )
+
+    storage = tmp_path / "storage"
+    ident = storage / "identities" / ("ab" * 16)
+    settings_dir = ident / "filesync"
+    settings_dir.mkdir(parents=True)
+    home = os.path.realpath(os.path.expanduser("~"))
+    (settings_dir / "settings.json").write_text(
+        json.dumps({"sync_directory": home}),
+        encoding="utf-8",
+    )
+    assert collect_external_filesync_rw_roots(str(storage)) == []
+    (settings_dir / "settings.json").write_text(
+        json.dumps({"sync_directory": "/etc"}),
+        encoding="utf-8",
+    )
+    assert collect_external_filesync_rw_roots(str(storage)) == []
+
+
+def test_shared_path_unique_per_full_identity_hash(tmp_path):
+    storage = tmp_path / "id"
+    storage.mkdir()
+    h1 = RnsFilesyncHandler(
+        MagicMock(),
+        SimpleNamespace(hash=bytes.fromhex("aaaaaaaa" + "11" * 12)),
+        str(storage),
+    )
+    h2 = RnsFilesyncHandler(
+        MagicMock(),
+        SimpleNamespace(hash=bytes.fromhex("aaaaaaaa" + "22" * 12)),
+        str(storage),
+    )
+    p1 = h1.suggest_shared_sync_directory()["path"]
+    p2 = h2.suggest_shared_sync_directory()["path"]
+    assert p1 != p2
+    assert "aaaaaaaa" + "11" * 12 in p1
+    assert "aaaaaaaa" + "22" * 12 in p2
+
+
+def test_external_sync_root_manager_stays_jailed(tmp_path):
+    storage = tmp_path / "id"
+    storage.mkdir()
+    outside = tmp_path / "shared"
+    outside.mkdir()
+    bait = tmp_path / "bait.txt"
+    bait.write_text("secret", encoding="utf-8")
+    handler = RnsFilesyncHandler(
+        MagicMock(),
+        SimpleNamespace(hash=b"\x33" * 16),
+        str(storage),
+    )
+    assert handler.update_settings(sync_directory=str(outside))["ok"] is True
+    abs_bait, err = handler._resolve_manager_path(str(bait))
+    assert abs_bait is None
+    assert err is not None
+    trav, err2 = handler._resolve_manager_path("../bait.txt")
+    assert trav is None
+    assert err2 is not None
+    assert bait.read_text(encoding="utf-8") == "secret"
+    (outside / "ok.txt").write_text("x", encoding="utf-8")
+    ok_path, ok_err = handler._resolve_manager_path("ok.txt", must_exist=True)
+    assert ok_err is None
+    assert ok_path is not None
+    assert ok_path.endswith("ok.txt")
+
+
+def test_symlink_external_to_identity_rejected(tmp_path):
+    storage = tmp_path / "id"
+    storage.mkdir()
+    keys = storage / "identity"
+    keys.mkdir()
+    (keys / "secret").write_text("k", encoding="utf-8")
+    ext = tmp_path / "Documents" / "wrap"
+    ext.mkdir(parents=True)
+    link = ext / "escape"
+    if hasattr(os, "symlink"):
+        try:
+            link.symlink_to(keys)
+        except OSError:
+            pytest.skip("symlink not permitted")
+    else:
+        pytest.skip("no symlink")
+    handler = RnsFilesyncHandler(
+        MagicMock(),
+        SimpleNamespace(hash=b"\x44" * 16),
+        str(storage),
+    )
+    assert handler._resolve_sync_directory(str(link)) is None
+    assert handler.update_settings(sync_directory=str(link))["ok"] is False
+
+
+def test_settings_relative_path_persists_under_identity(handler):
+    result = handler.update_settings(sync_directory="filesync/rel_persist")
+    assert result["ok"] is True
+    assert result["sync_directory"].startswith(handler.storage_dir)
+    reloaded = RnsFilesyncHandler(
+        MagicMock(),
+        handler.identity,
+        handler.storage_dir,
+    )
+    assert reloaded.get_status()["sync_directory"].startswith(handler.storage_dir)
+    assert "rel_persist" in reloaded.get_status()["sync_directory"]
+
+
+def test_teardown_clears_service_and_isolates_storage(tmp_path):
+    storage_a = tmp_path / "a"
+    storage_b = tmp_path / "b"
+    storage_a.mkdir()
+    storage_b.mkdir()
+    identity_a = SimpleNamespace(hash=b"\xaa" * 16)
+    identity_b = SimpleNamespace(hash=b"\xbb" * 16)
+    ha = RnsFilesyncHandler(MagicMock(), identity_a, str(storage_a))
+    hb = RnsFilesyncHandler(MagicMock(), identity_b, str(storage_b))
+    peer = "ee" * 16
+    ha.update_acl(identity_hash=peer, perms=["read"], enforce=True)
+    hb.update_acl(identity_hash=peer, perms=["write"], enforce=True)
+
+    svc = MagicMock()
+    svc.get_status.return_value = {"running": True}
+    ha.service = svc
+    ha.teardown()
+    assert ha.service is None
+    svc.stop.assert_called()
+
+    assert peer in ha.get_acl()["rules"]["read"]
+    assert peer in hb.get_acl()["rules"]["write"]
+    assert peer not in ha.get_acl()["rules"].get("write", [])
+    assert (storage_a / "filesync" / "acl.txt").is_file()
+    assert (storage_b / "filesync" / "acl.txt").is_file()
+
+
+def test_concurrent_acl_mutations_stable(handler):
+    peer = "ff" * 16
+    errors: list[BaseException] = []
+
+    def worker(idx: int):
+        try:
+            for i in range(40):
+                handler.update_acl(
+                    identity_hash=peer,
+                    perms=["read"] if (idx + i) % 2 == 0 else ["write"],
+                    enforce=True,
+                )
+                acl = handler.get_acl()
+                assert acl["enforce"] is True
+                assert peer in acl["rules"]["read"] or peer in acl["rules"]["write"]
+        except BaseException as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker, args=(n,)) for n in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=10)
+    assert not errors
+
+
+@settings(
+    max_examples=50,
+    deadline=None,
+    suppress_health_check=[HealthCheck.too_slow, HealthCheck.function_scoped_fixture],
+)
+@given(path=st.sampled_from([*_TRAVERSAL_PAYLOADS, "ok.txt", "dir/file.bin"]))
+def test_download_path(handler, path):
+    service = MagicMock()
+    service.download_file.return_value = {"ok": True, "path": path}
+    handler.service = service
+    result = handler.download_file("aa" * 16, path)
+    assert isinstance(result, dict)
+    assert "ok" in result
+    if not str(path).strip():
+        assert result["ok"] is False
+        service.download_file.assert_not_called()
+        return
+    try:
+        normalize_relpath(path)
+    except PathJailError:
+        assert result["ok"] is False
+        service.download_file.assert_not_called()
+    else:
+        assert result["ok"] is True
+        service.download_file.assert_called_once()
+
+
+@settings(
+    max_examples=40,
+    deadline=None,
+    suppress_health_check=[HealthCheck.too_slow, HealthCheck.function_scoped_fixture],
+)
+@given(
+    identity_hash=st.one_of(
+        st.sampled_from(list(_BAD_HASHES)),
+        st.from_regex(r"[0-9a-f]{32}", fullmatch=True),
+        st.text(min_size=0, max_size=40),
+    ),
+    perms=st.lists(
+        st.sampled_from(["read", "write", "delete", "admin", "nope", ""]),
+        max_size=6,
+    ),
+)
+def test_acl_hash(handler, identity_hash, perms):
+    effective_perms = perms or ["read"]
+    result = handler.update_acl(
+        identity_hash=identity_hash,
+        perms=effective_perms,
+        enforce=True,
+    )
+    assert isinstance(result, dict)
+    assert "ok" in result
+    cleaned = str(identity_hash or "").strip().lower().replace(":", "")
+    valid = cleaned in ("all", "a", "everyone", "*") or (
+        len(cleaned) == 32 and all(c in "0123456789abcdef" for c in cleaned)
+    )
+    if not valid:
+        assert result["ok"] is False
+        return
+    if not any(p in ("read", "write", "delete") for p in effective_perms):
+        assert result["ok"] is False
+        return
+    assert result["ok"] is True
+    assert result["rules"] == handler.get_acl()["rules"]
+
+
+@settings(
+    max_examples=40,
+    deadline=None,
+    suppress_health_check=[HealthCheck.too_slow, HealthCheck.function_scoped_fixture],
+)
+@given(
+    sync_directory=st.sampled_from(
+        [
+            "",
+            " ",
+            "../escape",
+            "/etc",
+            "/usr/bin",
+            "~",
+            "~/.ssh",
+            "filesync/nested",
+            "filesync/../filesync/ok",
+            "identity",
+            "bots",
+        ],
+    ),
+)
+def test_settings_path(handler, sync_directory):
+    """Reference: relative inputs stay under identity storage. Forbidden hosts reject."""
+    before = handler.get_status()["sync_directory"]
+    result = handler.update_settings(sync_directory=sync_directory)
+    assert isinstance(result, dict)
+    storage_real = os.path.realpath(handler.storage_dir)
+    if result["ok"]:
+        resolved = os.path.realpath(result["sync_directory"])
+        assert handler._resolve_sync_directory(resolved) == resolved
+        assert resolved == storage_real or resolved.startswith(storage_real + os.sep)
+        first_rel = os.path.relpath(resolved, storage_real).split(os.sep, 1)[0]
+        assert first_rel not in {
+            "identity",
+            "bots",
+            "plugins",
+            "lxmf",
+            "ssl",
+        }
+    else:
+        assert handler.get_status()["sync_directory"] == before
+
+
+@settings(
+    max_examples=30,
+    deadline=None,
+    suppress_health_check=[HealthCheck.too_slow, HealthCheck.function_scoped_fixture],
+)
+@given(
+    rel=st.text(
+        min_size=1,
+        max_size=24,
+        alphabet=st.characters(
+            blacklist_categories=("Cs",),
+            blacklist_characters="\x00/\\",
+        ),
+    ),
+)
+def test_relative_path_stays_under_storage(handler, rel):
+    cleaned = rel.strip()
+    if not cleaned or cleaned in (".", ".."):
+        return
+    resolved = handler._resolve_sync_directory(cleaned)
+    if resolved is None:
+        return
+    storage_real = os.path.realpath(handler.storage_dir)
+    real = os.path.realpath(resolved)
+    assert real == storage_real or real.startswith(storage_real + os.sep)
+
+
+@patch("meshchatnext.src.backend.rns_filesync_handler.FileSyncService")
+def test_start_with_malicious_interval_rejected(mock_service_cls, handler):
+    result = handler.start(announce_interval=1)
+    assert result["ok"] is False
+    mock_service_cls.assert_not_called()
+
+
+@patch("meshchatnext.src.backend.rns_filesync_handler.FileSyncService")
+def test_start_wires_callbacks_and_reuses_host_reticulum(mock_service_cls, handler):
+    service = MagicMock()
+    service.start.return_value = "ab" * 16
+    service.get_status.return_value = {
+        "running": True,
+        "sync_directory": handler._sync_directory,
+        "identity_hash": "aa" * 16,
+        "destination_hash": "ab" * 16,
+        "peers": 0,
+        "files": 0,
+        "whitelist": False,
+        "monitor": True,
+    }
+    mock_service_cls.return_value = service
+    result = handler.start()
+    assert result["ok"] is True
+    assert mock_service_cls.call_args.kwargs["own_reticulum"] is False
+    assert service.on_error is not None
+    assert service.on_sync_progress is not None
+
+
+def test_manager_rejects_traversal_payloads(handler, tmp_path):
+    bait = tmp_path / "bait.txt"
+    bait.write_text("do-not-touch", encoding="utf-8")
+    identity_dir = os.path.join(handler.storage_dir, "identity")
+    os.makedirs(identity_dir, exist_ok=True)
+    secret = os.path.join(identity_dir, "secret.key")
+    with open(secret, "w", encoding="utf-8") as handle:
+        handle.write("private")
+
+    payloads = [
+        *_TRAVERSAL_PAYLOADS,
+        str(bait),
+        secret,
+        os.path.join(handler.storage_dir, "identity"),
+        os.path.join(handler.storage_dir, "database.db"),
+        os.path.join(handler.storage_dir, "lxmf"),
+        handler.storage_dir,
+    ]
+    for payload in payloads:
+        tree = handler.list_tree(payload if str(payload).strip() else None)
+        if not str(payload).strip():
+            assert tree["ok"] is True
+            continue
+        assert tree["ok"] is False, payload
+
+        assert handler.manager_content(str(payload))["ok"] is False
+        assert handler.manager_delete(str(payload))["ok"] is False
+        assert handler.manager_mkdir(str(payload))["ok"] is False
+        assert (
+            handler.manager_upload(
+                filename="x.txt",
+                data=b"x",
+                subdir=str(payload),
+            )["ok"]
+            is False
+        )
+
+    assert bait.read_text(encoding="utf-8") == "do-not-touch"
+    with open(secret, encoding="utf-8") as handle:
+        assert handle.read() == "private"
+
+
+def test_manager_rejects_cross_identity_paths(tmp_path):
+    storage_a = tmp_path / "id_a"
+    storage_b = tmp_path / "id_b"
+    storage_a.mkdir()
+    storage_b.mkdir()
+    ha = RnsFilesyncHandler(
+        MagicMock(),
+        SimpleNamespace(hash=b"\xaa" * 16),
+        str(storage_a),
+    )
+    hb = RnsFilesyncHandler(
+        MagicMock(),
+        SimpleNamespace(hash=b"\xbb" * 16),
+        str(storage_b),
+    )
+
+    bait = os.path.join(hb._sync_directory, "peer_secret.txt")
+    with open(bait, "w", encoding="utf-8") as handle:
+        handle.write("b-only")
+
+    assert ha.list_tree(bait)["ok"] is False
+    assert ha.manager_content(bait)["ok"] is False
+    assert ha.manager_delete(bait)["ok"] is False
+    assert os.path.isfile(bait)
+    with open(bait, encoding="utf-8") as handle:
+        assert handle.read() == "b-only"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink tests require POSIX")
+def test_manager_rejects_symlink_escape(handler, tmp_path):
+    outside = tmp_path / "outside_secret.txt"
+    outside.write_text("escape-me", encoding="utf-8")
+    link_path = os.path.join(handler._sync_directory, "escape.txt")
+    os.symlink(str(outside), link_path)
+
+    assert handler.list_tree()["ok"] is True
+    names = {e["name"] for e in handler.list_tree()["entries"]}
+    assert "escape.txt" not in names
+
+    assert handler.manager_content("escape.txt")["ok"] is False
+    assert handler.manager_delete("escape.txt")["ok"] is False
+    assert (
+        handler.manager_upload(
+            filename="escape.txt",
+            data=b"overwrite",
+            subdir="",
+        )["ok"]
+        is False
+    )
+    assert outside.read_text(encoding="utf-8") == "escape-me"
+
+
+def test_manager_upload_rejects_malicious_filenames(handler):
+    for name in (
+        ".hidden",
+        ".rns-filesync.db",
+        "identity",
+        "identity.bak",
+        "",
+        ".",
+        "..",
+        "x\x00y.txt",
+    ):
+        result = handler.manager_upload(filename=name, data=b"x")
+        assert result["ok"] is False, name
+
+    # Path segments in the client filename are stripped to a basename under sync root.
+    escaped = handler.manager_upload(filename="../evil.txt", data=b"safe")
+    assert escaped["ok"] is True
+    assert escaped["path"] == "evil.txt"
+    assert os.path.isfile(os.path.join(handler._sync_directory, "evil.txt"))
+    assert not os.path.exists(os.path.join(handler.storage_dir, "evil.txt"))
+
+
+def test_manager_refuses_delete_sync_root(handler):
+    assert handler.manager_delete("")["ok"] is False
+    assert handler.manager_delete(".")["ok"] is False
+    assert os.path.isdir(handler._sync_directory)
+
+
+@settings(
+    max_examples=60,
+    deadline=None,
+    suppress_health_check=[HealthCheck.too_slow, HealthCheck.function_scoped_fixture],
+)
+@given(
+    path=st.one_of(
+        st.sampled_from(
+            [*_TRAVERSAL_PAYLOADS, "ok.txt", "dir/file.bin", "nested/a/b"],
+        ),
+        st.text(min_size=0, max_size=40),
+    ),
+)
+def test_manager_path(handler, path):
+    """Reference: manager resolve accepts only normalize_relpath-safe relative paths."""
+    cleaned = str(path or "").strip()
+    expect_ok = False
+    if cleaned and not os.path.isabs(cleaned) and not cleaned.startswith(("/", "\\")):
+        try:
+            safe = normalize_relpath(cleaned)
+            parts = safe.replace("\\", "/").split("/")
+            if not any(_is_forbidden_entry_name(part) for part in parts):
+                expect_ok = True
+        except PathJailError:
+            expect_ok = False
+
+    abspath, err = handler._resolve_manager_path(path, allow_root=False)
+    if expect_ok:
+        # Path may not exist yet. resolve without must_exist should succeed.
+        assert err is None, path
+        assert abspath is not None
+        assert abspath.startswith(handler._sync_root() + os.sep)
+    elif cleaned == "":
+        assert err == "path is required"
+    else:
+        assert abspath is None
+        assert err is not None

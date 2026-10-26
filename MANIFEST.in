@@ -1,0 +1,32 @@
+graft vendor
+recursive-include meshchatnext/public *
+recursive-exclude meshchatnext/public/repository-server-bundled *
+# Stale Vite leftovers must never enter the sdist/wheel even if public/ is dirty.
+recursive-exclude meshchatnext/public *NerdFont*
+recursive-exclude meshchatnext/public *RobotoMonoNerdFont*
+recursive-exclude meshchatnext/public tailwind-v3.4.3-forms-v0.5.7.js
+global-exclude *NerdFont*
+global-exclude *RobotoMonoNerdFont*
+global-exclude tailwind-v3.4.3-forms-v0.5.7.js
+recursive-include meshchatnext/src/backend *
+include meshchatnext/src/version.py
+include meshchatnext/src/__init__.py
+include meshchatnext/meshchat.py
+include meshchatnext/__init__.py
+
+exclude meshchatnext/src/frontend
+recursive-exclude meshchatnext/src/frontend *
+recursive-exclude vendor/offline *
+recursive-exclude vendor/lxmfy/tests *
+recursive-exclude vendor/lxmfy/docs *
+recursive-exclude vendor/lxmfy/docker *
+recursive-exclude vendor/rns_filesync/tests *
+recursive-exclude vendor/rns_filesync/docs *
+recursive-exclude vendor/rns_filesync/docker *
+recursive-exclude vendor/rns_filesync/packaging *
+recursive-exclude vendor/rns_filesync/sideband *
+recursive-exclude vendor/rns_filesync/man *
+recursive-exclude vendor/rns_filesync/scripts *
+recursive-exclude * __pycache__
+recursive-exclude * *.py[co]
+

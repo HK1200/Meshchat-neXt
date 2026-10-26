@@ -1,0 +1,469 @@
+package com.meshchatnext;
+
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.content.Context;
+import android.content.Intent;
+import android.net.Uri;
+import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
+import android.text.TextUtils;
+
+import androidx.annotation.Nullable;
+import androidx.core.app.NotificationCompat;
+import androidx.core.app.Person;
+
+public final class AndroidNotificationBridge {
+    private static final int NOTIFY_BASE_ID = 0x4d434800;
+    public static final int INCOMING_CALL_NOTIFICATION_ID = 0x4d434900;
+
+    public static final String ACTION_CALL_ANSWER = "com.meshchatnext.action.CALL_ANSWER";
+    public static final String ACTION_CALL_DECLINE = "com.meshchatnext.action.CALL_DECLINE";
+    public static final String ACTION_CALL_OPEN = "com.meshchatnext.action.CALL_OPEN";
+
+    /** Values stored for {@link #offerTrustedCallAction(String)} / {@link #takeTrustedCallAction()}. */
+    public static final String TRUSTED_CALL_ACTION_ANSWER = "answer";
+    public static final String TRUSTED_CALL_ACTION_DECLINE = "decline";
+    public static final String TRUSTED_CALL_ACTION_OPEN = "open";
+
+    private static final int REQ_CALL_OPEN = 0x4c31;
+    private static final int REQ_CALL_FULL = 0x4c32;
+    private static final int REQ_CALL_ANSWER = 0x4c33;
+    private static final int REQ_CALL_DECLINE = 0x4c34;
+
+    private static final Object CONTEXT_LOCK = new Object();
+    private static final Object TRUSTED_CALL_LOCK = new Object();
+    private static volatile boolean doNotDisturbEnabled = false;
+    private static volatile String openConversationHashesCsv = "";
+    private static volatile String pendingTrustedCallAction = null;
+    private static final java.util.Set<Integer> postedMessageNotificationIds =
+        java.util.Collections.synchronizedSet(new java.util.HashSet<>());
+
+    private AndroidNotificationBridge() {
+    }
+
+    /**
+     * Map a notification intent action to a trusted call-control token, or null if unknown.
+     */
+    @Nullable
+    public static String mapCallNotificationAction(@Nullable String action) {
+        if (ACTION_CALL_ANSWER.equals(action)) {
+            return TRUSTED_CALL_ACTION_ANSWER;
+        }
+        if (ACTION_CALL_DECLINE.equals(action)) {
+            return TRUSTED_CALL_ACTION_DECLINE;
+        }
+        if (ACTION_CALL_OPEN.equals(action)) {
+            return TRUSTED_CALL_ACTION_OPEN;
+        }
+        return null;
+    }
+
+    /**
+     * Queue a call action produced only by the non-exported notification trampoline.
+     */
+    public static void offerTrustedCallAction(@Nullable String action) {
+        if (action == null) {
+            return;
+        }
+        if (!TRUSTED_CALL_ACTION_ANSWER.equals(action)
+            && !TRUSTED_CALL_ACTION_DECLINE.equals(action)
+            && !TRUSTED_CALL_ACTION_OPEN.equals(action)) {
+            return;
+        }
+        synchronized (TRUSTED_CALL_LOCK) {
+            pendingTrustedCallAction = action;
+        }
+    }
+
+    /**
+     * Consume the queued trusted call action (one-shot).
+     */
+    @Nullable
+    public static String takeTrustedCallAction() {
+        synchronized (TRUSTED_CALL_LOCK) {
+            String action = pendingTrustedCallAction;
+            pendingTrustedCallAction = null;
+            return action;
+        }
+    }
+
+    /** Test helper: clear any queued trusted action. */
+    public static void clearTrustedCallActionForTests() {
+        synchronized (TRUSTED_CALL_LOCK) {
+            pendingTrustedCallAction = null;
+        }
+    }
+
+    private static volatile boolean meshCoreUiForeground = false;
+
+    public static void setMeshCoreUiForeground(boolean foreground) {
+        meshCoreUiForeground = foreground;
+    }
+
+    public static boolean isMeshCoreConversationOpen(String key) {
+        return meshCoreUiForeground && isOpenConversationHash(key);
+    }
+
+    public static void setDoNotDisturbEnabled(boolean enabled) {
+        doNotDisturbEnabled = enabled;
+    }
+
+    public static boolean isDoNotDisturbEnabled() {
+        return doNotDisturbEnabled;
+    }
+
+    public static void setOpenConversationHashes(String csv) {
+        synchronized (CONTEXT_LOCK) {
+            openConversationHashesCsv = csv == null ? "" : csv.trim().toLowerCase();
+        }
+    }
+
+    public static String getOpenConversationHashesCsv() {
+        synchronized (CONTEXT_LOCK) {
+            return openConversationHashesCsv;
+        }
+    }
+
+    public static boolean isOpenConversationHash(String destinationHash) {
+        if (destinationHash == null) {
+            return false;
+        }
+        String needle = destinationHash.trim().toLowerCase();
+        if (needle.isEmpty()) {
+            return false;
+        }
+        String csv = getOpenConversationHashesCsv();
+        if (csv.isEmpty()) {
+            return false;
+        }
+        for (String part : csv.split(",")) {
+            if (needle.equals(part.trim())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static void showInboundMessage(String title, String body, @Nullable String dedupeHex) {
+        showInboundMessage(title, body, dedupeHex, null);
+    }
+
+    public static void showInboundMessage(
+        String title,
+        String body,
+        @Nullable String dedupeHex,
+        @Nullable String destinationHash
+    ) {
+        Context ctx = MeshChatApplication.getAppContext();
+        if (ctx == null) {
+            return;
+        }
+        String safeTitle = TextUtils.isEmpty(title) ? ctx.getString(R.string.app_name) : title;
+        String safeBody = TextUtils.isEmpty(body) ? ctx.getString(R.string.notification_new_message_fallback) : body;
+
+        new Handler(Looper.getMainLooper()).post(
+            () -> postInboundMessage(ctx, safeTitle, safeBody, dedupeHex, destinationHash)
+        );
+    }
+
+    public static void cancelMessageNotifications(@Nullable String destinationHash) {
+        Context ctx = MeshChatApplication.getAppContext();
+        if (ctx == null) {
+            return;
+        }
+        new Handler(Looper.getMainLooper()).post(
+            () -> {
+                NotificationManager nm = ctx.getSystemService(NotificationManager.class);
+                if (nm == null) {
+                    return;
+                }
+                int id = messageNotificationId(null, destinationHash);
+                try {
+                    nm.cancel(id);
+                } catch (Exception ignored) {
+                }
+                postedMessageNotificationIds.remove(id);
+            }
+        );
+    }
+
+    public static void cancelAllMessageNotifications() {
+        Context ctx = MeshChatApplication.getAppContext();
+        if (ctx == null) {
+            return;
+        }
+        new Handler(Looper.getMainLooper()).post(
+            () -> {
+                NotificationManager nm = ctx.getSystemService(NotificationManager.class);
+                if (nm == null) {
+                    return;
+                }
+                Integer[] ids;
+                synchronized (postedMessageNotificationIds) {
+                    ids = postedMessageNotificationIds.toArray(new Integer[0]);
+                    postedMessageNotificationIds.clear();
+                }
+                for (Integer id : ids) {
+                    if (id == null) {
+                        continue;
+                    }
+                    try {
+                        nm.cancel(id);
+                    } catch (Exception ignored) {
+                    }
+                }
+                try {
+                    nm.cancel(NOTIFY_BASE_ID);
+                } catch (Exception ignored) {
+                }
+            }
+        );
+    }
+
+    public static void showIncomingCall(String callerName, @Nullable String dedupeHex) {
+        Context ctx = MeshChatApplication.getAppContext();
+        if (ctx == null) {
+            return;
+        }
+        String name = (callerName == null) ? "Mesh" : callerName.trim();
+        if (name.isEmpty()) {
+            name = "Mesh";
+        }
+        final String displayName = name;
+        new Handler(Looper.getMainLooper()).post(() -> postIncomingCall(ctx, displayName, dedupeHex));
+    }
+
+    public static void showMissedCall(String title, String body, @Nullable String dedupeHex) {
+        Context ctx = MeshChatApplication.getAppContext();
+        if (ctx == null) {
+            return;
+        }
+        String safeTitle = TextUtils.isEmpty(title) ? ctx.getString(R.string.notification_missed_call_label) : title;
+        String safeBody = TextUtils.isEmpty(body) ? ctx.getString(R.string.app_name) : body;
+        new Handler(Looper.getMainLooper()).post(() -> postMissedCall(ctx, safeTitle, safeBody, dedupeHex));
+    }
+
+    public static void cancelIncomingCallNotification() {
+        Context ctx = MeshChatApplication.getAppContext();
+        if (ctx == null) {
+            return;
+        }
+        new Handler(Looper.getMainLooper()).post(
+            () -> {
+                NotificationManager nm = ctx.getSystemService(NotificationManager.class);
+                if (nm == null) {
+                    return;
+                }
+                try {
+                    nm.cancel(INCOMING_CALL_NOTIFICATION_ID);
+                } catch (Exception ignored) {
+                }
+            }
+        );
+    }
+
+    private static Intent callIntent(Context ctx, String action) {
+        // Answer/decline must hit the non-exported trampoline. Content open may
+        // use MainActivity (UI only), but still prefer the trampoline so one path
+        // owns notification call intents.
+        Intent i = new Intent(ctx, CallNotificationTrampolineActivity.class);
+        i.setAction(action);
+        return i;
+    }
+
+    private static PendingIntent callPendingIntent(Context ctx, int requestCode, String action) {
+        return PendingIntent.getActivity(
+            ctx,
+            requestCode,
+            callIntent(ctx, action),
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+    }
+
+    private static void postIncomingCall(Context ctx, String callerName, @Nullable String dedupeHex) {
+        NotificationManager nm = ctx.getSystemService(NotificationManager.class);
+        if (nm == null) {
+            return;
+        }
+
+        PendingIntent open = callPendingIntent(ctx, REQ_CALL_OPEN, ACTION_CALL_OPEN);
+        PendingIntent full = callPendingIntent(ctx, REQ_CALL_FULL, ACTION_CALL_OPEN);
+        PendingIntent answer = callPendingIntent(ctx, REQ_CALL_ANSWER, ACTION_CALL_ANSWER);
+        PendingIntent decline = callPendingIntent(ctx, REQ_CALL_DECLINE, ACTION_CALL_DECLINE);
+
+        Person person = new Person.Builder().setName(callerName).setImportant(true).build();
+        String incomingLabel = ctx.getString(R.string.notification_incoming_call_label, callerName);
+
+        NotificationCompat.Builder b = new NotificationCompat.Builder(ctx, MeshChatApplication.CHANNEL_ID_CALLS)
+            .setSmallIcon(R.drawable.ic_stat_meshchatnext)
+            .setOngoing(true)
+            .setAutoCancel(false)
+            .setContentIntent(open)
+            .setCategory(NotificationCompat.CATEGORY_CALL)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setContentTitle(callerName)
+            .setContentText(ctx.getString(R.string.notification_incoming_call_tap));
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            b.setStyle(
+                NotificationCompat.CallStyle.forIncomingCall(
+                    person,
+                    decline,
+                    answer
+                )
+            );
+        } else {
+            b.setStyle(new NotificationCompat.BigTextStyle().bigText(incomingLabel));
+            b.setContentText(ctx.getString(R.string.notification_incoming_call_tap));
+            b.addAction(0, ctx.getString(R.string.notification_call_decline), decline);
+            b.addAction(0, ctx.getString(R.string.notification_call_answer), answer);
+        }
+        b.setOnlyAlertOnce(false);
+        b.setTimeoutAfter(120_000L);
+
+        try {
+            b.setFullScreenIntent(full, true);
+        } catch (Exception ignored) {
+        }
+
+        try {
+            nm.notify(INCOMING_CALL_NOTIFICATION_ID, b.build());
+        } catch (SecurityException ignored) {
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static int missedCallNotificationId(@Nullable String dedupeHex) {
+        if (dedupeHex != null && dedupeHex.length() >= 8) {
+            try {
+                return NOTIFY_BASE_ID + 0x1000 + (int) (
+                    Long.parseLong(
+                        dedupeHex.substring(0, Math.min(8, dedupeHex.length())), 16) & 0x7fff_ffff);
+            } catch (NumberFormatException ignored) {
+                return NOTIFY_BASE_ID + 0x1000 + (dedupeHex.hashCode() & 0x7fff_ffff);
+            }
+        }
+        return NOTIFY_BASE_ID + 0x3fff;
+    }
+
+    private static void postMissedCall(
+        Context ctx,
+        String title,
+        String body,
+        @Nullable String dedupeHex
+    ) {
+        NotificationManager nm = ctx.getSystemService(NotificationManager.class);
+        if (nm == null) {
+            return;
+        }
+
+        Intent open = new Intent(ctx, CallNotificationTrampolineActivity.class);
+        open.setAction(ACTION_CALL_OPEN);
+        PendingIntent pi = PendingIntent.getActivity(
+            ctx,
+            REQ_CALL_OPEN,
+            open,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+
+        int id = missedCallNotificationId(dedupeHex);
+        NotificationCompat.Builder b = new NotificationCompat.Builder(ctx, MeshChatApplication.CHANNEL_ID_CALLS)
+            .setSmallIcon(R.drawable.ic_stat_meshchatnext)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setStyle(new NotificationCompat.BigTextStyle().bigText(body))
+            .setContentIntent(pi)
+            .setAutoCancel(true)
+            .setCategory(NotificationCompat.CATEGORY_MISSED_CALL)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE);
+        b.setDefaults(NotificationCompat.DEFAULT_ALL);
+
+        try {
+            nm.notify(id, b.build());
+        } catch (SecurityException ignored) {
+        }
+    }
+
+    private static int messageNotificationId(@Nullable String dedupeHex, @Nullable String destinationHash) {
+        if (destinationHash != null && destinationHash.length() >= 8) {
+            try {
+                return NOTIFY_BASE_ID
+                    + (int) (Long.parseLong(
+                        destinationHash.substring(0, Math.min(8, destinationHash.length())), 16) & 0x7fff_ffff);
+            } catch (NumberFormatException ignored) {
+                return NOTIFY_BASE_ID + (destinationHash.hashCode() & 0x7fff_ffff);
+            }
+        }
+        if (dedupeHex != null && dedupeHex.length() >= 8) {
+            try {
+                return NOTIFY_BASE_ID
+                    + (int) (Long.parseLong(
+                        dedupeHex.substring(0, Math.min(8, dedupeHex.length())), 16) & 0x7fff_ffff);
+            } catch (NumberFormatException ignored) {
+                return NOTIFY_BASE_ID + (dedupeHex.hashCode() & 0x7fff_ffff);
+            }
+        }
+        return NOTIFY_BASE_ID;
+    }
+
+    static String messageOpenUri(@Nullable String destinationHash) {
+        if (destinationHash != null && destinationHash.matches("meshcore-[0-9a-f]{64}")) {
+            return "meshchatnext://app/meshcore?notification=" + destinationHash;
+        }
+        if (destinationHash != null && destinationHash.matches("[0-9a-fA-F]{32}")) {
+            return "meshchatnext://app/messages?destination=" + destinationHash.toLowerCase(java.util.Locale.ROOT);
+        }
+        return "meshchatnext://app/messages";
+    }
+
+    private static void postInboundMessage(
+        Context ctx,
+        String title,
+        String body,
+        @Nullable String dedupeHex,
+        @Nullable String destinationHash
+    ) {
+        NotificationManager nm = ctx.getSystemService(NotificationManager.class);
+        if (nm == null) {
+            return;
+        }
+
+        Intent open = new Intent(ctx, MainActivity.class);
+        open.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        open.setAction(Intent.ACTION_VIEW);
+        open.setData(Uri.parse(messageOpenUri(destinationHash)));
+        PendingIntent pi = PendingIntent.getActivity(
+            ctx,
+            messageNotificationId(dedupeHex, destinationHash),
+            open,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+
+        int id = messageNotificationId(dedupeHex, destinationHash);
+
+        try {
+            nm.cancel(id);
+        } catch (Exception ignored) {
+        }
+
+        NotificationCompat.Builder b = new NotificationCompat.Builder(ctx, MeshChatApplication.CHANNEL_ID_MESSAGES)
+            .setSmallIcon(R.drawable.ic_stat_meshchatnext)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setStyle(new NotificationCompat.BigTextStyle().bigText(body))
+            .setContentIntent(pi)
+            .setAutoCancel(true)
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setOnlyAlertOnce(false);
+
+        try {
+            nm.notify(id, b.build());
+            postedMessageNotificationIds.add(id);
+        } catch (SecurityException ignored) {
+        }
+    }
+}

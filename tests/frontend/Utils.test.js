@@ -1,0 +1,313 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import Utils from "@/js/Utils";
+
+describe("Utils.js", () => {
+    describe("formatDestinationHash", () => {
+        it("formats destination hash correctly", () => {
+            const hash = "e253d0b19fe34c3f0a09569165abc45a";
+            expect(Utils.formatDestinationHash(hash)).toBe("<e253d0b1...65abc45a>");
+        });
+
+        it("tolerates null and empty values without throwing", () => {
+            expect(Utils.formatDestinationHash(null)).toBe("<>");
+            expect(Utils.formatDestinationHash(undefined)).toBe("<>");
+            expect(Utils.formatDestinationHash("")).toBe("<>");
+            expect(Utils.formatDestinationHash(12)).toBe("<12...12>");
+        });
+    });
+
+    describe("parseDestinationHash", () => {
+        const hash = "a39610c89d18bb48c73e429582423c24";
+
+        it("accepts a bare 32-character hash", () => {
+            expect(Utils.parseDestinationHash(hash)).toBe(hash);
+            expect(Utils.parseDestinationHash(hash.toUpperCase())).toBe(hash);
+        });
+
+        it("accepts brackets, spaces, colons, and lxmf links", () => {
+            expect(Utils.parseDestinationHash(`<${hash}>`)).toBe(hash);
+            expect(Utils.parseDestinationHash(`lxmf://${hash}`)).toBe(hash);
+            expect(Utils.parseDestinationHash("a3:96:10:c8:9d:18:bb:48:c7:3e:42:95:82:42:3c:24")).toBe(hash);
+            expect(Utils.parseDestinationHash(`  ${hash}  `)).toBe(hash);
+        });
+
+        it("takes the destination hash from an lxma URI", () => {
+            expect(Utils.parseDestinationHash(`lxma://${hash}:${"ab".repeat(32)}`)).toBe(hash);
+        });
+
+        it("returns null for missing or short values", () => {
+            expect(Utils.parseDestinationHash(null)).toBeNull();
+            expect(Utils.parseDestinationHash("")).toBeNull();
+            expect(Utils.parseDestinationHash("deadbeef")).toBeNull();
+            expect(Utils.parseDestinationHash("not a hash")).toBeNull();
+        });
+    });
+
+    describe("formatBytes", () => {
+        it("formats 0 bytes correctly", () => {
+            expect(Utils.formatBytes(0)).toBe("0 Bytes");
+        });
+
+        it("formats KB correctly", () => {
+            expect(Utils.formatBytes(1024)).toBe("1 KB");
+            expect(Utils.formatBytes(1500)).toBe("1 KB");
+        });
+
+        it("formats MB correctly", () => {
+            expect(Utils.formatBytes(1024 * 1024)).toBe("1 MB");
+        });
+
+        it("handles negative numbers", () => {
+            expect(Utils.formatBytes(-1024)).toBe("0 Bytes");
+        });
+
+        it("handles null or undefined", () => {
+            expect(Utils.formatBytes(null)).toBe("0 Bytes");
+            expect(Utils.formatBytes(undefined)).toBe("0 Bytes");
+        });
+    });
+
+    describe("formatNumber", () => {
+        it("formats 0 correctly", () => {
+            expect(Utils.formatNumber(0)).toBe("0");
+        });
+
+        it("formats large numbers with commas", () => {
+            // Using a regex to match either comma or space or whatever locale-specific grouping separator is used
+            // But since we are in jsdom with default locale, it should be comma or similar.
+            // Actually, we can just check if it's a string.
+            const result = Utils.formatNumber(1234567);
+            expect(typeof result).toBe("string");
+            expect(result).toMatch(/1.234.567/); // Matches 1,234,567 or 1.234.567 etc.
+        });
+
+        it("handles null or undefined correctly", () => {
+            expect(Utils.formatNumber(null)).toBe("0");
+            expect(Utils.formatNumber(undefined)).toBe("0");
+        });
+    });
+
+    describe("parseSeconds", () => {
+        it("parses seconds into days, hours, minutes, and seconds", () => {
+            const seconds = 1 * 24 * 3600 + 2 * 3600 + 3 * 60 + 4;
+            expect(Utils.parseSeconds(seconds)).toEqual({
+                days: 1,
+                hours: 2,
+                minutes: 3,
+                seconds: 4,
+            });
+        });
+    });
+
+    describe("formatCountupDuration", () => {
+        it("formats seconds and minutes", () => {
+            expect(Utils.formatCountupDuration(0)).toBe("0:00");
+            expect(Utils.formatCountupDuration(42)).toBe("0:42");
+            expect(Utils.formatCountupDuration(125)).toBe("2:05");
+        });
+
+        it("formats hours when needed", () => {
+            expect(Utils.formatCountupDuration(3661)).toBe("1:01:01");
+        });
+    });
+
+    describe("lxmfMessageTransferTotalBytes", () => {
+        it("sums content and attachment sizes", () => {
+            const total = Utils.lxmfMessageTransferTotalBytes({
+                content: "hello",
+                fields: {
+                    audio: { audio_size: 1000 },
+                    file_attachments: [{ file_size: 500 }],
+                },
+            });
+            expect(total).toBe(new TextEncoder().encode("hello").length + 1500);
+        });
+    });
+
+    describe("formatSeconds", () => {
+        it('formats "a second ago"', () => {
+            expect(Utils.formatSeconds(1)).toBe("a second ago");
+            expect(Utils.formatSeconds(0)).toBe("a second ago");
+        });
+
+        it("formats minutes ago", () => {
+            expect(Utils.formatSeconds(60)).toBe("1 minute ago");
+            expect(Utils.formatSeconds(120)).toBe("2 minutes ago");
+        });
+
+        it("formats hours ago", () => {
+            expect(Utils.formatSeconds(3600)).toBe("1 hour ago");
+            expect(Utils.formatSeconds(7200)).toBe("2 hours ago");
+        });
+
+        it("formats days ago", () => {
+            expect(Utils.formatSeconds(86400)).toBe("1 day ago");
+            expect(Utils.formatSeconds(172800)).toBe("2 days ago");
+        });
+
+        it("uses only the largest unit for combined durations", () => {
+            expect(Utils.formatSeconds(90061)).toBe("1 day ago");
+            expect(Utils.formatSeconds(172860)).toBe("2 days ago");
+            expect(Utils.formatSeconds(3661)).toBe("1 hour ago");
+            expect(Utils.formatSeconds(84445)).toBe("23 hours ago");
+        });
+    });
+
+    describe("formatSecondsWithoutAgo", () => {
+        it("matches formatSeconds without trailing ago", () => {
+            expect(Utils.formatSecondsWithoutAgo(120) + " ago").toBe(Utils.formatSeconds(120));
+            expect(Utils.formatSecondsWithoutAgo(86400) + " ago").toBe(Utils.formatSeconds(86400));
+        });
+    });
+
+    describe("formatTimeAgoForI18n", () => {
+        beforeEach(() => {
+            vi.useFakeTimers();
+        });
+
+        afterEach(() => {
+            vi.useRealTimers();
+        });
+
+        it("uses neutral sub-minute phrase for i18n suffixes", () => {
+            const now = new Date("2025-01-01T12:00:00Z");
+            vi.setSystemTime(now);
+            const recent = "2025-01-01 11:59:30";
+            expect(Utils.formatTimeAgoForI18n(recent)).toBe("less than a minute");
+            expect(Utils.formatTimeAgo(recent)).toBe("just now");
+        });
+
+        it("omits ago for minute-scale relative fragments", () => {
+            const now = new Date("2025-01-01T12:00:00Z");
+            vi.setSystemTime(now);
+            const pastDate = "2025-01-01 11:59:00";
+            expect(Utils.formatTimeAgoForI18n(pastDate)).toBe("1 minute");
+            expect(Utils.formatTimeAgo(pastDate)).toBe("1 minute ago");
+        });
+    });
+
+    describe("formatSecondsAgoForI18n", () => {
+        beforeEach(() => {
+            vi.useFakeTimers();
+        });
+
+        afterEach(() => {
+            vi.useRealTimers();
+        });
+
+        it("returns less than a minute for recent unix timestamps", () => {
+            const nowSec = Math.floor(new Date("2025-06-01T15:00:00Z").getTime() / 1000);
+            vi.setSystemTime(new Date("2025-06-01T15:00:00Z"));
+            expect(Utils.formatSecondsAgoForI18n(nowSec - 10)).toBe("less than a minute");
+            expect(Utils.formatSecondsAgoForI18n(nowSec - 120)).toBe("2 minutes");
+        });
+    });
+
+    describe("formatTimeAgo", () => {
+        beforeEach(() => {
+            vi.useFakeTimers();
+        });
+
+        afterEach(() => {
+            vi.useRealTimers();
+        });
+
+        it("formats SQLite format date correctly", () => {
+            const now = new Date("2025-01-01T12:00:00Z");
+            vi.setSystemTime(now);
+
+            const pastDate = "2025-01-01 11:59:00"; // 1 minute ago
+            expect(Utils.formatTimeAgo(pastDate)).toBe("1 minute ago");
+        });
+
+        it('returns "unknown" for empty input', () => {
+            expect(Utils.formatTimeAgo(null)).toBe("unknown");
+        });
+    });
+
+    describe("formatMinutesSeconds", () => {
+        it("formats seconds into MM:SS", () => {
+            expect(Utils.formatMinutesSeconds(65)).toBe("01:05");
+            expect(Utils.formatMinutesSeconds(3600)).toBe("00:00"); // 3600s is 0m 0s in the current implementation because it only looks at minutes and seconds from parseSeconds
+        });
+    });
+
+    describe("convertUnixMillisToLocalDateTimeString", () => {
+        it("converts unix millis to formatted string", () => {
+            const millis = new Date("2025-01-01T12:00:00Z").getTime();
+            // dayjs format depends on local time, so we just check if it returns a string with expected components
+            const result = Utils.convertUnixMillisToLocalDateTimeString(millis);
+            expect(result).toMatch(/2025-01-01/);
+        });
+    });
+
+    describe("formatBitsPerSecond", () => {
+        it("formats 0 bps correctly", () => {
+            expect(Utils.formatBitsPerSecond(0)).toBe("0 bps");
+        });
+
+        it("formats kbps correctly", () => {
+            expect(Utils.formatBitsPerSecond(1000)).toBe("1 kbps");
+        });
+    });
+
+    describe("formatFrequency", () => {
+        it("formats 0 Hz correctly", () => {
+            expect(Utils.formatFrequency(0)).toBe("0 Hz");
+        });
+
+        it("formats kHz correctly", () => {
+            expect(Utils.formatFrequency(1000)).toBe("1 kHz");
+        });
+
+        it("rounds near-integer Hz before scaling to avoid float MHz noise", () => {
+            expect(Utils.formatFrequency(868824999.9999999)).toBe("868.825 MHz");
+        });
+    });
+
+    describe("isInterfaceEnabled", () => {
+        it('returns true for "on", "yes", "true"', () => {
+            expect(Utils.isInterfaceEnabled({ enabled: "on" })).toBe(true);
+            expect(Utils.isInterfaceEnabled({ enabled: "yes" })).toBe(true);
+            expect(Utils.isInterfaceEnabled({ enabled: "true" })).toBe(true);
+            expect(Utils.isInterfaceEnabled({ interface_enabled: "true" })).toBe(true);
+        });
+
+        it("returns false for other values", () => {
+            expect(Utils.isInterfaceEnabled({ enabled: "off" })).toBe(false);
+            expect(Utils.isInterfaceEnabled({ enabled: null })).toBe(false);
+        });
+    });
+
+    describe("escapeHtml", () => {
+        it("escapes angle brackets", () => {
+            expect(Utils.escapeHtml("<script>")).toBe("&lt;script&gt;");
+            expect(Utils.escapeHtml("</div>")).toBe("&lt;/div&gt;");
+        });
+
+        it("escapes quotes and ampersand", () => {
+            expect(Utils.escapeHtml('"double"')).toBe("&quot;double&quot;");
+            expect(Utils.escapeHtml("'single'")).toContain("&#039;");
+            expect(Utils.escapeHtml("a&b")).toBe("a&amp;b");
+        });
+
+        it("returns empty string for null and undefined", () => {
+            expect(Utils.escapeHtml(null)).toBe("");
+            expect(Utils.escapeHtml(undefined)).toBe("");
+        });
+
+        it("escapes mixed XSS-like string so attribute is not executable", () => {
+            const s = '<img src="x" onerror="alert(1)">';
+            const out = Utils.escapeHtml(s);
+            expect(out).not.toContain("<img");
+            expect(out).toContain("&lt;");
+            expect(out).toContain("&quot;");
+            expect(out).not.toContain('onerror="alert');
+        });
+
+        it("does not throw on number (coerces)", () => {
+            expect(() => Utils.escapeHtml(12345)).not.toThrow();
+            expect(Utils.escapeHtml(12345)).toBe("12345");
+        });
+    });
+});

@@ -1,0 +1,1320 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+    cat <<'EOF'
+Build Android wheels locally for Chaquopy (Linux x86_64 host).
+
+This script:
+1) Clones/updates Chaquopy sources locally
+2) Downloads a matching Chaquopy Python target toolchain
+3) Builds pycodec2 Android wheels with Chaquopy's build-wheel tool
+4) Optionally patches LXST wheel metadata for local Android constraints
+5) Vendors the bleak pure-python wheel from PyPI
+6) Vendors httpx[http2] and its pure-python dependency wheels from PyPI
+   (RNS-over-HTTP / HTTPInterface client support)
+7) Patches the rns wheel so its Android RNodeInterface never calls
+   RNS.panic() (os._exit) when usbserial4a/jnius are missing
+8) Builds every recipe under android/chaquopy-recipes/ for each requested
+   ABI (currently: cryptography, miniaudio, aiohttp, cborx, aioquic, ...)
+9) Vendors aioquic pure-python runtime deps (pyopenssl, service-identity, attrs)
+10) Copies outputs to android/vendor
+
+Usage:
+  scripts/build-android-wheels-local.sh [options]
+
+Options:
+  --python-minor X.Y         Python minor for target wheels (default: 3.11)
+  --target-version V         Explicit Chaquopy target version (default: auto latest for python minor)
+  --chaquopy-ref REF         Chaquopy git ref/commit to checkout (default: master)
+  --abis LIST                Comma-separated ABIs (default: arm64-v8a,x86_64,armeabi-v7a)
+  --api-level N              Android API level for wheel tag (default: 24)
+  --pycodec2-version V       pycodec2 version to build (default: 4.1.1)
+  --numpy-version V          NumPy version used during pycodec2 build (default: 1.26.2)
+  --lxst-version V           LXST wheel version for metadata patch (default: 0.5.4)
+  --bleak-version V          bleak pure-python wheel version to vendor (default: 3.0.2)
+  --httpx-version V          httpx pure-python wheel version to vendor (default: 0.28.1)
+  --rns-version V            rns wheel version to patch (default: 1.5.7)
+  --no-lxst-patch            Skip LXST metadata patch
+  --no-rns-patch             Skip RNS Android RNodeInterface patch
+  --only-recipes LIST        Comma-separated recipe directory names under
+                             android/chaquopy-recipes to build. When set, the
+                             NumPy, pycodec2/chaquopy-libcodec2 and LXST steps
+                             are skipped and only matching custom recipes run.
+  --work-dir PATH            Working directory (default: ./.local/chaquopy-build-wheel)
+  --out-dir PATH             Output wheel directory (default: ./android/vendor)
+  -h, --help                 Show this help
+EOF
+}
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if [ "${MESHCHATNEXT_OFFLINE_BUILD:-}" = "1" ]; then
+    echo "MESHCHATNEXT_OFFLINE_BUILD=1: Android wheel build requires network access. Pre-build wheels offline or unset MESHCHATNEXT_OFFLINE_BUILD." >&2
+    exit 1
+fi
+
+PYTHON_MINOR="3.11"
+TARGET_VERSION=""
+CHAQUOPY_REF="${CHAQUOPY_REF:-master}"
+ABI_LIST="arm64-v8a,x86_64,armeabi-v7a"
+API_LEVEL="24"
+PYCODEC2_VERSION="4.1.1"
+LIBCODEC2_VERSION="1.2.0"
+NUMPY_VERSION="1.26.2"
+LXST_VERSION="0.5.4"
+BLEAK_VERSION="3.0.2"
+HTTPX_VERSION="0.28.1"
+PYOPENSSL_VERSION="26.4.0"
+SERVICE_IDENTITY_VERSION="26.1.0"
+ATTRS_VERSION="26.1.0"
+RNS_VERSION="1.5.7"
+PATCH_LXST="1"
+PATCH_RNS="1"
+ONLY_RECIPES=""
+WORK_DIR="${ROOT_DIR}/.local/chaquopy-build-wheel"
+OUT_DIR="${ROOT_DIR}/android/vendor"
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --python-minor)
+            PYTHON_MINOR="${2:?missing value for --python-minor}"
+            shift 2
+            ;;
+        --target-version)
+            TARGET_VERSION="${2:?missing value for --target-version}"
+            shift 2
+            ;;
+        --chaquopy-ref)
+            CHAQUOPY_REF="${2:?missing value for --chaquopy-ref}"
+            shift 2
+            ;;
+        --abis)
+            ABI_LIST="${2:?missing value for --abis}"
+            shift 2
+            ;;
+        --api-level)
+            API_LEVEL="${2:?missing value for --api-level}"
+            shift 2
+            ;;
+        --pycodec2-version)
+            PYCODEC2_VERSION="${2:?missing value for --pycodec2-version}"
+            shift 2
+            ;;
+        --numpy-version)
+            NUMPY_VERSION="${2:?missing value for --numpy-version}"
+            shift 2
+            ;;
+        --lxst-version)
+            LXST_VERSION="${2:?missing value for --lxst-version}"
+            shift 2
+            ;;
+        --bleak-version)
+            BLEAK_VERSION="${2:?missing value for --bleak-version}"
+            shift 2
+            ;;
+        --httpx-version)
+            HTTPX_VERSION="${2:?missing value for --httpx-version}"
+            shift 2
+            ;;
+        --rns-version)
+            RNS_VERSION="${2:?missing value for --rns-version}"
+            shift 2
+            ;;
+        --no-lxst-patch)
+            PATCH_LXST="0"
+            shift
+            ;;
+        --no-rns-patch)
+            PATCH_RNS="0"
+            shift
+            ;;
+        --only-recipes)
+            ONLY_RECIPES="${2:?missing value for --only-recipes}"
+            shift 2
+            ;;
+        --work-dir)
+            WORK_DIR="${2:?missing value for --work-dir}"
+            shift 2
+            ;;
+        --out-dir)
+            OUT_DIR="${2:?missing value for --out-dir}"
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "Unknown argument: $1" >&2
+            usage
+            exit 1
+            ;;
+    esac
+done
+
+require_cmd() {
+    if ! command -v "$1" >/dev/null 2>&1; then
+        echo "Missing required command: $1" >&2
+        exit 1
+    fi
+}
+
+abi_to_platform_tag() {
+    case "$1" in
+        arm64-v8a) echo "android_21_arm64_v8a" ;;
+        x86_64) echo "android_21_x86_64" ;;
+        armeabi-v7a) echo "android_21_armeabi_v7a" ;;
+        x86) echo "android_16_x86" ;;
+        *)
+            echo "Unsupported ABI: $1" >&2
+            exit 1
+            ;;
+    esac
+}
+
+discover_latest_target() {
+    local python_minor="$1"
+    local metadata versions latest
+    metadata="$(curl -fsSL "https://repo.maven.apache.org/maven2/com/chaquo/python/target/maven-metadata.xml")"
+    versions="$(printf '%s\n' "$metadata" \
+        | sed -n 's|.*<version>\(.*\)</version>.*|\1|p' \
+        | awk -v p="${python_minor}." 'index($0, p)==1')"
+    latest="$(printf '%s\n' "$versions" | sort -V | tail -n 1)"
+    if [[ -z "${latest}" ]]; then
+        echo "Could not discover Chaquopy target version for Python ${python_minor}" >&2
+        exit 1
+    fi
+    printf '%s\n' "$latest"
+}
+
+require_cmd git
+require_cmd curl
+require_cmd sed
+require_cmd awk
+require_cmd sort
+require_cmd patchelf
+
+case ",${ABI_LIST}," in
+    *,armeabi-v7a,*)
+        if [[ -z "${ONLY_RECIPES}" ]]; then
+            if [[ -z "${ANDROID_HOME:-}" && -z "${ANDROID_SDK_ROOT:-}" ]]; then
+                echo "armeabi-v7a: NumPy is built from source and needs the Android SDK/NDK (Chaquopy android-env.sh)." >&2
+                echo "Set ANDROID_HOME or ANDROID_SDK_ROOT to your SDK root (with cmdline-tools/latest/bin/sdkmanager)." >&2
+                exit 1
+            fi
+            export ANDROID_HOME="${ANDROID_HOME:-${ANDROID_SDK_ROOT}}"
+            export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME}}"
+            if [[ ! -x "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" ]]; then
+                echo "armeabi-v7a: expected sdkmanager at ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" >&2
+                exit 1
+            fi
+        else
+            export ANDROID_HOME="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+            export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+        fi
+        ;;
+esac
+
+PYTHON_BIN="${PYTHON_BIN:-python${PYTHON_MINOR}}"
+if ! command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
+    echo "Required interpreter not found: ${PYTHON_BIN}" >&2
+    echo "Install Python ${PYTHON_MINOR} (e.g. uv python install ${PYTHON_MINOR}) or set PYTHON_BIN." >&2
+    exit 1
+fi
+
+mkdir -p "${WORK_DIR}" "${OUT_DIR}"
+
+CHAQUOPY_DIR="${WORK_DIR}/chaquopy"
+if [[ ! -d "${CHAQUOPY_DIR}/.git" ]]; then
+    git clone --depth 1 https://github.com/chaquo/chaquopy.git "${CHAQUOPY_DIR}"
+fi
+git -C "${CHAQUOPY_DIR}" fetch --depth 1 origin "${CHAQUOPY_REF}"
+# Hard reset so a restored wheel-build cache cannot leave a half-patched
+# build-wheel.py that breaks the idempotent libpython3.so markers below.
+git -C "${CHAQUOPY_DIR}" checkout --detach --force FETCH_HEAD
+git -C "${CHAQUOPY_DIR}" reset --hard FETCH_HEAD
+git -C "${CHAQUOPY_DIR}" clean -fd -- server/pypi/build-wheel.py
+
+if [[ -z "${TARGET_VERSION}" ]]; then
+    TARGET_VERSION="$(discover_latest_target "${PYTHON_MINOR}")"
+fi
+echo "Using Chaquopy git ref: ${CHAQUOPY_REF}"
+echo "Using Chaquopy target version: ${TARGET_VERSION}"
+
+apply_chaquopy_libpython3_link_fix() {
+    "${PYTHON_BIN}" - <<'PY'
+from pathlib import Path
+import os
+import sys
+
+path = Path(os.environ["BUILD_WHEEL_PY"])
+text = path.read_text()
+changed = False
+
+if "chaquopy_python_abi3_link" not in text:
+    needle = '                    run(f"ln -s {filename} {reqs_lib_dir}/{link_filename}")'
+    if needle not in text:
+        print("Could not find SONAME symlink loop in build-wheel.py", file=sys.stderr)
+        sys.exit(1)
+    # Multiple Python SONAMEs can resolve to libpython.so.
+    # Keep the first valid link rather than attempting to create it twice.
+    guarded = (
+        '                    if not os.path.lexists(f"{reqs_lib_dir}/{link_filename}"):\n'
+        '                            run(f"ln -s {filename} {reqs_lib_dir}/{link_filename}")'
+    )
+    text = text.replace(needle, guarded, 1)
+    insert = """
+
+        # chaquopy_python_abi3_link: PyO3 0.29 abi3 Android builds link libpython3.so (PEP 738).
+        python_soname = f"libpython{self.python}.so"
+        python_abi3_link = "libpython3.so"
+        if exists(f"{reqs_lib_dir}/{python_soname}") and not os.path.lexists(f"{reqs_lib_dir}/{python_abi3_link}"):
+            run(f"ln -s {python_soname} {reqs_lib_dir}/{python_abi3_link}")"""
+    text = text.replace(guarded, guarded + insert, 1)
+    changed = True
+
+if "chaquopy_python_abi3_needed" not in text:
+    needle = """                elif tag.needed in available_libs:
+                    pass
+                else:
+                    raise CommandError(f"{filename} is linked against unknown library "
+                                       f"'{tag.needed}'.")"""
+    if needle not in text:
+        print("Could not find check_requirements validation in build-wheel.py", file=sys.stderr)
+        sys.exit(1)
+    insert = """                elif tag.needed in available_libs:
+                    pass
+                elif (
+                    tag.needed == "libpython3.so"  # chaquopy_python_abi3_needed
+                    and exists(self.python_lib)
+                ):
+                    pass
+                else:
+                    raise CommandError(f"{filename} is linked against unknown library "
+                                       f"'{tag.needed}'.")"""
+    text = text.replace(needle, insert, 1)
+    changed = True
+
+if "chaquopy_python_abi3_available_lib" not in text:
+    needle = "                            available_libs.add(name)\n\n        reqs = set()"
+    if needle not in text:
+        print("Could not find available_libs loop in build-wheel.py fix_wheel", file=sys.stderr)
+        sys.exit(1)
+    insert = """                            available_libs.add(name)
+
+        # chaquopy_python_abi3_available_lib: treat libpython3.so as satisfied by libpythonX.Y.so
+        python_soname = f"libpython{self.python}.so"
+        if python_soname in available_libs:
+            available_libs.add("libpython3.so")
+
+        reqs = set()"""
+    text = text.replace(needle, insert, 1)
+    changed = True
+
+if "chaquopy_pyo3_python311_config_generation" not in text:
+    needle = """    def get_rust_env_vars(self, env):
+        tool_prefix = ABIS[self.abi].tool_prefix"""
+    replacement = """    def get_rust_env_vars(self, env):
+        # chaquopy_pyo3_python311_config_generation
+        if self.package == "cryptography" and self.version == "50.0.2":
+            from pathlib import Path
+            pyo3_config = Path(self.build_dir) / "pyo3-android-config.txt"
+            pyo3_config.parent.mkdir(parents=True, exist_ok=True)
+            pyo3_config.write_text(
+                "implementation=CPython\\n"
+                "version=3.10\\n"
+                "target_abi=CPython-abi3-3.10\\n"
+                "shared=true\\n"
+                "build_flags=\\n"
+                "suppress_build_script_link_lines=false\\n"
+                f"lib_name=python{self.python}\\n"
+            )
+
+        tool_prefix = ABIS[self.abi].tool_prefix"""
+    if text.count(needle) != 1:
+        raise SystemExit("Could not locate Rust environment method")
+    text = text.replace(needle, replacement, 1)
+    changed = True
+
+if "chaquopy_pyo3_python311_link" not in text:
+    needle = '            "PYO3_CROSS_PYTHON_VERSION": self.python,'
+    if text.count(needle) != 1:
+        raise SystemExit("Could not locate Chaquopy PyO3 environment")
+
+    replacement = needle + """
+            # chaquopy_pyo3_python311_link: use the versioned Python
+            # library while retaining PyO3's abi3 feature selection.
+            **(
+                {"PYO3_CONFIG_FILE": f"{self.build_dir}/pyo3-android-config.txt"}
+                if self.package == "cryptography" and self.version == "50.0.2"
+                else {}
+            ),"""
+
+    text = text.replace(needle, replacement, 1)
+    changed = True
+
+if changed:
+    path.write_text(text)
+    print("Applied libpython3.so Chaquopy build-wheel fixes")
+else:
+    print("libpython3.so Chaquopy build-wheel fixes already present")
+PY
+}
+
+pushd "${CHAQUOPY_DIR}" >/dev/null
+TARGET_PATH="maven/com/chaquo/python/target/${TARGET_VERSION}"
+if [[ ! -d "${TARGET_PATH}" ]]; then
+    ./target/download-target.sh "${TARGET_PATH}"
+else
+    echo "Chaquopy target already present: ${TARGET_PATH}"
+fi
+popd >/dev/null
+
+PYPIDIR="${CHAQUOPY_DIR}/server/pypi"
+export BUILD_WHEEL_PY="${PYPIDIR}/build-wheel.py"
+apply_chaquopy_libpython3_link_fix
+VENV_DIR="${PYPIDIR}/.venv-local"
+rm -rf "${VENV_DIR}"
+"${PYTHON_BIN}" -m venv "${VENV_DIR}"
+# Some Python images only provide python3/python3.X in venv bin, while the
+# script below invokes the venv bin/python entrypoint.
+if [[ ! -e "${VENV_DIR}/bin/python" && -e "${VENV_DIR}/bin/python3" ]]; then
+    ln -sf python3 "${VENV_DIR}/bin/python"
+fi
+"${VENV_DIR}/bin/pip" install --upgrade pip
+"${VENV_DIR}/bin/pip" install -r "${PYPIDIR}/requirements.txt"
+"${VENV_DIR}/bin/pip" install "numpy==${NUMPY_VERSION}"
+# Chaquopy build-wheel.py shells out to wheel pack, so ensure the venv scripts are first on PATH.
+export PATH="${VENV_DIR}/bin:${PATH}"
+if ! command -v wheel >/dev/null 2>&1; then
+    echo "Missing required wheel CLI in virtualenv at ${VENV_DIR}" >&2
+    exit 1
+fi
+
+NUMPY_DIST_DIR="${PYPIDIR}/dist/numpy"
+mkdir -p "${NUMPY_DIST_DIR}"
+PYTHON_ABI_TAG="cp${PYTHON_MINOR/./}"
+
+# Chaquopy's numpy recipe lists chaquopy-openblas as a host requirement. build-wheel.py
+# only loads it from ${PYPIDIR}/dist/chaquopy-openblas/ (it does not fetch from the index).
+# Official wheels: https://chaquo.com/pypi-13.1/chaquopy-openblas/
+cache_chaquopy_openblas_for_abi() {
+    local abi="$1"
+    local name url
+    mkdir -p "${PYPIDIR}/dist/chaquopy-openblas"
+    case "${abi}" in
+        armeabi-v7a) name="chaquopy_openblas-0.2.20-5-py3-none-android_16_armeabi_v7a.whl" ;;
+        arm64-v8a)   name="chaquopy_openblas-0.2.20-5-py3-none-android_21_arm64_v8a.whl" ;;
+        x86_64)      name="chaquopy_openblas-0.2.20-5-py3-none-android_21_x86_64.whl" ;;
+        *) return 0 ;;
+    esac
+    url="https://chaquo.com/pypi-13.1/chaquopy-openblas/${name}"
+    if [[ -f "${PYPIDIR}/dist/chaquopy-openblas/${name}" ]]; then
+        return 0
+    fi
+    echo "Caching Chaquopy OpenBLAS wheel for ${abi}"
+    curl -fsSL -o "${PYPIDIR}/dist/chaquopy-openblas/${name}" "${url}"
+}
+
+cache_chaquopy_libffi_for_abi() {
+    local abi="$1"
+    local name url
+    mkdir -p "${PYPIDIR}/dist/chaquopy-libffi"
+    case "${abi}" in
+        armeabi-v7a) name="chaquopy_libffi-3.3-2-py3-none-android_16_armeabi_v7a.whl" ;;
+        arm64-v8a)   name="chaquopy_libffi-3.3-3-py3-none-android_24_arm64_v8a.whl" ;;
+        x86_64)      name="chaquopy_libffi-3.3-3-py3-none-android_24_x86_64.whl" ;;
+        *) return 0 ;;
+    esac
+    url="https://chaquo.com/pypi-13.1/chaquopy-libffi/${name}"
+    if [[ -f "${PYPIDIR}/dist/chaquopy-libffi/${name}" ]]; then
+        return 0
+    fi
+    echo "Caching Chaquopy libffi wheel for ${abi}"
+    curl -fsSL -o "${PYPIDIR}/dist/chaquopy-libffi/${name}" "${url}"
+}
+
+vendor_aioquic_pure_python_deps() {
+    echo "Fetching aioquic pure-python runtime deps"
+    local tmp_dir
+    tmp_dir="$(mktemp -d)"
+    "${VENV_DIR}/bin/pip" download \
+        --only-binary=:all: \
+        --no-deps \
+        "pyopenssl==${PYOPENSSL_VERSION}" \
+        "service-identity==${SERVICE_IDENTITY_VERSION}" \
+        "attrs==${ATTRS_VERSION}" \
+        --dest "${tmp_dir}" \
+        --index-url https://pypi.org/simple
+    for dep_wheel in "${tmp_dir}"/*.whl; do
+        cp -f "${dep_wheel}" "${OUT_DIR}/"
+    done
+    rm -rf "${tmp_dir}"
+    for required_name in \
+        "pyopenssl-${PYOPENSSL_VERSION}-" \
+        "service_identity-${SERVICE_IDENTITY_VERSION}-" \
+        "attrs-${ATTRS_VERSION}-"
+    do
+        if ! ls "${OUT_DIR}/${required_name}"*.whl >/dev/null 2>&1; then
+            echo "Expected ${required_name}*.whl in ${OUT_DIR} (aioquic runtime dep)" >&2
+            exit 1
+        fi
+    done
+}
+
+if [[ -z "${ONLY_RECIPES}" ]]; then
+    for abi in ${ABI_LIST//,/ }; do
+        platform_tag="$(abi_to_platform_tag "${abi}")"
+        echo "Resolving NumPy wheel for ABI ${abi} (${platform_tag})"
+        if ! "${VENV_DIR}/bin/pip" download \
+            --only-binary=:all: \
+            --no-deps \
+            --platform "${platform_tag}" \
+            --python-version "${PYTHON_MINOR/./}" \
+            --implementation cp \
+            --abi "${PYTHON_ABI_TAG}" \
+            "numpy==${NUMPY_VERSION}" \
+            --index-url https://pypi.org/simple \
+            --extra-index-url https://chaquo.com/pypi-13.1 \
+            --dest "${NUMPY_DIST_DIR}"; then
+            echo "No prebuilt NumPy wheel for ${abi}; building locally via Chaquopy recipe"
+            cache_chaquopy_openblas_for_abi "${abi}"
+            "${VENV_DIR}/bin/python" "${PYPIDIR}/build-wheel.py" \
+                --python "${PYTHON_MINOR}" \
+                --api-level "${API_LEVEL}" \
+                --abi "${abi}" \
+                "${PYPIDIR}/packages/numpy"
+        fi
+    done
+else
+    echo "Skipping NumPy wheel resolution (--only-recipes set)"
+fi
+
+if [[ -z "${ONLY_RECIPES}" ]]; then
+
+RECIPE_DIR="${WORK_DIR}/recipes/pycodec2-local"
+LIBCODEC2_RECIPE_DIR="${WORK_DIR}/recipes/chaquopy-libcodec2-local"
+SOURCE_DIR="${WORK_DIR}/sources/pycodec2-${PYCODEC2_VERSION}"
+rm -rf "${RECIPE_DIR}" "${LIBCODEC2_RECIPE_DIR}"
+mkdir -p "${RECIPE_DIR}" "${LIBCODEC2_RECIPE_DIR}" "${WORK_DIR}/sources"
+
+rm -rf "${SOURCE_DIR}"
+"${VENV_DIR}/bin/python" - <<PY
+import json
+import tarfile
+import urllib.request
+from pathlib import Path
+
+version = "${PYCODEC2_VERSION}"
+work_dir = Path("${WORK_DIR}")
+sources_dir = Path("${WORK_DIR}/sources")
+sdist_path = work_dir / f"pycodec2-{version}.tar.gz"
+
+with urllib.request.urlopen(f"https://pypi.org/pypi/pycodec2/{version}/json") as resp:
+    payload = json.load(resp)
+
+sdist_url = None
+for file_entry in payload.get("urls", []):
+    if file_entry.get("packagetype") == "sdist":
+        sdist_url = file_entry.get("url")
+        break
+
+if not sdist_url:
+    raise SystemExit(f"No sdist URL found for pycodec2 {version}")
+
+urllib.request.urlretrieve(sdist_url, sdist_path)
+with tarfile.open(sdist_path, "r:gz") as tf:
+    tf.extractall(path=sources_dir)
+sdist_path.unlink()
+PY
+
+"${VENV_DIR}/bin/python" - <<PY
+from pathlib import Path
+
+pyproject = Path("${SOURCE_DIR}/pyproject.toml")
+text = pyproject.read_text()
+text = text.replace('numpy==2.1.*', 'numpy==${NUMPY_VERSION}')
+text = text.replace('numpy>=2.00, <3.0.0', 'numpy==${NUMPY_VERSION}')
+pyproject.write_text(text)
+
+setup_py = Path("${SOURCE_DIR}/setup.py")
+setup_text = setup_py.read_text()
+if "from pathlib import Path" not in setup_text:
+    setup_text = setup_text.replace("import sys\n", "import sys\nfrom pathlib import Path\n")
+setup_text = setup_text.replace(
+    'libraries=["libcodec2"] if sys.platform == "win32" else ["codec2"],',
+    'libraries=["libcodec2"] if sys.platform == "win32" else [],'
+)
+if "extra_objects=[] if sys.platform == \"win32\"" not in setup_text:
+    setup_text = setup_text.replace(
+        'libraries=["libcodec2"] if sys.platform == "win32" else [],',
+        'libraries=["libcodec2"] if sys.platform == "win32" else [],\n'
+        '        extra_objects=[] if sys.platform == "win32" else [str((Path(__file__).resolve().parent / "pycodec2" / "libcodec2.so"))],'
+    )
+if "class ChaquopyBuildExt" not in setup_text:
+    setup_text = setup_text.replace(
+        "setup(",
+        "class ChaquopyBuildExt(Cython.Build.build_ext):\n"
+        "    def build_extensions(self):\n"
+        "        c_file = Path(__file__).resolve().parent / \"pycodec2\" / \"pycodec2.c\"\n"
+        "        if c_file.exists():\n"
+        "            text = c_file.read_text()\n"
+        "            text = text.replace(\n"
+        "                \"#ifndef CYTHON_NO_PYINIT_EXPORT\",\n"
+        "                \"#undef CYTHON_NO_PYINIT_EXPORT\\\\n#ifndef CYTHON_NO_PYINIT_EXPORT\",\n"
+        "            )\n"
+        "            text = text.replace(\n"
+        "                \"#define __Pyx_PyMODINIT_FUNC PyMODINIT_FUNC\",\n"
+        '                \'#define __Pyx_PyMODINIT_FUNC __attribute__((visibility("default"))) PyObject *\',\n'
+        "            )\n"
+        "            c_file.write_text(text)\n"
+        "        if sys.platform != \"win32\":\n"
+        "            self.compiler.linker_so = [\n"
+        "                arg for arg in self.compiler.linker_so\n"
+        "                if \"python3\" not in arg and arg != \"-Wl,--no-undefined\"\n"
+        "            ]\n"
+        "        super().build_extensions()\n\n"
+        "setup("
+    )
+setup_text = setup_text.replace(
+    'cmdclass={"build_ext": Cython.Build.build_ext},',
+    'cmdclass={"build_ext": ChaquopyBuildExt},'
+)
+setup_py.write_text(setup_text)
+
+import shutil
+import numpy as np
+import re
+
+numpy_headers = Path(np.get_include()) / "numpy"
+vendored_numpy = Path("${SOURCE_DIR}/pycodec2/numpy")
+if vendored_numpy.exists():
+    shutil.rmtree(vendored_numpy)
+shutil.copytree(numpy_headers, vendored_numpy)
+
+include_pattern = re.compile(r'#include\s+<numpy/([^>]+)>')
+for header in vendored_numpy.rglob("*.h"):
+    content = header.read_text()
+    content = include_pattern.sub(r'#include "\1"', content)
+    header.write_text(content)
+PY
+
+cat > "${LIBCODEC2_RECIPE_DIR}/meta.yaml" <<EOF
+package:
+  name: chaquopy-libcodec2
+  version: "${LIBCODEC2_VERSION}"
+
+source:
+  git_url: "https://github.com/drowe67/codec2.git"
+  git_rev: "${LIBCODEC2_VERSION}"
+
+requirements:
+  build:
+    - cmake 3.22.1
+
+about:
+  license_file: COPYING
+EOF
+
+cat > "${LIBCODEC2_RECIPE_DIR}/build.sh" <<'EOF'
+#!/bin/bash
+set -eu
+
+# Build a host-native codebook generator and patch CMake to use it while cross-compiling.
+cc src/generate_codebook.c -lm -o src/generate_codebook_host
+python3 - <<'PY'
+from pathlib import Path
+
+cmake_file = Path("src/CMakeLists.txt")
+text = cmake_file.read_text()
+old_block = """# when crosscompiling we need a native executable
+if(CMAKE_CROSSCOMPILING)
+    set(CMAKE_DISABLE_SOURCE_CHANGES OFF)
+    include(ExternalProject)
+    ExternalProject_Add(codec2_native
+       SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/..
+       BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/codec2_native
+       BUILD_COMMAND ${CMAKE_COMMAND} --build . --target generate_codebook
+       INSTALL_COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_BINARY_DIR}/codec2_native/src/generate_codebook ${CMAKE_CURRENT_BINARY_DIR}
+       BUILD_BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/generate_codebook
+    )
+    add_executable(generate_codebook IMPORTED)
+    set_target_properties(generate_codebook PROPERTIES
+        IMPORTED_LOCATION ${CMAKE_CURRENT_BINARY_DIR}/generate_codebook)
+    add_dependencies(generate_codebook codec2_native)
+    set(CMAKE_DISABLE_SOURCE_CHANGES ON)
+else(CMAKE_CROSSCOMPILING)
+# Build code generator binaries. These do not get installed.
+    # generate_codebook
+    add_executable(generate_codebook generate_codebook.c)
+    target_link_libraries(generate_codebook m)
+    # Make native builds available for cross-compiling.
+    export(TARGETS generate_codebook
+        FILE ${CMAKE_BINARY_DIR}/ImportExecutables.cmake)
+endif(CMAKE_CROSSCOMPILING)
+"""
+new_block = """# Use host-native generator to avoid nested cross-compilation recursion.
+set(HOST_GENERATE_CODEBOOK ${CMAKE_CURRENT_SOURCE_DIR}/generate_codebook_host)
+"""
+if old_block not in text:
+    raise SystemExit("Could not find expected generate_codebook block in CMakeLists.txt")
+text = text.replace(old_block, new_block)
+text = text.replace("COMMAND generate_codebook", "COMMAND ${HOST_GENERATE_CODEBOOK}")
+text = text.replace("DEPENDS generate_codebook ", "DEPENDS ")
+cmake_file.write_text(text)
+
+codec2_h = Path("src/codec2.h")
+codec2_text = codec2_h.read_text()
+codec2_text = codec2_text.replace("#include <codec2/version.h>", '#include "version.h"')
+codec2_h.write_text(codec2_text)
+
+Path("src/version.h").write_text(
+    "#ifndef CODEC2_VERSION_H\n"
+    "#define CODEC2_VERSION_H\n"
+    "#define CODEC2_VERSION_MAJOR 1\n"
+    "#define CODEC2_VERSION_MINOR 2\n"
+    "#define CODEC2_VERSION_PATCH 0\n"
+    "#define CODEC2_VERSION \"1.2.0\"\n"
+    "#endif\n"
+)
+
+root_cmake = Path("CMakeLists.txt")
+root_text = root_cmake.read_text()
+root_text = root_text.replace("add_subdirectory(demo)\n", "")
+root_cmake.write_text(root_text)
+PY
+
+mkdir -p build-chaquopy
+cd build-chaquopy
+cmake .. \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX="$PREFIX" \
+    -DBUILD_SHARED_LIBS=ON
+mkdir -p src
+cp -f ../src/defines.h src/defines.h
+make -j "$CPU_COUNT"
+make install
+mkdir -p "$PREFIX/include/codec2"
+cp -f ../src/version.h "$PREFIX/include/codec2/version.h"
+
+rm -f "$PREFIX"/lib/*.a || true
+rm -rf "$PREFIX"/lib/cmake || true
+rm -rf "$PREFIX"/share || true
+EOF
+chmod +x "${LIBCODEC2_RECIPE_DIR}/build.sh"
+
+cat > "${RECIPE_DIR}/meta.yaml" <<EOF
+package:
+  name: pycodec2
+  version: "${PYCODEC2_VERSION}"
+
+source:
+  path: "${SOURCE_DIR}"
+
+requirements:
+  build:
+    - cython 3.0.11
+  host:
+    - chaquopy-libcodec2 ${LIBCODEC2_VERSION}
+    - python
+
+about:
+  license_file: LICENSE
+EOF
+
+pushd "${PYPIDIR}" >/dev/null
+for abi in ${ABI_LIST//,/ }; do
+    abi_tag="${abi//-/_}"
+
+    echo "Building chaquopy-libcodec2 ${LIBCODEC2_VERSION} for ${abi}"
+    "${VENV_DIR}/bin/python" "${PYPIDIR}/build-wheel.py" \
+        --python "${PYTHON_MINOR}" \
+        --api-level "${API_LEVEL}" \
+        --abi "${abi}" \
+        "${LIBCODEC2_RECIPE_DIR}"
+
+    LIBCODEC2_PREFIX="${LIBCODEC2_RECIPE_DIR}/build/${LIBCODEC2_VERSION}/py3-none-android_${API_LEVEL}_${abi_tag}/prefix/chaquopy"
+    if [[ ! -f "${LIBCODEC2_PREFIX}/lib/libcodec2.so" ]]; then
+        echo "Missing libcodec2 output for ${abi}: ${LIBCODEC2_PREFIX}/lib/libcodec2.so" >&2
+        exit 1
+    fi
+    mkdir -p "${SOURCE_DIR}/pycodec2/codec2"
+    cp -f "${LIBCODEC2_PREFIX}/include/codec2/codec2.h" "${SOURCE_DIR}/pycodec2/codec2/codec2.h"
+    cp -f "${LIBCODEC2_PREFIX}/include/codec2/version.h" "${SOURCE_DIR}/pycodec2/codec2/version.h"
+    cp -f "${LIBCODEC2_PREFIX}/lib/libcodec2.so" "${SOURCE_DIR}/pycodec2/libcodec2.so"
+    sed -i 's|#include <codec2/version.h>|#include "version.h"|' "${SOURCE_DIR}/pycodec2/codec2/codec2.h"
+
+    PYCODEC2_PREFIX="${RECIPE_DIR}/build/${PYCODEC2_VERSION}/${PYTHON_ABI_TAG}-${PYTHON_ABI_TAG}-android_${API_LEVEL}_${abi_tag}/requirements/chaquopy"
+    PY_INCLUDE_DIR="${PYCODEC2_PREFIX}/include/python${PYTHON_MINOR}"
+    mkdir -p "${PY_INCLUDE_DIR}/numpy" "${PY_INCLUDE_DIR}/codec2" "${PYCODEC2_PREFIX}/lib"
+    cp -f "${SOURCE_DIR}/pycodec2/codec2/codec2.h" "${PY_INCLUDE_DIR}/codec2/codec2.h"
+    cp -f "${SOURCE_DIR}/pycodec2/codec2/version.h" "${PY_INCLUDE_DIR}/codec2/version.h"
+    cp -rf "${SOURCE_DIR}/pycodec2/numpy/." "${PY_INCLUDE_DIR}/numpy/"
+    cp -f "${SOURCE_DIR}/pycodec2/libcodec2.so" "${PYCODEC2_PREFIX}/lib/libcodec2.so"
+
+    echo "Building pycodec2 ${PYCODEC2_VERSION} for ${abi}"
+    C_INCLUDE_PATH="${PY_INCLUDE_DIR}" CPLUS_INCLUDE_PATH="${PY_INCLUDE_DIR}" LIBRARY_PATH="${PYCODEC2_PREFIX}/lib" "${VENV_DIR}/bin/python" "${PYPIDIR}/build-wheel.py" \
+        --python "${PYTHON_MINOR}" \
+        --api-level "${API_LEVEL}" \
+        --abi "${abi}" \
+        "${RECIPE_DIR}"
+done
+popd >/dev/null
+
+mkdir -p "${OUT_DIR}"
+shopt -s nullglob
+_codec2_wheels=("${PYPIDIR}/dist/chaquopy-libcodec2/chaquopy_libcodec2-${LIBCODEC2_VERSION}-"*.whl)
+_pycodec2_wheels=("${PYPIDIR}/dist/pycodec2/pycodec2-${PYCODEC2_VERSION}-"*.whl)
+shopt -u nullglob
+cp -f "${_codec2_wheels[@]}" "${OUT_DIR}/"
+cp -f "${_pycodec2_wheels[@]}" "${OUT_DIR}/"
+
+echo "Bundling libcodec2.so into pycodec2 wheels (Android dlopen)"
+"${VENV_DIR}/bin/python" "${ROOT_DIR}/scripts/repack-android-pycodec2-wheels.py" --vendor-dir "${OUT_DIR}"
+
+else
+    echo "Skipping pycodec2/chaquopy-libcodec2 builds (--only-recipes set)"
+fi
+
+mkdir -p "${OUT_DIR}"
+
+if [[ "${PATCH_LXST}" == "1" && -z "${ONLY_RECIPES}" ]]; then
+    TMP_DIR="$(mktemp -d)"
+    trap 'rm -rf "${TMP_DIR}"' EXIT
+
+    "${VENV_DIR}/bin/pip" download \
+        --only-binary=:all: \
+        --no-deps \
+        "lxst==${LXST_VERSION}" \
+        --dest "${TMP_DIR}" \
+        --index-url https://pypi.org/simple
+
+    LXST_WHEEL="$(ls "${TMP_DIR}"/lxst-"${LXST_VERSION}"-py3-none-any.whl)"
+    PATCHED_LXST_WHEEL="${OUT_DIR}/lxst-${LXST_VERSION}-py3-none-any.whl"
+
+    "${VENV_DIR}/bin/python" - <<PY
+import zipfile
+from pathlib import Path
+
+src = Path("${LXST_WHEEL}")
+dst = Path("${PATCHED_LXST_WHEEL}")
+patched_codecs_init = """from .Codec import CodecError as CodecError
+from .Codec import Codec as Codec
+from .Codec import Null as Null
+from .Raw import Raw as Raw
+from .Opus import Opus as Opus
+
+_CODEC2_IMPORT_ERROR = None
+try:
+    from .Codec2 import Codec2 as Codec2
+except Exception as _codec2_exc:
+    Codec2 = None
+    _CODEC2_IMPORT_ERROR = _codec2_exc
+
+NULL   = 0xFF
+RAW    = 0x00
+OPUS   = 0x01
+CODEC2 = 0x02
+
+def _raise_codec2_unavailable():
+    if _CODEC2_IMPORT_ERROR is not None:
+        raise CodecError(f"Codec2 backend unavailable: {_CODEC2_IMPORT_ERROR}")
+    raise CodecError("Codec2 backend unavailable")
+
+def codec_header_byte(codec):
+    if codec == Raw:
+        return RAW.to_bytes()
+    elif codec == Opus:
+        return OPUS.to_bytes()
+    elif Codec2 is not None and codec == Codec2:
+        return CODEC2.to_bytes()
+
+    raise TypeError(f"No header mapping for codec type {codec}")
+
+def codec_type(header_byte):
+    if header_byte == RAW:
+        return Raw
+    elif header_byte == OPUS:
+        return Opus
+    elif header_byte == CODEC2:
+        if Codec2 is None:
+            _raise_codec2_unavailable()
+        return Codec2
+"""
+
+with zipfile.ZipFile(src, "r") as zin, zipfile.ZipFile(dst, "w", compression=zipfile.ZIP_DEFLATED) as zout:
+    for item in zin.infolist():
+        data = zin.read(item.filename)
+        if item.filename == "LXST/Codecs/__init__.py":
+            data = patched_codecs_init.encode("utf-8")
+        elif item.filename == "LXST/Filters.py":
+            text = data.decode("utf-8")
+            # Chaquopy's importer returns a spec whose origin .so is only
+            # extracted when a module is created. filterlib has no PyInit, so
+            # nothing ever imports it and dlopen(origin) hits a missing file.
+            # Force the lazy extraction through create_module first.
+            old_spec = '                if not filterlib_spec or filterlib_spec.origin == None: raise ImportError("Could not locate pre-compiled LXST.filterlib module")\n'
+            new_spec = old_spec + (
+                '                if not os.path.exists(filterlib_spec.origin):\n'
+                '                    try: filterlib_spec.loader.create_module(filterlib_spec)\n'
+                '                    except Exception: pass\n'
+            )
+            if old_spec in text and new_spec not in text:
+                text = text.replace(old_spec, new_spec)
+            data = text.encode("utf-8")
+        elif item.filename == "LXST/Primitives/Telephony.py":
+            text = data.decode("utf-8")
+            old_get_codec = """    @staticmethod
+    def get_codec(profile):
+        if   profile == Profiles.BANDWIDTH_ULTRA_LOW: return Codec2(mode=Codec2.CODEC2_700C)
+        elif profile == Profiles.BANDWIDTH_VERY_LOW:  return Codec2(mode=Codec2.CODEC2_1600)
+        elif profile == Profiles.BANDWIDTH_LOW:       return Codec2(mode=Codec2.CODEC2_3200)
+        elif profile == Profiles.QUALITY_MEDIUM:      return Opus(profile=Opus.PROFILE_VOICE_MEDIUM)
+        elif profile == Profiles.QUALITY_HIGH:        return Opus(profile=Opus.PROFILE_VOICE_HIGH)
+        elif profile == Profiles.QUALITY_MAX:         return Opus(profile=Opus.PROFILE_VOICE_MAX)
+        elif profile == Profiles.LATENCY_LOW:         return Opus(profile=Opus.PROFILE_VOICE_MEDIUM)
+        elif profile == Profiles.LATENCY_ULTRA_LOW:   return Opus(profile=Opus.PROFILE_VOICE_MEDIUM)
+        else:                                         return Opus(profile=Opus.PROFILE_VOICE_MEDIUM)
+"""
+            new_get_codec = """    @staticmethod
+    def get_codec(profile):
+        if Codec2 is not None:
+            if   profile == Profiles.BANDWIDTH_ULTRA_LOW: return Codec2(mode=Codec2.CODEC2_700C)
+            elif profile == Profiles.BANDWIDTH_VERY_LOW:  return Codec2(mode=Codec2.CODEC2_1600)
+            elif profile == Profiles.BANDWIDTH_LOW:       return Codec2(mode=Codec2.CODEC2_3200)
+        if   profile == Profiles.QUALITY_MEDIUM:      return Opus(profile=Opus.PROFILE_VOICE_MEDIUM)
+        elif profile == Profiles.QUALITY_HIGH:        return Opus(profile=Opus.PROFILE_VOICE_HIGH)
+        elif profile == Profiles.QUALITY_MAX:         return Opus(profile=Opus.PROFILE_VOICE_MAX)
+        elif profile == Profiles.LATENCY_LOW:         return Opus(profile=Opus.PROFILE_VOICE_MEDIUM)
+        elif profile == Profiles.LATENCY_ULTRA_LOW:   return Opus(profile=Opus.PROFILE_VOICE_MEDIUM)
+        else:                                         return Opus(profile=Opus.PROFILE_VOICE_MEDIUM)
+"""
+            if old_get_codec in text:
+                text = text.replace(old_get_codec, new_get_codec)
+            data = text.encode("utf-8")
+        elif item.filename.endswith(".dist-info/METADATA"):
+            text = data.decode("utf-8")
+            text = text.replace("Requires-Dist: numpy>=2.3.4", "Requires-Dist: numpy==${NUMPY_VERSION}")
+            text = text.replace("Requires-Dist: cffi==1.15.1", "Requires-Dist: cffi>=1.15.1")
+            # LXST 0.5.0 pins cffi>=2.0.0. Chaquopy Android may resolve older
+            # cffi wheels, so keep the lower bound flexible like prior releases.
+            text = text.replace("Requires-Dist: cffi>=2.0.0", "Requires-Dist: cffi>=1.15.1")
+            data = text.encode("utf-8")
+        zout.writestr(item, data)
+PY
+
+    # Cross-compile LXST Filters.c with the NDK into per-ABI wheels carrying
+    # LXST/filterlib.so so find_spec("LXST.filterlib") resolves on Android
+    # instead of attempting a runtime source compile.
+    "${VENV_DIR}/bin/python" \
+        "${ROOT_DIR}/scripts/build-android-lxst-filterlib.py" \
+        --out-dir "${OUT_DIR}" \
+        --abis "${ABI_LIST}" \
+        --api "${API_LEVEL}" \
+        --version "${LXST_VERSION}" \
+        --lxst-wheel "${PATCHED_LXST_WHEEL}"
+fi
+
+if [[ -z "${ONLY_RECIPES}" ]]; then
+    # PyPI publishes usbserial4a 0.4.0 as source only. Chaquopy installs
+    # Android dependencies from wheels, so prepare its pure-Python wheel here.
+    USB_REQUIREMENTS="${WORK_DIR}/usbserial4a-requirements.txt"
+    printf '%s\n' 'usbserial4a==0.4.0 --hash=sha256:0777e9cc0bad0d8fccc27f64af3e849062765e0c5059d78ef90cffa825413178' > "${USB_REQUIREMENTS}"
+    "${VENV_DIR}/bin/pip" wheel --no-deps --no-build-isolation --require-hashes \
+        --wheel-dir "${OUT_DIR}" --requirement "${USB_REQUIREMENTS}"
+    "${VENV_DIR}/bin/pip" download --only-binary=:all: --no-deps \
+        --dest "${OUT_DIR}" "usb4a==0.3.0"
+fi
+
+if [[ -z "${ONLY_RECIPES}" ]]; then
+    echo "Fetching bleak ${BLEAK_VERSION} pure-python wheel"
+    BLEAK_TMP_DIR="$(mktemp -d)"
+
+    "${VENV_DIR}/bin/pip" download \
+        --only-binary=:all: \
+        --no-deps \
+        "bleak==${BLEAK_VERSION}" \
+        --dest "${BLEAK_TMP_DIR}" \
+        --index-url https://pypi.org/simple
+
+    BLEAK_WHEEL="$(ls "${BLEAK_TMP_DIR}"/bleak-"${BLEAK_VERSION}"-py3-none-any.whl)"
+    PATCHED_BLEAK_WHEEL="${OUT_DIR}/bleak-${BLEAK_VERSION}-py3-none-any.whl"
+
+    # Android uses bleak's p4android backend (pyjnius). The platform-specific
+    # backend requirements (dbus-fast on Linux, pyobjc on macOS, winrt on
+    # Windows) are useless on Android and dbus-fast has no Android wheel, so
+    # strip them from the wheel metadata before bundling.
+    "${VENV_DIR}/bin/python" - <<PY
+import zipfile
+from pathlib import Path
+
+src = Path("${BLEAK_WHEEL}")
+dst = Path("${PATCHED_BLEAK_WHEEL}")
+
+def keep(line):
+    if not line.startswith("Requires-Dist:"):
+        return True
+    return "sys_platform ==" not in line
+
+with zipfile.ZipFile(src, "r") as zin, zipfile.ZipFile(dst, "w", compression=zipfile.ZIP_DEFLATED) as zout:
+    for item in zin.infolist():
+        data = zin.read(item.filename)
+        if item.filename.endswith(".dist-info/METADATA"):
+            text = data.decode("utf-8")
+            text = "\n".join(line for line in text.splitlines() if keep(line)) + "\n"
+            data = text.encode("utf-8")
+        zout.writestr(item, data)
+PY
+
+    rm -rf "${BLEAK_TMP_DIR}"
+
+    if ! ls "${PATCHED_BLEAK_WHEEL}" >/dev/null 2>&1; then
+        echo "Expected bleak-${BLEAK_VERSION}-py3-none-any.whl in ${OUT_DIR}" >&2
+        exit 1
+    fi
+
+    echo "Fetching httpx[http2] ${HTTPX_VERSION} pure-python wheels (and deps)"
+    HTTPX_TMP_DIR="$(mktemp -d)"
+    "${VENV_DIR}/bin/pip" download \
+        --only-binary=:all: \
+        "httpx[http2]==${HTTPX_VERSION}" \
+        --dest "${HTTPX_TMP_DIR}" \
+        --index-url https://pypi.org/simple
+
+    HTTPX_WHEEL="$(ls "${HTTPX_TMP_DIR}"/httpx-"${HTTPX_VERSION}"-py3-none-any.whl)"
+    cp -f "${HTTPX_WHEEL}" "${OUT_DIR}/"
+    # Vendor transitive pure-python deps so offline/find-links builds resolve.
+    for dep_wheel in "${HTTPX_TMP_DIR}"/*.whl; do
+        base="$(basename "${dep_wheel}")"
+        if [[ "${base}" == httpx-* ]]; then
+            continue
+        fi
+        cp -f "${dep_wheel}" "${OUT_DIR}/"
+    done
+    rm -rf "${HTTPX_TMP_DIR}"
+
+    if ! ls "${OUT_DIR}/httpx-${HTTPX_VERSION}-py3-none-any.whl" >/dev/null 2>&1; then
+        echo "Expected httpx-${HTTPX_VERSION}-py3-none-any.whl in ${OUT_DIR}" >&2
+        exit 1
+    fi
+    for required_prefix in httpcore- h2- h11- anyio- hpack- hyperframe-; do
+        if ! ls "${OUT_DIR}/${required_prefix}"*.whl >/dev/null 2>&1; then
+            echo "Expected ${required_prefix}*.whl in ${OUT_DIR} (httpx[http2] dependency)" >&2
+            exit 1
+        fi
+    done
+
+    vendor_aioquic_pure_python_deps
+fi
+
+if [[ -n "${ONLY_RECIPES}" && " ${ONLY_RECIPES//,/ } " == *" aioquic-1.3 "* ]]; then
+    vendor_aioquic_pure_python_deps
+fi
+
+if [[ "${PATCH_RNS}" == "1" && -z "${ONLY_RECIPES}" ]]; then
+    echo "Fetching and patching rns ${RNS_VERSION} for Android"
+    RNS_TMP_DIR="$(mktemp -d)"
+
+    "${VENV_DIR}/bin/pip" download \
+        --only-binary=:all: \
+        --no-deps \
+        "rns==${RNS_VERSION}" \
+        --dest "${RNS_TMP_DIR}" \
+        --index-url https://pypi.org/simple
+
+    RNS_WHEEL="$(ls "${RNS_TMP_DIR}"/rns-"${RNS_VERSION}"-py3-none-any.whl)"
+    PATCHED_RNS_WHEEL="${OUT_DIR}/rns-${RNS_VERSION}-py3-none-any.whl"
+
+    # RNS's Android-specific RNodeInterface calls RNS.panic() (os._exit) when
+    # usbserial4a/jnius aren't importable, even for RNode over TCP, which
+    # needs neither. Since Reticulum.py also panics on any exception raised
+    # from an interface's __init__, the fix is to never raise/panic there:
+    # leave serial/bt_manager as None and let the transport-specific code
+    # (open_port/configure_device) fail into RNodeInterface's own existing
+    # reconnect-loop instead of crashing the whole app.
+    "${VENV_DIR}/bin/python" - <<PY
+import zipfile
+from pathlib import Path
+
+src = Path("${RNS_WHEEL}")
+dst = Path("${PATCHED_RNS_WHEEL}")
+
+start_marker = (
+    "        import importlib.util\n"
+    "        if RNS.vendor.platformutils.is_android():\n"
+)
+end_marker = (
+    '            raise SystemError("Android-specific interface was used on non-Android OS")\n'
+)
+
+new_block = '''        import importlib.util
+        serial = None
+        self.bt_manager = None
+        self.bt_target_device_name = target_device_name
+        self.bt_target_device_address = target_device_address
+        if RNS.vendor.platformutils.is_android():
+            self.on_android  = True
+            if importlib.util.find_spec('usbserial4a') != None:
+                if importlib.util.find_spec('jnius') == None:
+                    RNS.log("Could not load jnius API wrapper for Android. USB serial and classic Bluetooth are unavailable for "+str(name)+".", RNS.LOG_ERROR)
+                    RNS.log("This probably means you are trying to use an USB-based interface from within Termux or similar, or", RNS.LOG_ERROR)
+                    RNS.log("that the running app does not bundle jnius. RNode over TCP is not affected by this.", RNS.LOG_ERROR)
+
+                else:
+                    from usbserial4a import serial4a as serial
+                    self.parity = "N"
+
+                    if allow_bluetooth:
+                        try:
+                            self.bt_manager = AndroidBluetoothManager(
+                                owner = self,
+                                target_device_name = self.bt_target_device_name,
+                                target_device_address = self.bt_target_device_address
+                            )
+                        except Exception as e:
+                            RNS.log("Could not initialise classic Bluetooth support: "+str(e), RNS.LOG_ERROR)
+                            self.bt_manager = None
+
+            else:
+                RNS.log("Could not load USB serial module for Android. USB serial RNode transport is unavailable for "+str(name)+".", RNS.LOG_ERROR)
+                RNS.log("You can install this module by issuing: pip install usbserial4a", RNS.LOG_ERROR)
+        else:
+            raise SystemError("Android-specific interface was used on non-Android OS")
+'''
+
+bt_enabled_marker = '''    def bt_enabled(self):
+        return self.bt_adapter.getDefaultAdapter().isEnabled()
+'''
+bt_enabled_new = '''    def bt_enabled(self):
+        try:
+            adapter = self.bt_adapter.getDefaultAdapter()
+            return adapter != None and adapter.isEnabled()
+        except Exception:
+            return False
+'''
+
+# Paired devices can carry a null name (BLE-only or partially populated
+# bonding records). An unguarded .lower() kills device enumeration, so the
+# manager reports "no suitable bluetooth devices" forever.
+get_name_replacements = [
+    (
+        "if device.getName().lower() == self.target_device_name.lower():",
+        'if str(device.getName() or "").lower() == self.target_device_name.lower():',
+    ),
+    (
+        'if device.getName().lower().startswith("rnode "):',
+        'if str(device.getName() or "").lower().startswith("rnode "):',
+    ),
+    (
+        "if device.getName().lower() == self.target_name.lower():",
+        'if str(device.getName() or "").lower() == self.target_name.lower():',
+    ),
+    (
+        'if device.getName().startswith("RNode "):',
+        'if str(device.getName() or "").startswith("RNode "):',
+    ),
+]
+
+# getBondedDevices() needs BLUETOOTH_CONNECT on API 31+. A denied grant raises
+# SecurityException, which propagates out of open_port and the BLE connection
+# thread, leaving the interface offline with no retry path.
+paired_devices_marker = '''    def get_paired_devices(self):
+        if self.bt_enabled():
+            return self.bt_adapter.getDefaultAdapter().getBondedDevices()
+'''
+paired_devices_new = '''    def get_paired_devices(self):
+        if self.bt_enabled():
+            try:
+                devices = self.bt_adapter.getDefaultAdapter().getBondedDevices()
+                return list(devices.toArray())
+            except Exception as e:
+                RNS.log("Could not query paired Bluetooth devices: "+str(e), RNS.LOG_ERROR)
+                return []
+'''
+
+def patch_rnode_interface(data):
+    text = data.decode("utf-8")
+    start_idx = text.index(start_marker)
+    end_idx = text.index(end_marker, start_idx) + len(end_marker)
+    text = text[:start_idx] + new_block + text[end_idx:]
+    # getDefaultAdapter() returns null on devices without Bluetooth and every
+    # Bluetooth call can raise SecurityException when the runtime permission
+    # was denied. An unhandled raise here would kill the connection thread.
+    if bt_enabled_marker not in text:
+        raise SystemExit("bt_enabled marker not found in RNodeInterface.py")
+    text = text.replace(bt_enabled_marker, bt_enabled_new, 1)
+    for marker, replacement in get_name_replacements:
+        if marker not in text:
+            raise SystemExit("getName marker not found in RNodeInterface.py: " + marker)
+        # The target_device_name match appears in both the address-with-name
+        # and name-only branches, so replace every occurrence.
+        text = text.replace(marker, replacement)
+    if paired_devices_marker not in text:
+        raise SystemExit("get_paired_devices marker not found in RNodeInterface.py")
+    text = text.replace(paired_devices_marker, paired_devices_new, 1)
+    return text.encode("utf-8")
+
+patched_target = "RNS/Interfaces/Android/RNodeInterface.py"
+found = False
+with zipfile.ZipFile(src, "r") as zin, zipfile.ZipFile(dst, "w", compression=zipfile.ZIP_DEFLATED) as zout:
+    for item in zin.infolist():
+        data = zin.read(item.filename)
+        if item.filename == patched_target:
+            data = patch_rnode_interface(data)
+            found = True
+        zout.writestr(item, data)
+
+if not found:
+    raise SystemExit(f"Could not find {patched_target} in {src}")
+PY
+
+    rm -rf "${RNS_TMP_DIR}"
+
+    if ! ls "${PATCHED_RNS_WHEEL}" >/dev/null 2>&1; then
+        echo "Expected rns-${RNS_VERSION}-py3-none-any.whl in ${OUT_DIR}" >&2
+        exit 1
+    fi
+fi
+
+fix_wheel_libpython_needed() {
+    local wheel="$1"
+    local python_soname="$2"
+    PYTHON_SONAME="${python_soname}" "${VENV_DIR}/bin/python" - "${wheel}" <<'PY'
+import os
+import subprocess
+import sys
+import tempfile
+import zipfile
+from pathlib import Path
+
+wheel = Path(sys.argv[1])
+old_soname = "libpython3.so"
+new_soname = os.environ["PYTHON_SONAME"]
+
+def patch_so(data):
+    with tempfile.NamedTemporaryFile(suffix=".so", delete=False) as handle:
+        handle.write(data)
+        so_path = handle.name
+    try:
+        result = subprocess.run(
+            ["patchelf", "--print-needed", so_path],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0 or old_soname not in result.stdout.split():
+            return None
+        subprocess.run(
+            ["patchelf", "--replace-needed", old_soname, new_soname, so_path],
+            check=True,
+        )
+        return Path(so_path).read_bytes()
+    finally:
+        Path(so_path).unlink(missing_ok=True)
+
+changed = False
+tmp = wheel.with_suffix(".tmp.whl")
+with zipfile.ZipFile(wheel, "r") as zin, zipfile.ZipFile(tmp, "w", compression=zipfile.ZIP_DEFLATED) as zout:
+    for item in zin.infolist():
+        data = zin.read(item.filename)
+        if item.filename.endswith(".so"):
+            patched = patch_so(data)
+            if patched is not None:
+                data = patched
+                changed = True
+        zout.writestr(item, data)
+
+if changed:
+    tmp.replace(wheel)
+    print(f"Rewrote {old_soname} -> {new_soname} in {wheel.name}")
+else:
+    tmp.unlink(missing_ok=True)
+PY
+}
+
+CUSTOM_RECIPES_DIR="${ROOT_DIR}/android/chaquopy-recipes"
+ONLY_RECIPES_FILTER=""
+if [[ -n "${ONLY_RECIPES}" ]]; then
+    ONLY_RECIPES_FILTER=" ${ONLY_RECIPES//,/ } "
+fi
+if [[ -d "${CUSTOM_RECIPES_DIR}" ]]; then
+    echo "Building custom Android recipes from ${CUSTOM_RECIPES_DIR}"
+    for RECIPE_SRC in "${CUSTOM_RECIPES_DIR}"/*; do
+        if [[ ! -d "${RECIPE_SRC}" ]]; then
+            continue
+        fi
+
+        RECIPE_NAME="$(basename "${RECIPE_SRC}")"
+        if [[ -n "${ONLY_RECIPES_FILTER}" && "${ONLY_RECIPES_FILTER}" != *" ${RECIPE_NAME} "* ]]; then
+            echo "Skipping recipe ${RECIPE_NAME} (not in --only-recipes list)"
+            continue
+        fi
+        RECIPE_DST="${PYPIDIR}/packages/${RECIPE_NAME}-local"
+        rm -rf "${RECIPE_DST}"
+        mkdir -p "${RECIPE_DST}"
+        cp -a "${RECIPE_SRC}/." "${RECIPE_DST}/"
+
+        read -r PACKAGE_NAME PACKAGE_VERSION < <("${VENV_DIR}/bin/python" - <<PY
+from pathlib import Path
+import re
+meta = Path("${RECIPE_DST}/meta.yaml").read_text()
+name = re.search(r'(?m)^\\s*name:\\s*"?(.*?)"?\\s*$', meta)
+version = re.search(r'(?m)^\\s*version:\\s*"?(.*?)"?\\s*$', meta)
+if not name or not version:
+    raise SystemExit("Failed parsing name/version from meta.yaml")
+print(name.group(1), version.group(1))
+PY
+)
+
+        echo "Building ${PACKAGE_NAME} ${PACKAGE_VERSION} from recipe ${RECIPE_NAME}"
+        for abi in ${ABI_LIST//,/ }; do
+            abi_tag="${abi//-/_}"
+            if [[ "${PACKAGE_NAME}" == "cffi" ]]; then
+                cache_chaquopy_libffi_for_abi "${abi}"
+            fi
+            echo "Building ${PACKAGE_NAME} ${PACKAGE_VERSION} for ${abi}"
+            "${VENV_DIR}/bin/python" "${PYPIDIR}/build-wheel.py" \
+                --python "${PYTHON_MINOR}" \
+                --api-level "${API_LEVEL}" \
+                --abi "${abi}" \
+                "${RECIPE_DST}"
+
+            shopt -s nullglob
+            wheels=("${PYPIDIR}/dist/${PACKAGE_NAME}/"*android_"${API_LEVEL}_${abi_tag}".whl)
+            shopt -u nullglob
+            if [[ ${#wheels[@]} -eq 0 ]]; then
+                echo "Missing wheel output for ${PACKAGE_NAME} ${PACKAGE_VERSION} ${abi}" >&2
+                exit 1
+            fi
+            for built_wheel in "${wheels[@]}"; do
+                cp -f "${built_wheel}" "${OUT_DIR}/"
+                fix_wheel_libpython_needed "${OUT_DIR}/$(basename "${built_wheel}")" "libpython${PYTHON_MINOR}.so"
+            done
+        done
+
+        if [[ "${PACKAGE_NAME}" == "cryptography" ]]; then
+            "${VENV_DIR}/bin/python" - <<PY
+import zipfile
+from pathlib import Path
+
+version = "${PACKAGE_VERSION}"
+out_dir = Path("${OUT_DIR}")
+for wheel in sorted(out_dir.glob(f"cryptography-{version}-*.whl")):
+    tmp = wheel.with_suffix(".tmp.whl")
+    with zipfile.ZipFile(wheel, "r") as zin, zipfile.ZipFile(tmp, "w", compression=zipfile.ZIP_DEFLATED) as zout:
+        for item in zin.infolist():
+            data = zin.read(item.filename)
+            if item.filename.endswith(".dist-info/METADATA"):
+                text = data.decode("utf-8")
+                text = text.replace("Requires-Dist: cffi>=2.0.0 ;", "Requires-Dist: cffi>=1.15.1 ;")
+                data = text.encode("utf-8")
+            zout.writestr(item, data)
+    tmp.replace(wheel)
+PY
+        fi
+    done
+fi
+
+echo "Done."
+echo "Built wheels in: ${OUT_DIR}"
+find "${OUT_DIR}" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort

@@ -1,0 +1,328 @@
+# SPDX-License-Identifier: 0BSD
+
+import os
+import sys
+from typing import ClassVar
+from unittest.mock import patch
+
+import pytest
+
+from meshchatnext.src.backend import landlock_sandbox as ll
+
+
+def test_parse_kernel_version():
+    assert ll._parse_kernel_version("6.12.7-1-cachyos-hardened") == (6, 12, 7)
+    assert ll._parse_kernel_version("5.13.0") == (5, 13, 0)
+    assert ll._parse_kernel_version("5.12.19") == (5, 12, 19)
+
+
+def test_kernel_version_meets_minimum():
+    with patch.object(
+        ll.os,
+        "uname",
+        return_value=type("U", (), {"release": "6.12.7"})(),
+    ):
+        assert ll._kernel_version_meets_minimum() is True
+    with patch.object(
+        ll.os,
+        "uname",
+        return_value=type("U", (), {"release": "5.12.99"})(),
+    ):
+        assert ll._kernel_version_meets_minimum() is False
+
+
+def test_landlock_requested_non_linux():
+    with patch.object(ll, "sys") as mock_sys:
+        mock_sys.platform = "darwin"
+        assert ll.landlock_requested() is False
+
+
+def test_landlock_requested_respects_disable_env(monkeypatch):
+    monkeypatch.setenv("MESHCHAT_LANDLOCK", "0")
+    with patch.object(ll, "sys") as mock_sys:
+        mock_sys.platform = "linux"
+        assert ll.landlock_requested() is False
+        assert ll.landlock_disabled_by_env() is True
+
+
+def test_landlock_requested_force_enable_env(monkeypatch):
+    monkeypatch.setenv("MESHCHAT_LANDLOCK", "1")
+    with patch.object(ll, "sys") as mock_sys:
+        mock_sys.platform = "linux"
+        assert ll.landlock_requested() is True
+        assert ll.landlock_auto_enabled() is False
+
+
+def test_landlock_auto_when_supported(monkeypatch):
+    monkeypatch.delenv("MESHCHAT_LANDLOCK", raising=False)
+    ll._landlock_support_cached = None
+    with (
+        patch.object(ll, "sys") as mock_sys,
+        patch.object(ll, "landlock_kernel_supported", return_value=True),
+    ):
+        mock_sys.platform = "linux"
+        assert ll.landlock_requested() is True
+        assert ll.landlock_auto_enabled() is True
+
+
+def test_landlock_auto_off_when_kernel_unsupported(monkeypatch):
+    monkeypatch.delenv("MESHCHAT_LANDLOCK", raising=False)
+    with (
+        patch.object(ll, "sys") as mock_sys,
+        patch.object(ll, "landlock_kernel_supported", return_value=False),
+    ):
+        mock_sys.platform = "linux"
+        assert ll.landlock_requested() is False
+        assert ll.landlock_auto_enabled() is False
+
+
+def test_landlock_kernel_supported_false_on_android(monkeypatch):
+    """Android seccomp blocks Landlock syscalls with SIGSYS."""
+    monkeypatch.delenv("MESHCHAT_LANDLOCK", raising=False)
+    ll._landlock_support_cached = None
+    with patch.object(ll, "sys") as mock_sys:
+        mock_sys.platform = "linux"
+        mock_sys.getandroidapilevel = lambda: 34
+        assert ll.landlock_kernel_supported() is False
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Landlock probe requires Linux")
+def test_landlock_kernel_supported_on_linux():
+    ll._landlock_support_cached = None
+    supported = ll.landlock_kernel_supported()
+    assert isinstance(supported, bool)
+
+
+def test_collect_read_roots_includes_proc_for_psutil():
+    roots = ll._collect_read_roots()
+    assert "/proc" in roots
+
+
+def test_collect_read_roots_includes_sys_for_serial_usb_metadata():
+    roots = ll._collect_read_roots()
+    assert "/sys" in roots
+
+
+def test_collect_read_roots_includes_user_local_cli_when_present():
+    home = os.path.expanduser("~")
+    local_bin = os.path.join(home, ".local", "bin")
+    roots = ll._collect_read_roots()
+    if os.path.isdir(local_bin):
+        assert any(
+            local_bin == root or local_bin.startswith(root.rstrip("/") + "/")
+            for root in roots
+        ), f"{local_bin!r} not covered by landlock read roots"
+
+
+def test_collect_read_roots_includes_meshchatnext_package_dir():
+    roots = ll._collect_read_roots()
+    import meshchatnext as pkg
+
+    init_file = getattr(pkg, "__file__", None)
+    assert init_file
+    pkg_dir = os.path.realpath(os.path.dirname(os.path.abspath(init_file)))
+    assert any(
+        pkg_dir == os.path.realpath(root)
+        or pkg_dir.startswith(os.path.realpath(root).rstrip("/") + "/")
+        for root in roots
+    ), f"meshchatnext package dir {pkg_dir!r} not covered by read roots"
+
+
+def test_collect_read_roots_includes_interpreter_prefix():
+    roots = ll._collect_read_roots()
+    exe = os.path.realpath(sys.executable)
+    prefix = os.path.realpath(getattr(sys, "base_prefix", None) or sys.prefix)
+    assert any(
+        exe == root or exe.startswith(root.rstrip("/") + "/") for root in roots
+    ), f"executable {exe!r} not covered by {roots!r}"
+    assert any(
+        prefix == root or prefix.startswith(root.rstrip("/") + "/") for root in roots
+    ), f"prefix {prefix!r} not covered by {roots!r}"
+    # Active venv root (sys.prefix) must be allowed even when base_prefix differs,
+    # otherwise child Python cannot read pyvenv.cfg (Docker /opt/venv + rnsh).
+    venv_prefix = os.path.realpath(sys.prefix)
+    assert any(
+        venv_prefix == root or venv_prefix.startswith(root.rstrip("/") + "/")
+        for root in roots
+    ), f"sys.prefix {venv_prefix!r} not covered by {roots!r}"
+
+
+def test_collect_read_roots_includes_venv_root_for_pyvenv_cfg(tmp_path, monkeypatch):
+    """Landlock must allow the venv root, not only …/bin (pyvenv.cfg sibling)."""
+    venv = tmp_path / "opt" / "venv"
+    bindir = venv / "bin"
+    bindir.mkdir(parents=True)
+    (venv / "pyvenv.cfg").write_text("home = /usr\n", encoding="utf-8")
+    fake_python = bindir / "python"
+    fake_python.write_text("#!/bin/sh\n", encoding="utf-8")
+
+    class _FakeSys:
+        platform = sys.platform
+        executable = str(fake_python)
+        prefix = str(venv)
+        base_prefix = "/usr"
+        path: ClassVar = list(sys.path)
+
+    monkeypatch.setattr(ll, "sys", _FakeSys)
+    monkeypatch.setattr(ll.site, "getsitepackages", list)
+    monkeypatch.setattr(ll.site, "getusersitepackages", lambda: "")
+    monkeypatch.setenv("VIRTUAL_ENV", str(venv))
+
+    roots = {os.path.realpath(r) for r in ll._collect_read_roots()}
+    assert os.path.realpath(str(venv)) in roots
+    assert os.path.realpath(str(bindir)) in roots
+
+
+def test_handled_access_fs_for_abi_gates_new_rights():
+    AccessFS = ll.AccessFS
+    abi1 = ll._handled_access_fs_for_abi(1)
+    assert abi1 & AccessFS.REFER == 0
+    assert abi1 & AccessFS.TRUNCATE == 0
+    assert abi1 & AccessFS.IOCTL_DEV == 0
+    assert abi1 & AccessFS.WRITE_FILE
+
+    abi2 = ll._handled_access_fs_for_abi(2)
+    assert abi2 & AccessFS.REFER
+    assert abi2 & AccessFS.TRUNCATE == 0
+
+    abi3 = ll._handled_access_fs_for_abi(3)
+    assert abi3 & AccessFS.REFER
+    assert abi3 & AccessFS.TRUNCATE
+    assert abi3 & AccessFS.IOCTL_DEV == 0
+
+    abi5 = ll._handled_access_fs_for_abi(5)
+    assert abi5 & AccessFS.IOCTL_DEV
+    # Network and UNIX-resolve rights stay unhandled on purpose.
+    assert abi5 == ll._handled_access_fs_for_abi(10)
+    assert abi5 & AccessFS.RESOLVE_UNIX == 0
+
+
+def test_rw_access_grants_new_rights_when_handled():
+    AccessFS = ll.AccessFS
+    handled = ll._handled_access_fs_for_abi(5)
+    read_access = ll._read_access_for_handled(handled)
+    rw_access = ll._rw_access_for_handled(handled)
+    assert read_access & AccessFS.TRUNCATE == 0
+    assert read_access & AccessFS.IOCTL_DEV == 0
+    assert read_access & AccessFS.REFER == 0
+    assert rw_access & AccessFS.TRUNCATE
+    assert rw_access & AccessFS.IOCTL_DEV
+    assert rw_access & AccessFS.REFER
+
+
+def test_apply_landlock_sandbox_requires_landlockpy(monkeypatch):
+    monkeypatch.setenv("MESHCHAT_LANDLOCK", "1")
+    monkeypatch.setattr(ll, "landlockpy", None)
+    assert ll.apply_landlock_sandbox() is False
+
+
+def test_file_access_includes_truncate_with_write():
+    AccessFS = ll.AccessFS
+    handled = ll._handled_access_fs_for_abi(5)
+    rw = ll._rw_access_for_handled(handled)
+    file_access = ll._file_access_from_dir_access(rw, handled)
+    assert file_access & AccessFS.WRITE_FILE
+    assert file_access & AccessFS.TRUNCATE
+    assert file_access & AccessFS.IOCTL_DEV
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Landlock probe requires Linux")
+def test_landlock_abi_version_on_linux():
+    ll._landlock_abi_cached = None
+    ll._landlock_support_cached = None
+    abi = ll.landlock_abi_version()
+    assert isinstance(abi, int)
+    assert abi >= 0
+    if ll.landlock_kernel_supported():
+        assert abi >= 1
+
+
+@pytest.mark.skipif(
+    sys.platform != "linux" or not ll.landlock_kernel_supported(),
+    reason="Landlock apply requires a supported Linux kernel",
+)
+def test_apply_landlock_preserves_storage_write_and_truncate(tmp_path):
+    """Apply sandbox in a subprocess and confirm RW + truncate still work."""
+    from tests.backend.landlock_integration_support import (
+        assert_probe_ok,
+        run_python_under_landlock,
+    )
+
+    storage = tmp_path / "storage"
+    storage.mkdir()
+    result = run_python_under_landlock(
+        f"""
+        import os
+        import sys
+
+        storage = {str(storage)!r}
+        path = os.path.join(storage, "landlock-abi-check.txt")
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write("hello")
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write("truncated")
+        with open(path, encoding="utf-8") as handle:
+            data = handle.read()
+        if data != "truncated":
+            print("TRUNCATE_FAILED", repr(data))
+            sys.exit(3)
+        print("OK")
+        sys.exit(0)
+        """,
+        storage=storage,
+    )
+    assert_probe_ok(result)
+
+
+@pytest.mark.skipif(
+    sys.platform != "linux" or not ll.landlock_kernel_supported(),
+    reason="Landlock apply requires a supported Linux kernel",
+)
+def test_apply_landlock_allows_translation_pack_storage(tmp_path):
+    """Translation pack storage under the app storage root must be writable."""
+    from tests.backend.landlock_integration_support import (
+        assert_probe_ok,
+        run_python_under_landlock,
+    )
+
+    storage = tmp_path / "storage"
+    storage.mkdir()
+    result = run_python_under_landlock(
+        """
+        import os
+        import sys
+
+        pack_dir = os.path.join(storage, "translation-packs")
+        os.makedirs(pack_dir, exist_ok=True)
+        path = os.path.join(pack_dir, "probe.txt")
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write("ok")
+        print("OK")
+        sys.exit(0)
+        """,
+        storage=storage,
+    )
+    assert_probe_ok(result)
+
+
+def test_normalize_extra_landlock_read_root_rejects_overbroad(tmp_path):
+    plugins = tmp_path / "sideband-plugins"
+    plugins.mkdir()
+    assert ll._normalize_extra_landlock_read_root(str(plugins)) == os.path.realpath(
+        str(plugins),
+    )
+    assert ll._normalize_extra_landlock_read_root(os.sep) is None
+    assert ll._normalize_extra_landlock_read_root("") is None
+    home = os.path.expanduser("~")
+    if home and home != "~" and os.path.isdir(home):
+        assert ll._normalize_extra_landlock_read_root(home) is None
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink semantics differ on Windows")
+def test_normalize_extra_landlock_read_root_rejects_symlink_to_fs_root(tmp_path):
+    link = tmp_path / "rootlink"
+    try:
+        link.symlink_to(os.sep)
+    except OSError:
+        pytest.skip("cannot create symlink to filesystem root")
+    assert ll._normalize_extra_landlock_read_root(str(link)) is None

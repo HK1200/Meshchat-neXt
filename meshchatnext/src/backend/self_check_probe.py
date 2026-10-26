@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: 0BSD
+
+"""Probe module for self-check --meshchatnext-run-module verification."""
+
+from __future__ import annotations
+
+import json
+import sys
+
+from meshchatnext.src.env_utils import env_str
+
+
+def main() -> None:
+    argv = sys.argv[1:]
+    if argv[:1] == ["--check"] and len(argv) > 1:
+        from meshchatnext.src.backend import self_check
+
+        result = self_check.run_probe(argv[1])
+        print("SELF_CHECK_JSON:" + json.dumps(result), flush=True)
+        return
+    marker = env_str("MESHCHATNEXT_SELF_CHECK_PROBE_PATH")
+    if marker:
+        with open(marker, "w", encoding="utf-8") as handle:
+            handle.write("ok\n")
+            handle.write(" ".join(sys.argv[1:]))
+            handle.write("\n")
+    print("meshchatnext-self-check-probe", *sys.argv[1:], flush=True)
+
+
+if __name__ == "__main__":
+    main()

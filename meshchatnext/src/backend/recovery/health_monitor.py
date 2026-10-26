@@ -1,0 +1,458 @@
+# SPDX-License-Identifier: 0BSD
+
+"""Lightweight predictive health monitor.
+
+Runs as a daemon thread on a 5-minute interval, reading in-memory
+metrics (log entropy, error rate, memory) and emitting WebSocket
+warnings when anomalous trends are detected.
+
+No database queries are made in the monitor loop - all reads come
+from in-memory deques kept by PersistentLogHandler and psutil.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import collections
+import faulthandler
+import gc
+import json
+import logging
+import sys
+import threading
+from itertools import pairwise
+
+import psutil
+
+try:
+    import resource
+except ImportError:  # Windows has no resource module
+    resource = None
+
+_log = logging.getLogger("meshchatnext.health_monitor")
+
+
+class HealthMonitor:
+    CHECK_INTERVAL = 300  # 5 minutes
+    # Main-loop liveness probe. If the asyncio loop stops scheduling
+    # callbacks for this long, HTTP/TLS accepts pile up in the kernel
+    # backlog while the process looks alive - the silent wedge signature.
+    LOOP_PROBE_INTERVAL_S = 5.0
+    LOOP_STALL_S = 30.0
+    ENTROPY_WINDOW = 6  # readings kept (~30 min at default interval)
+    ENTROPY_WARN_THRESHOLD = 1.5  # out of max ~2.32 for 5 log levels
+    ERROR_RATE_WARN = 0.3
+    MEMORY_WARN_MB = 100  # warn when available < 100 MB
+    MEMORY_RECOVER_MB = 400  # restore SQLite RAM pragmas above this
+    # Linux pressure stall information: the share of time tasks stall on
+    # IO. Avg10 above 25 means a quarter of runnable time is spent blocked
+    # on storage, which multiplies every SQLite and announce write.
+    IO_WARN_AVG10 = 25.0
+    IO_RECOVER_AVG10 = 10.0
+    CONSECUTIVE_NEEDED = 2  # consecutive bad readings before alert
+    # File descriptor tracking: an absolute warning near the soft limit
+    # plus a growth-trend warning for slow leaks that never reach it.
+    FD_WARN_FRACTION = 0.8  # warn at >=80% of the NOFILE soft limit
+    FD_LEAK_GROWTH = 0.5  # warn when the count grew >50% across the window
+    FD_LEAK_MIN_DELTA = 128  # plus this absolute delta as a noise floor
+
+    def __init__(self, log_handler, app=None):
+        self.log_handler = log_handler
+        self.app = app
+        self._running = False
+        self._thread = None
+        self._stop_event = threading.Event()
+
+        self._entropy_history = collections.deque(maxlen=self.ENTROPY_WINDOW)
+        self._error_rate_history = collections.deque(maxlen=self.ENTROPY_WINDOW)
+        self._mem_available_history = collections.deque(maxlen=self.ENTROPY_WINDOW)
+        self._memory_pressure_active = False
+        self._io_pressure_active = False
+        self._io_avg10_history = collections.deque(maxlen=self.ENTROPY_WINDOW)
+        self._loop_probe_thread = None
+        self._loop_stall_reported = False
+        self._fd_history = collections.deque(maxlen=self.ENTROPY_WINDOW)
+        self._process = None
+
+    def start(self):
+        if self._running:
+            return
+        self._running = True
+        self._stop_event.clear()
+        self._thread = threading.Thread(
+            target=self._run_loop, daemon=True, name="mcx-health"
+        )
+        self._thread.start()
+        self._loop_stall_reported = False
+        self._loop_probe_thread = threading.Thread(
+            target=self._loop_probe_loop,
+            name="health-monitor-loop-probe",
+            daemon=True,
+        )
+        self._loop_probe_thread.start()
+        _log.info("HealthMonitor started (interval=%ds)", self.CHECK_INTERVAL)
+
+    def stop(self, timeout=5.0):
+        """Signal the loop to exit and wait briefly for the thread to finish."""
+        self._running = False
+        self._stop_event.set()
+        if self._io_pressure_active:
+            # The gate lives in a module global on the persist worker. a
+            # stopped monitor must not leave writes held.
+            self._recover_io_pressure(None)
+        thread = self._thread
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=timeout)
+        probe = self._loop_probe_thread
+        if probe is not None and probe.is_alive():
+            probe.join(timeout=timeout)
+
+    def _run_loop(self):
+        try:
+            asyncio.run(self._async_loop())
+        except Exception as exc:
+            _log.debug("HealthMonitor loop terminated: %s", exc)
+
+    async def _async_loop(self):
+        while self._running:
+            try:
+                self._check()
+            except Exception as exc:
+                _log.debug("HealthMonitor check error: %s", exc)
+            try:
+                if sys.version_info >= (3, 14) and gc.get_threshold()[2] == 0:
+                    gc.collect(2)
+                else:
+                    gc.collect()
+            except Exception:
+                pass
+            if self._stop_event.wait(self.CHECK_INTERVAL):
+                break
+
+    def _loop_probe_loop(self):
+        """Ping the main asyncio loop; dump all stacks if it stops answering.
+
+        A wedged event loop still accepts TCP in the kernel backlog but never
+        services connections - curl connects, gets nothing. The stall dump
+        goes to stderr so `podman logs` captures every thread's stack.
+        """
+        while self._running:
+            loop = None
+            try:
+                from meshchatnext.src.backend.async_utils import AsyncUtils
+
+                loop = AsyncUtils.main_loop
+            except Exception:
+                pass
+            if loop is None or not loop.is_running():
+                self._loop_stall_reported = False
+                if self._stop_event.wait(self.LOOP_PROBE_INTERVAL_S):
+                    break
+                continue
+            answered = threading.Event()
+            try:
+                loop.call_soon_threadsafe(answered.set)
+            except Exception:
+                if self._stop_event.wait(self.LOOP_PROBE_INTERVAL_S):
+                    break
+                continue
+            if answered.wait(timeout=self.LOOP_STALL_S):
+                self._loop_stall_reported = False
+            else:
+                if not self._loop_stall_reported:
+                    self._loop_stall_reported = True
+                    _log.error(
+                        "Main event loop unresponsive for over %ds; dumping all thread stacks",
+                        int(self.LOOP_STALL_S),
+                    )
+                    try:
+                        faulthandler.dump_traceback()
+                    except Exception:
+                        pass
+                    self._broadcast(
+                        {
+                            "kind": "event_loop_stalled",
+                            "message": "Main event loop unresponsive; stack dump written to log",
+                            "value": self.LOOP_STALL_S,
+                        },
+                    )
+            if self._stop_event.wait(self.LOOP_PROBE_INTERVAL_S):
+                break
+
+    def _check(self):
+        entropy = 0.0
+        error_rate = 0.0
+        if self.log_handler:
+            entropy = self.log_handler.current_log_entropy
+            error_rate = self.log_handler.current_error_rate
+
+        mem = psutil.virtual_memory()
+        available_mb = mem.available / (1024 * 1024)
+
+        self._entropy_history.append(entropy)
+        self._error_rate_history.append(error_rate)
+        self._mem_available_history.append(available_mb)
+
+        warnings = []
+
+        if self._detect_entropy_climb():
+            warnings.append(
+                {
+                    "kind": "entropy_climbing",
+                    "message": f"Log entropy rising: {entropy:.2f} bits (threshold {self.ENTROPY_WARN_THRESHOLD})",
+                    "value": round(entropy, 4),
+                },
+            )
+
+        if self._consecutive_above(self._error_rate_history, self.ERROR_RATE_WARN):
+            warnings.append(
+                {
+                    "kind": "error_rate_high",
+                    "message": f"Error rate elevated: {error_rate:.0%}",
+                    "value": round(error_rate, 4),
+                },
+            )
+
+        io_avg10 = self._read_io_pressure()
+        if io_avg10 is None and self._io_pressure_active:
+            # PSI disappeared mid-run (container, kernel change): count it
+            # as below the recovery band so the gate cannot stick open.
+            self._io_avg10_history.append(0.0)
+            if self._consecutive_below(self._io_avg10_history, self.IO_RECOVER_AVG10):
+                self._recover_io_pressure(None)
+        if io_avg10 is not None:
+            self._io_avg10_history.append(io_avg10)
+            if self._consecutive_above(self._io_avg10_history, self.IO_WARN_AVG10):
+                warnings.append(
+                    {
+                        "kind": "io_pressure",
+                        "message": f"IO stall pressure high: avg10 {io_avg10:.0f}%",
+                        "value": round(io_avg10, 2),
+                    },
+                )
+                if not self._io_pressure_active:
+                    self._trigger_io_pressure(io_avg10)
+            elif self._io_pressure_active and self._consecutive_below(
+                self._io_avg10_history,
+                self.IO_RECOVER_AVG10,
+            ):
+                self._recover_io_pressure(io_avg10)
+
+        fd_count, fd_soft_limit = self._read_fd_stats()
+        if fd_count is not None:
+            self._fd_history.append(fd_count)
+            if fd_soft_limit and fd_count >= fd_soft_limit * self.FD_WARN_FRACTION:
+                warnings.append(
+                    {
+                        "kind": "fd_pressure",
+                        "message": (
+                            f"File descriptor usage high: "
+                            f"{fd_count}/{fd_soft_limit} "
+                            f"({fd_count / fd_soft_limit:.0%} of limit)"
+                        ),
+                        "value": fd_count,
+                    },
+                )
+            elif self._fd_growth_detected(fd_count):
+                warnings.append(
+                    {
+                        "kind": "fd_growth",
+                        "message": (
+                            f"File descriptor count climbing: "
+                            f"{self._fd_history[0]} -> {fd_count} over the "
+                            f"health window - possible descriptor leak"
+                        ),
+                        "value": fd_count,
+                    },
+                )
+
+        if self._consecutive_below(self._mem_available_history, self.MEMORY_WARN_MB):
+            warnings.append(
+                {
+                    "kind": "memory_low",
+                    "message": f"Available memory low: {available_mb:.0f} MB",
+                    "value": round(available_mb, 1),
+                },
+            )
+            self._trigger_memory_pressure(available_mb)
+        elif self._memory_pressure_active and self._consecutive_above(
+            self._mem_available_history,
+            self.MEMORY_RECOVER_MB,
+        ):
+            self._recover_memory_pressure(available_mb)
+
+        for w in warnings:
+            _log.warning("Health warning: %s", w["message"])
+            self._broadcast(w)
+
+    def _read_fd_stats(self):
+        """Return (fd_count, soft_limit) using the best per-platform probe.
+
+        num_fds covers Linux/macOS; num_handles is the Windows equivalent
+        (threads and handles lumped together, but the trend is still the
+        leak signal). The soft limit comes from RLIMIT_NOFILE; platforms
+        without the resource module report None.
+        """
+        try:
+            if self._process is None:
+                self._process = psutil.Process()
+            if hasattr(self._process, "num_fds"):
+                count = self._process.num_fds()
+            elif hasattr(self._process, "num_handles"):
+                count = self._process.num_handles()
+            else:
+                return None, None
+            if not isinstance(count, (int, float)):
+                return None, None
+            count = int(count)
+        except Exception:
+            return None, None
+        soft = None
+        if resource is not None:
+            try:
+                soft, _ = resource.getrlimit(resource.RLIMIT_NOFILE)
+            except (OSError, ValueError):
+                soft = None
+            if soft is not None and soft < 0:
+                soft = None
+        return count, soft
+
+    def _fd_growth_detected(self, latest: int) -> bool:
+        """True when the fd count has been rising across the whole window.
+
+        A real leak produces a near-monotonic climb; require the window to
+        be full and most steps increasing so transient bursts (announce
+        sweeps, sync storms) do not fire it.
+        """
+        history = list(self._fd_history)
+        if len(history) < self.ENTROPY_WINDOW:
+            return False
+        first = history[0]
+        delta_needed = max(self.FD_LEAK_MIN_DELTA, int(first * self.FD_LEAK_GROWTH))
+        if latest < first + delta_needed:
+            return False
+        ups = sum(1 for a, b in pairwise(history) if b > a)
+        return ups >= len(history) - 2
+
+    @staticmethod
+    def _read_io_pressure():
+        """Parse /proc/pressure/io some avg10, or None when PSI is absent."""
+        try:
+            with open("/proc/pressure/io") as fh:
+                first = fh.readline()
+            for field in first.split():
+                if field.startswith("avg10="):
+                    return float(field.split("=", 1)[1])
+        except (OSError, ValueError):
+            return None
+        return None
+
+    def _trigger_io_pressure(self, avg10: float) -> None:
+        self._io_pressure_active = True
+        manager = getattr(self.app, "memory_pressure", None) if self.app else None
+        if manager is None:
+            return
+        try:
+            manager.on_io_pressure_high(avg10)
+        except Exception as exc:
+            _log.debug("IO pressure handling failed: %s", exc)
+
+    def _recover_io_pressure(self, avg10: float | None = None) -> None:
+        self._io_pressure_active = False
+        manager = getattr(self.app, "memory_pressure", None) if self.app else None
+        if manager is None:
+            return
+        try:
+            manager.on_io_pressure_recovered(avg10)
+        except Exception as exc:
+            _log.debug("IO pressure recovery failed: %s", exc)
+        self._broadcast(
+            {
+                "kind": "io_recovered",
+                "message": (
+                    f"IO pressure recovered: avg10 {avg10:.0f}%"
+                    if isinstance(avg10, (int, float))
+                    else "IO pressure recovered"
+                ),
+            },
+        )
+
+    def _detect_entropy_climb(self):
+        """Return True when entropy climbs in 3+ steps above the warn threshold."""
+        h = self._entropy_history
+        if len(h) < 3:
+            return False
+        vals = list(h)
+        last_three = vals[-3:]
+        if last_three[-1] <= self.ENTROPY_WARN_THRESHOLD:
+            return False
+        return last_three[0] < last_three[1] < last_three[2]
+
+    @staticmethod
+    def _consecutive_above(deq, threshold):
+        if len(deq) < 2:
+            return False
+        vals = list(deq)
+        return vals[-1] > threshold and vals[-2] > threshold
+
+    @staticmethod
+    def _consecutive_below(deq, threshold):
+        if len(deq) < 2:
+            return False
+        vals = list(deq)
+        return vals[-1] < threshold and vals[-2] < threshold
+
+    def _trigger_memory_pressure(self, available_mb: float) -> None:
+        self._memory_pressure_active = True
+        manager = getattr(self.app, "memory_pressure", None) if self.app else None
+        if manager is None:
+            return
+        try:
+            manager.on_memory_low(available_mb)
+        except Exception as exc:
+            _log.debug("Memory pressure cleanup failed: %s", exc)
+
+    def _recover_memory_pressure(self, available_mb: float | None = None) -> None:
+        self._memory_pressure_active = False
+        manager = getattr(self.app, "memory_pressure", None) if self.app else None
+        if manager is not None:
+            try:
+                manager.on_memory_recovered()
+            except Exception as exc:
+                _log.debug("Memory pressure recovery failed: %s", exc)
+        value = round(float(available_mb), 1) if available_mb is not None else None
+        self._broadcast(
+            {
+                "kind": "memory_recovered",
+                "message": (
+                    f"Available memory recovered: {value:.0f} MB"
+                    if value is not None
+                    else "Available memory recovered"
+                ),
+                "value": value,
+            },
+        )
+
+    def _broadcast(self, warning_data):
+        if not self.app:
+            return
+        try:
+            from meshchatnext.src.backend.async_utils import AsyncUtils
+
+            AsyncUtils.run_async(
+                self.app.websocket_broadcast(
+                    json.dumps({"type": "health_warning", "data": warning_data}),
+                ),
+            )
+        except Exception:
+            pass
+
+    @property
+    def latest_snapshot(self):
+        """Return latest metrics as a dict (useful for diagnostics/tests)."""
+        return {
+            "entropy": list(self._entropy_history),
+            "error_rate": list(self._error_rate_history),
+            "memory_mb": list(self._mem_available_history),
+            "io_avg10": list(self._io_avg10_history),
+        }

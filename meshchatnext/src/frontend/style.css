@@ -1,0 +1,774 @@
+@import "tailwindcss";
+
+@plugin '@tailwindcss/forms';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+    --color-sem-canvas: var(--mc-canvas);
+    --color-sem-surface: var(--mc-surface);
+    --color-sem-border: var(--mc-border);
+    --color-sem-border-card: var(--mc-border-card);
+    --color-sem-border-strong: var(--mc-border-strong);
+    --color-sem-fg: var(--mc-text);
+    --color-sem-fg-secondary: var(--mc-text-secondary);
+    --color-sem-fg-muted: var(--mc-text-muted);
+    --color-sem-fg-label: var(--mc-text-label);
+    --color-sem-accent: var(--mc-accent);
+    --color-sem-accent-hover: var(--mc-accent-hover);
+    --color-sem-action-primary: var(--mc-action-primary);
+    --color-sem-action-primary-hover: var(--mc-action-primary-hover);
+    --color-sem-action-primary-text: var(--mc-action-primary-text);
+    --color-sem-action-danger: var(--mc-action-danger);
+    --color-sem-action-danger-hover: var(--mc-action-danger-hover);
+    --color-sem-action-danger-text: var(--mc-action-danger-text);
+    --color-sem-action-warning: var(--mc-action-warning);
+    --color-sem-action-warning-hover: var(--mc-action-warning-hover);
+    --color-sem-action-warning-text: var(--mc-action-warning-text);
+    --color-sem-action-success: var(--mc-action-success);
+    --color-sem-action-success-hover: var(--mc-action-success-hover);
+    --color-sem-action-success-text: var(--mc-action-success-text);
+    --color-sem-action-info: var(--mc-action-info);
+    --color-sem-action-info-hover: var(--mc-action-info-hover);
+    --color-sem-action-info-text: var(--mc-action-info-text);
+    --color-sem-focus: var(--mc-focus);
+    --color-sem-glass: var(--mc-glass-surface);
+    --color-sem-surface-muted: var(--mc-surface-muted);
+    --color-sem-surface-raised: var(--mc-surface-raised);
+    --color-sem-info: var(--mc-info);
+    --color-sem-success: var(--mc-success);
+    --color-sem-warning: var(--mc-warning);
+    --color-sem-danger: var(--mc-error);
+    --color-sem-bubble-outbound: var(--mc-bubble-outbound);
+    --color-sem-bubble-failed: var(--mc-bubble-failed);
+    --color-sem-bubble-failed-text: var(--mc-bubble-failed-text);
+    --color-sem-bubble-waiting: var(--mc-bubble-waiting);
+    --color-sem-bubble-waiting-text: var(--mc-bubble-waiting-text);
+    --color-sem-focus-border: var(--mc-focus-border);
+    --color-sem-file-input-bg: var(--mc-file-input-bg);
+    --color-sem-file-input-text: var(--mc-file-input-text);
+}
+
+/*
+  The default border color has changed to currentcolor in Tailwind CSS v4,
+  so we've added these compatibility styles to make sure everything still
+  looks the same as it did with Tailwind CSS v3.
+
+  If we ever want to remove these styles, we need to add an explicit border
+  color utility to any element that depends on these defaults.
+*/
+@layer base {
+    *,
+    ::after,
+    ::before,
+    ::backdrop,
+    ::file-selector-button {
+        border-color: var(--mc-border, var(--color-gray-200, currentcolor));
+    }
+
+    html,
+    body {
+        margin: 0;
+        min-height: 100%;
+        background-color: var(--mc-canvas, #f8fafc);
+    }
+
+    #app {
+        min-height: 100dvh;
+        background-color: var(--mc-canvas, #f8fafc);
+    }
+
+    .dark #app,
+    html.dark,
+    html.dark body {
+        background-color: var(--mc-canvas, #09090b);
+    }
+}
+
+.route-view-fade-enter-active,
+.route-view-fade-leave-active {
+    transition: opacity 120ms ease;
+}
+
+.route-view-fade-enter-from,
+.route-view-fade-leave-to {
+    opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .route-view-fade-enter-active,
+    .route-view-fade-leave-active {
+        transition: none;
+    }
+
+    .list-item-fade-enter-active,
+    .list-item-fade-leave-active {
+        transition: none;
+    }
+}
+
+.list-item-fade-enter-active,
+.list-item-fade-leave-active {
+    transition:
+        opacity 140ms ease,
+        transform 140ms ease;
+}
+
+.list-item-fade-enter-from,
+.list-item-fade-leave-to {
+    opacity: 0;
+    transform: translateY(4px);
+}
+
+.focus-ring-sem {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sem-focus focus-visible:ring-offset-2 focus-visible:ring-offset-sem-canvas;
+}
+
+.skip-link {
+    @apply sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[500] focus:px-4 focus:py-2 focus:bg-sem-surface focus:text-sem-fg focus:rounded-lg focus:shadow-lg focus:ring-2 focus:ring-sem-focus;
+}
+
+.press-feedback {
+    @apply active:scale-95 motion-reduce:transform-none;
+}
+
+* {
+    scrollbar-width: thin;
+    scrollbar-color: var(--mc-scrollbar-thumb) var(--mc-scrollbar-track);
+}
+
+*::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+    background: var(--mc-scrollbar-track);
+}
+
+*::-webkit-scrollbar-thumb {
+    background-color: var(--mc-scrollbar-thumb);
+    border-radius: 999px;
+    border: 2px solid var(--mc-scrollbar-thumb-border);
+}
+
+.glass-card {
+    @apply bg-sem-glass backdrop-blur-sm border border-sem-border-card rounded-3xl shadow-xl px-4 py-4;
+}
+
+.fused-panel {
+    @apply w-full bg-sem-surface border border-sem-border rounded-2xl overflow-hidden;
+}
+
+.fused-section {
+    @apply p-4 md:p-5;
+}
+
+.fused-section + .fused-section {
+    @apply border-t border-sem-border;
+}
+
+html[data-ui-glass="0"] .glass-card {
+    background-color: var(--mc-surface) !important;
+    border-color: var(--mc-border-card) !important;
+    @apply shadow-xl px-4 py-4;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+}
+
+/* Glass preset: frosted surfaces over a gradient canvas. The blur needs a
+   busy backdrop to read, so the canvas gets a soft multi-stop gradient; the
+   ui-glass kill switch still wins over everything. */
+html[data-theme-preset="glass"] body,
+html[data-theme-preset="glass"] #app,
+html[data-theme-preset="glass"] .page-canvas,
+html[data-theme-preset="glass"] .bg-sem-canvas,
+html[data-theme-preset="glass"] .page-header-bar {
+    background-image:
+        radial-gradient(1200px 800px at 15% -10%, rgba(99, 102, 241, 0.18), transparent 60%),
+        radial-gradient(1000px 700px at 85% 10%, rgba(56, 189, 248, 0.14), transparent 55%),
+        radial-gradient(900px 900px at 50% 110%, rgba(167, 139, 250, 0.16), transparent 60%);
+    background-attachment: fixed;
+}
+html.dark[data-theme-preset="glass"] body,
+html.dark[data-theme-preset="glass"] #app,
+html.dark[data-theme-preset="glass"] .page-canvas,
+html.dark[data-theme-preset="glass"] .bg-sem-canvas,
+html.dark[data-theme-preset="glass"] .page-header-bar {
+    background-image:
+        radial-gradient(60vmax 40vmax at 8% 0%, rgb(255 255 255 / 0.07), transparent 65%),
+        radial-gradient(50vmax 35vmax at 92% 4%, rgb(148 163 184 / 0.05), transparent 60%),
+        radial-gradient(55vmax 45vmax at 50% 108%, rgb(255 255 255 / 0.05), transparent 65%),
+        radial-gradient(45vmax 35vmax at 62% 42%, rgb(100 116 139 / 0.04), transparent 62%);
+    background-attachment: fixed;
+}
+
+html[data-theme-preset="glass"] .page-surface,
+html[data-theme-preset="glass"] .fused-panel,
+html[data-theme-preset="glass"] .glass-card,
+html[data-theme-preset="glass"] .dropdown-panel,
+html[data-theme-preset="glass"] .context-menu-panel,
+html[data-theme-preset="glass"] .modal-panel,
+html[data-theme-preset="glass"] .input-field,
+html[data-theme-preset="glass"] .search-input,
+html[data-theme-preset="glass"] .glass-label,
+html[data-theme-preset="glass"] .address-card,
+html[data-theme-preset="glass"] .bg-sem-surface,
+html[data-theme-preset="glass"] .bg-sem-surface-muted,
+html[data-theme-preset="glass"] .bg-sem-surface-raised {
+    backdrop-filter: blur(14px) saturate(1.5);
+    -webkit-backdrop-filter: blur(14px) saturate(1.5);
+}
+
+/* Softer, more pillowed corners read as glass panes instead of flat cards. */
+html[data-theme-preset="glass"] .fused-panel,
+html[data-theme-preset="glass"] .glass-card,
+html[data-theme-preset="glass"] .modal-panel,
+html[data-theme-preset="glass"] .dropdown-panel,
+html[data-theme-preset="glass"] .context-menu-panel,
+html[data-theme-preset="glass"] .address-card {
+    border-radius: 1.25rem;
+}
+html[data-theme-preset="glass"] .input-field,
+html[data-theme-preset="glass"] .search-input {
+    border-radius: 0.9rem;
+}
+
+/* Hairline top highlight sells the glass edge on floating surfaces. */
+html[data-theme-preset="glass"] .glass-card,
+html[data-theme-preset="glass"] .fused-panel,
+html[data-theme-preset="glass"] .dropdown-panel,
+html[data-theme-preset="glass"] .context-menu-panel,
+html[data-theme-preset="glass"] .modal-panel {
+    box-shadow:
+        inset 0 1px 0 rgb(255 255 255 / 0.35),
+        0 8px 32px rgb(15 23 42 / 0.12);
+}
+html.dark[data-theme-preset="glass"] .glass-card,
+html.dark[data-theme-preset="glass"] .fused-panel,
+html.dark[data-theme-preset="glass"] .dropdown-panel,
+html.dark[data-theme-preset="glass"] .context-menu-panel,
+html.dark[data-theme-preset="glass"] .modal-panel {
+    box-shadow:
+        inset 0 1px 0 rgb(255 255 255 / 0.08),
+        0 8px 32px rgb(0 0 0 / 0.45);
+}
+
+html[data-theme-preset="glass"][data-ui-glass="0"] .page-surface,
+html[data-theme-preset="glass"][data-ui-glass="0"] .fused-panel,
+html[data-theme-preset="glass"][data-ui-glass="0"] .dropdown-panel,
+html[data-theme-preset="glass"][data-ui-glass="0"] .context-menu-panel,
+html[data-theme-preset="glass"][data-ui-glass="0"] .modal-panel,
+html[data-theme-preset="glass"][data-ui-glass="0"] .input-field,
+html[data-theme-preset="glass"][data-ui-glass="0"] .search-input,
+html[data-theme-preset="glass"][data-ui-glass="0"] .glass-label,
+html[data-theme-preset="glass"][data-ui-glass="0"] .address-card,
+html[data-theme-preset="glass"][data-ui-glass="0"] .bg-sem-surface,
+html[data-theme-preset="glass"][data-ui-glass="0"] .bg-sem-surface-muted,
+html[data-theme-preset="glass"][data-ui-glass="0"] .bg-sem-surface-raised {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+}
+html[data-theme-preset="glass"][data-ui-glass="0"] body,
+html[data-theme-preset="glass"][data-ui-glass="0"] #app {
+    background-image: none;
+}
+
+/* Neo-brutalist: square corners, hard borders, offset block shadows. */
+html[data-theme-preset="neo_brutalist"] .fused-panel,
+html[data-theme-preset="neo_brutalist"] .glass-card,
+html[data-theme-preset="neo_brutalist"] .modal-panel,
+html[data-theme-preset="neo_brutalist"] .dropdown-panel,
+html[data-theme-preset="neo_brutalist"] .context-menu-panel,
+html[data-theme-preset="neo_brutalist"] .address-card,
+html[data-theme-preset="neo_brutalist"] .input-field,
+html[data-theme-preset="neo_brutalist"] .search-input,
+html[data-theme-preset="neo_brutalist"] .secondary-chip,
+html[data-theme-preset="neo_brutalist"] .danger-chip,
+html[data-theme-preset="neo_brutalist"] .page-surface,
+html[data-theme-preset="neo_brutalist"] .bg-sem-surface,
+html[data-theme-preset="neo_brutalist"] .bg-sem-surface-muted,
+html[data-theme-preset="neo_brutalist"] .bg-sem-surface-raised {
+    border-radius: 0 !important;
+}
+html[data-theme-preset="neo_brutalist"] .fused-panel,
+html[data-theme-preset="neo_brutalist"] .glass-card,
+html[data-theme-preset="neo_brutalist"] .modal-panel,
+html[data-theme-preset="neo_brutalist"] .dropdown-panel,
+html[data-theme-preset="neo_brutalist"] .context-menu-panel,
+html[data-theme-preset="neo_brutalist"] .address-card,
+html[data-theme-preset="neo_brutalist"] .input-field,
+html[data-theme-preset="neo_brutalist"] .search-input {
+    border-width: 2px;
+    box-shadow: 5px 5px 0 0 var(--mc-border-strong);
+}
+html[data-theme-preset="neo_brutalist"] .glass-card {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+}
+html[data-theme-preset="neo_brutalist"] .primary-chip,
+html[data-theme-preset="neo_brutalist"] .secondary-chip,
+html[data-theme-preset="neo_brutalist"] .ghost-chip,
+html[data-theme-preset="neo_brutalist"] .danger-chip,
+html[data-theme-preset="neo_brutalist"] .attachment-action-button,
+html[data-theme-preset="neo_brutalist"] .context-item,
+html[data-theme-preset="neo_brutalist"] .sidebar-nav-link,
+html[data-theme-preset="neo_brutalist"] .composer-pill,
+html[data-theme-preset="neo_brutalist"] button {
+    border-radius: 0;
+}
+html[data-theme-preset="neo_brutalist"] .primary-chip:not(:disabled),
+html[data-theme-preset="neo_brutalist"] .secondary-chip:not(:disabled) {
+    border: 2px solid var(--mc-border-strong);
+    box-shadow: 3px 3px 0 0 var(--mc-border-strong);
+}
+html[data-theme-preset="neo_brutalist"] .composer-pill {
+    border-width: 2px;
+    box-shadow: 4px 4px 0 0 var(--mc-border-strong);
+}
+html.dark[data-theme-preset="neo_brutalist"] .fused-panel,
+html.dark[data-theme-preset="neo_brutalist"] .glass-card,
+html.dark[data-theme-preset="neo_brutalist"] .modal-panel,
+html.dark[data-theme-preset="neo_brutalist"] .dropdown-panel,
+html.dark[data-theme-preset="neo_brutalist"] .context-menu-panel,
+html.dark[data-theme-preset="neo_brutalist"] .address-card {
+    box-shadow: 5px 5px 0 0 rgb(255 255 255 / 0.9);
+}
+
+.input-field {
+    @apply bg-sem-surface-muted border border-sem-border text-sm rounded-2xl focus:ring-2 focus:ring-sem-focus focus:border-sem-focus-border block w-full p-2.5 text-sem-fg transition;
+}
+
+/* The forms plugin renders the select chevron in a 2.5rem right pad.
+   The uniform p-2.5 above collapses it, so restore room for the arrow. */
+select.input-field {
+    @apply pr-9;
+}
+
+.search-input {
+    @apply block w-full bg-sem-surface-muted border border-sem-border rounded-xl text-sm text-sem-fg transition placeholder:text-sem-fg-muted py-2.5 pl-10 pr-9;
+    @apply focus:outline-hidden focus:ring-2 focus:ring-sem-focus focus:border-sem-focus-border;
+}
+
+.search-input-compact {
+    @apply py-1.5 pl-9 pr-8 text-xs rounded-full;
+}
+
+/* Semantic range slider - accent thumb, muted track */
+/* Height is the hit area, not the visual track height. */
+.range-input {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 16px;
+    background: transparent;
+    outline: none;
+    cursor: pointer;
+}
+.range-input::-webkit-slider-runnable-track {
+    height: 6px;
+    border-radius: 9999px;
+    background: var(--mc-surface-muted);
+}
+.range-input::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--mc-accent);
+    border: 2px solid var(--mc-canvas);
+    box-shadow: 0 1px 3px rgb(0 0 0 / 0.15);
+    cursor: grab;
+    transition: transform 0.1s ease;
+    /* Center thumb on track */
+    margin-top: -5px;
+}
+.range-input::-webkit-slider-thumb:hover {
+    transform: scale(1.15);
+}
+.range-input::-webkit-slider-thumb:active {
+    cursor: grabbing;
+}
+.range-input::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--mc-accent);
+    border: 2px solid var(--mc-canvas);
+    box-shadow: 0 1px 3px rgb(0 0 0 / 0.15);
+    cursor: grab;
+}
+.range-input::-moz-range-track {
+    height: 6px;
+    border-radius: 9999px;
+    background: var(--mc-surface-muted);
+}
+
+input[type="color"].color-fill-input {
+    -webkit-appearance: none;
+    appearance: none;
+    display: block;
+    padding: 0;
+    background: transparent;
+    overflow: hidden;
+}
+
+input[type="color"].color-fill-input::-webkit-color-swatch-wrapper {
+    padding: 0;
+    border: none;
+}
+
+input[type="color"].color-fill-input::-webkit-color-swatch {
+    border: none;
+    border-radius: inherit;
+}
+
+input[type="color"].color-fill-input::-moz-color-swatch {
+    border: none;
+    border-radius: inherit;
+}
+
+/* Native option popups ignore most select utilities and cannot use
+   backdrop-filter - a translucent --mc-surface would render over the OS
+   chrome (often white). --mc-surface-solid is always opaque. */
+select.input-field,
+select option {
+    background-color: var(--mc-surface-solid, var(--mc-surface));
+    color: var(--mc-text);
+}
+
+.primary-chip {
+    @apply inline-flex! items-center! justify-center! gap-x-2! rounded-full! bg-sem-action-primary! px-4! py-2! text-xs! font-bold! text-sem-action-primary-text! shadow-xs! transition-all!;
+}
+.primary-chip svg,
+.secondary-chip svg,
+.danger-chip svg {
+    width: 1rem !important;
+    height: 1rem !important;
+    flex-shrink: 0;
+}
+.primary-chip:hover {
+    @apply bg-sem-action-primary-hover! -translate-y-0.5!;
+}
+.primary-chip:active {
+    @apply scale-95! translate-y-0!;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .primary-chip:hover,
+    .secondary-chip:hover,
+    .danger-chip:hover,
+    .primary-action:hover,
+    .secondary-action:hover,
+    .danger-action:hover {
+        transform: none !important;
+    }
+    .primary-chip:active,
+    .secondary-chip:active,
+    .danger-chip:active,
+    .primary-action:active,
+    .secondary-action:active,
+    .danger-action:active {
+        transform: none !important;
+    }
+}
+
+.secondary-chip {
+    @apply inline-flex! items-center! justify-center! gap-x-2! rounded-full! px-4! py-2! text-xs! font-bold! shadow-xs! transition-all! duration-200!;
+    background-color: var(--mc-secondary-chip-bg) !important;
+    color: var(--mc-secondary-chip-text) !important;
+    border: 1px solid var(--mc-secondary-chip-border) !important;
+}
+.secondary-chip:hover {
+    background-color: var(--mc-secondary-chip-hover-bg) !important;
+    color: var(--mc-secondary-chip-hover-text) !important;
+    border-color: var(--mc-secondary-chip-hover-border) !important;
+    @apply -translate-y-0.5! shadow-md!;
+}
+.secondary-chip:active {
+    @apply scale-95! translate-y-0! shadow-xs!;
+}
+
+.dark .secondary-chip:hover {
+    @apply shadow-lg! dark:shadow-blue-500/10!;
+}
+
+.danger-chip {
+    @apply inline-flex! items-center! justify-center! gap-x-2! rounded-full! px-4! py-2! text-xs! font-bold! transition-all! duration-200!;
+    background-color: var(--mc-danger-chip-bg) !important;
+    color: var(--mc-danger-chip-text) !important;
+    border: 1px solid var(--mc-danger-chip-border) !important;
+}
+.danger-chip:hover {
+    background-color: var(--mc-danger-chip-hover-bg) !important;
+    color: var(--mc-danger-chip-hover-text) !important;
+    @apply -translate-y-0.5! shadow-md!;
+}
+.danger-chip:active {
+    @apply scale-95! translate-y-0!;
+}
+
+.dark .danger-chip:hover {
+    @apply shadow-lg! dark:shadow-red-500/10!;
+}
+
+.primary-action {
+    @apply inline-flex! items-center! justify-center! gap-x-2! rounded-xl! px-6! py-3! text-sm! font-bold! text-sem-action-primary-text! shadow-md! transition-all! duration-200!;
+    background-color: var(--mc-action-primary) !important;
+}
+.primary-action:hover {
+    background-color: var(--mc-action-primary-hover) !important;
+    @apply -translate-y-0.5! shadow-lg!;
+}
+.primary-action:active {
+    @apply scale-95! translate-y-0! shadow-xs!;
+}
+
+.secondary-action {
+    @apply inline-flex! items-center! justify-center! gap-x-2! rounded-xl! px-6! py-3! text-sm! font-bold! shadow-md! transition-all! duration-200!;
+    background-color: var(--mc-secondary-chip-bg) !important;
+    color: var(--mc-secondary-chip-text) !important;
+    border: 1px solid var(--mc-secondary-chip-border) !important;
+}
+.secondary-action:hover {
+    background-color: var(--mc-secondary-chip-hover-bg) !important;
+    color: var(--mc-secondary-chip-hover-text) !important;
+    border-color: var(--mc-secondary-chip-hover-border) !important;
+    @apply -translate-y-0.5! shadow-lg!;
+}
+.secondary-action:active {
+    @apply scale-95! translate-y-0! shadow-xs!;
+}
+
+.danger-action {
+    @apply inline-flex! items-center! justify-center! gap-x-2! rounded-xl! px-6! py-3! text-sm! font-bold! text-sem-action-danger-text! shadow-md! transition-all! duration-200!;
+    background-color: var(--mc-action-danger) !important;
+}
+.danger-action:hover {
+    background-color: var(--mc-action-danger-hover) !important;
+    @apply -translate-y-0.5! shadow-lg!;
+}
+.danger-action:active {
+    @apply scale-95! translate-y-0! shadow-xs!;
+}
+
+.glass-label {
+    @apply mb-1 text-sm font-semibold text-sem-fg-secondary dark:text-sem-fg-label;
+}
+
+.monospace-field {
+    @apply font-mono tracking-tight text-sem-fg dark:text-white;
+}
+
+.metric-row {
+    @apply grid gap-3 sm:grid-cols-2 text-sem-fg-secondary dark:text-sem-fg;
+}
+
+.metric-value {
+    @apply text-lg font-semibold text-sem-fg dark:text-white;
+}
+
+.address-card {
+    @apply relative border border-sem-border-card rounded-2xl bg-sem-surface-raised p-4 space-y-2;
+}
+.address-card__label {
+    @apply text-xs uppercase tracking-wide text-sem-fg-muted;
+}
+.address-card__value {
+    @apply text-sm text-sem-fg dark:text-white wrap-break-word pr-16;
+}
+.address-card__action {
+    @apply absolute! top-3! right-3! inline-flex! items-center! gap-1! rounded-full! px-3! py-1! text-[10px]! font-bold! shadow-xs! transition-all!;
+    background-color: var(--mc-address-action-bg) !important;
+    color: var(--mc-address-action-text) !important;
+    border: 1px solid var(--mc-address-action-border) !important;
+}
+.address-card__action:hover {
+    background-color: var(--mc-address-action-hover-bg) !important;
+    color: var(--mc-address-action-hover-text) !important;
+    border-color: var(--mc-address-action-hover-border) !important;
+}
+
+.file-input {
+    @apply block w-full text-xs cursor-pointer rounded-lg border bg-sem-file-input-bg text-sem-file-input-text focus:outline-hidden focus:ring-2 focus:ring-sem-focus;
+    border-color: var(--mc-file-input-border);
+}
+
+.file-input::file-selector-button {
+    @apply mr-2 border-0 rounded-md bg-sem-action-primary text-sem-action-primary-text px-3 py-1 text-xs font-semibold cursor-pointer hover:bg-sem-action-primary-hover transition;
+}
+
+.dark .file-input::file-selector-button {
+    @apply bg-sem-action-primary hover:bg-sem-action-primary-hover text-sem-action-primary-text;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+    display: none;
+}
+
+.no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+    background: var(--mc-custom-scroll-thumb);
+    border-radius: 10px;
+    border: none;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: var(--mc-custom-scroll-thumb-hover);
+}
+
+@keyframes spin-reverse {
+    from {
+        transform: rotate(360deg);
+    }
+    to {
+        transform: rotate(0deg);
+    }
+}
+
+.animate-spin-reverse {
+    animation: spin-reverse 1s linear infinite;
+}
+
+/* Inbound messages that arrive while the conversation is open get a short
+   fade-and-rise on their inner entry. The virtual list positions each row
+   with a transform, so the animation lives on the child instead. */
+@keyframes msg-enter {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.msg-enter > *,
+.msg-enter-self {
+    animation: msg-enter 240ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .msg-enter > *,
+    .msg-enter-self {
+        animation: none;
+    }
+}
+
+.context-menu-panel {
+    @apply fixed min-w-48 rounded-xl border shadow-xl bg-sem-surface z-300;
+    border-color: var(--mc-border);
+}
+
+/* Browsers default buttons to cursor: default. Anything interactive in
+   this app should show the pointer cursor; disabled stays not-allowed. */
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]),
+select,
+summary,
+label[for],
+[role="radio"],
+[role="tab"],
+[role="option"],
+[role="menuitem"],
+[role="switch"],
+[role="link"],
+a[href] {
+    cursor: pointer;
+}
+
+/* Toggle knob: default white works on colored tracks, but glass dark uses a
+   white primary so the knob would vanish. Drive it from the action-primary
+   text var so it always contrasts with the checked track. */
+.toggle-track::after {
+    border-color: var(--mc-border);
+}
+.peer:checked + .toggle-track::after {
+    background-color: var(--mc-action-primary-text, #ffffff);
+    border-color: transparent;
+}
+
+.context-item {
+    @apply w-full text-left px-3 py-2 text-sm flex items-center gap-2 cursor-pointer;
+    color: var(--mc-context-item-text);
+}
+.context-item:disabled {
+    cursor: not-allowed;
+}
+.context-item:hover,
+.context-item:focus-visible {
+    background-color: var(--mc-context-hover);
+    outline: none;
+}
+
+.context-menu-divider {
+    border-color: var(--mc-context-divider);
+    @apply border-t my-1;
+}
+
+.context-menu-section-label {
+    @apply px-3 py-1.5 text-[10px] font-black uppercase tracking-widest;
+    color: var(--mc-context-section);
+}
+
+.page-canvas {
+    @apply bg-sem-canvas;
+}
+
+.page-surface {
+    @apply bg-sem-surface;
+}
+
+.page-header-bar {
+    @apply shrink-0 border-b border-sem-border bg-sem-canvas;
+}
+
+.icon-btn-muted {
+    @apply inline-flex items-center justify-center text-sem-fg-muted transition-colors hover:bg-sem-surface-muted hover:text-sem-fg;
+}
+
+.dropdown-panel {
+    @apply overflow-hidden rounded-lg border border-sem-border bg-sem-surface shadow-lg;
+}
+
+.dropdown-caret {
+    @apply w-2.5 h-2.5 bg-sem-surface rotate-45;
+}
+
+.modal-panel {
+    @apply overflow-hidden rounded-2xl border border-sem-border-card bg-sem-surface shadow-2xl;
+}
+
+.modal-panel__header {
+    @apply flex shrink-0 items-center gap-3 border-b border-sem-border px-4 py-3 sm:px-5;
+}
+
+.modal-panel__footer {
+    @apply shrink-0 border-t border-sem-border bg-sem-surface-muted px-4 py-3 sm:px-5;
+}
+
+.sidebar-nav-link {
+    @apply w-full text-sem-fg flex gap-x-3 p-2 text-sm leading-6 font-semibold focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sem-focus;
+}
+
+.sidebar-nav-link--active {
+    @apply bg-sem-surface-muted text-sem-accent;
+}
+
+.sidebar-nav-link--hover {
+    @apply hover:bg-sem-surface-muted;
+}

@@ -1,0 +1,9 @@
+package:
+    name: cryptography
+    version: "50.0.2"
+
+requirements:
+    build:
+        - rust
+    host:
+        - openssl

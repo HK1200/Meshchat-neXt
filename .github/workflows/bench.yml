@@ -1,0 +1,191 @@
+# Benchmarks and integrity checks (path-filtered push to main branches and workflow_dispatch).
+# The suite runs 3 times. Reported values are median-of-medians. A smart gate
+# (noise floor + absolute delta + adaptive ratio) decides regressions — flat
+# ratio alerts on sub-ms SQLite ops are useless on shared runners.
+#
+# Pinned first-party actions (bump tag and SHA together when upgrading):
+#   actions/checkout@v6.0.1            8e8c483db84b4bee98b60c0593521ed34d9990e8
+#   actions/cache@v6.1.0 55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+#   benchmark-action/github-action-benchmark@v1.22.0
+#                                      a60cea5bc7b49e15c1f58f411161f99e0df48372
+
+name: Benchmarks
+
+on:
+    workflow_dispatch:
+    push:
+        branches:
+            - main
+        paths:
+            - "meshchatnext/**"
+            - "tests/backend/**"
+            - "uv.lock"
+            - "pyproject.toml"
+            - "Taskfile.yml"
+            - "scripts/ci/**"
+            - ".github/workflows/bench.yml"
+            - ".github/actions/setup-dev-environment/**"
+            - ".github/actions/setup-python-uv/**"
+
+concurrency:
+    group: bench-${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
+permissions:
+    contents: read
+
+env:
+    HARDEN_ENDPOINTS: >
+        github.com:443
+        api.github.com:443
+        codeload.github.com:443
+        uploads.github.com:443
+        *.githubusercontent.com:443
+        *.actions.githubusercontent.com:443
+        *.githubapp.com:443
+        *.blob.core.windows.net:443
+        ghcr.io:443
+        azure.archive.ubuntu.com:80
+        archive.ubuntu.com:80
+        *.ubuntu.com:443
+        packages.microsoft.com:443
+        pypi.org:443
+        upload.pypi.org:443
+        *.pythonhosted.org:443
+        registry.npmjs.org:443
+        nodejs.org:443
+        go.dev:443
+        golang.org:443
+        proxy.golang.org:443
+        sum.golang.org:443
+        sh.rustup.rs:443
+        static.rust-lang.org:443
+        static.crates.io:443
+        index.crates.io:443
+        api.adoptium.net:443
+        dl.google.com:443
+        maven.google.com:443
+        repo.maven.apache.org:443
+        services.gradle.org:443
+        repo.gradle.org:443
+        plugins.gradle.org:443
+        chaquo.com:443
+        auth.docker.io:443
+        registry-1.docker.io:443
+        download.docker.com:443
+        production.cloudfront.docker.com:443
+        mirror.gcr.io:443
+        *.sigstore.dev:443
+        check.trivy.dev:443
+        cgr.dev:443
+        *.cgr.dev:443
+        dl-cdn.alpinelinux.org:443
+        *.alpinelinux.org:443
+        *.r2.cloudflarestorage.com:443
+        *.storage.bunnycdn.com:443
+        cdn.quad4.io:443
+        dl.flathub.org:443
+        flathub.org:443
+        api.securityscorecards.dev:443
+        meshchatx.com:443
+        cdn.playwright.dev:443
+        playwright.download.prss.microsoft.com:443
+        *.prss.microsoft.com:443
+        firefox.settings.services.mozilla.com:443
+        *.mozilla.com:443
+        storage.googleapis.com:443
+        *.stepsecurity.io:443
+    FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    PYTHON_VERSION: "3.14"
+    UV_VERSION: "0.11.15"
+
+jobs:
+    bench:
+        runs-on: ubuntu-latest
+        timeout-minutes: 60
+        permissions:
+            contents: read
+            pull-requests: write
+        steps:
+            - name: Harden runner
+              uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+              with:
+                  egress-policy: ${{ runner.os == 'Linux' && 'block' || 'audit' }}
+                  allowed-endpoints: ${{ env.HARDEN_ENDPOINTS }}
+            - name: Checkout
+              uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+              with:
+                  persist-credentials: false
+
+            - name: Set up development environment
+              uses: ./.github/actions/setup-dev-environment
+              with:
+                  python-version: ${{ env.PYTHON_VERSION }}
+                  uv-version: ${{ env.UV_VERSION }}
+                  install-node: "false"
+
+            - name: Restore benchmark baseline cache
+              uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+              with:
+                  path: ./cache
+                  key: ${{ runner.os }}-bench-baseline-v2-${{ github.ref_name }}
+                  restore-keys: |
+                      ${{ runner.os }}-bench-baseline-v2-${{ github.ref_name }}
+
+            - name: Run benchmarks (3 suite runs, median of medians)
+              run: |
+                  set -euo pipefail
+                  uv run python tests/backend/run_comprehensive_benchmarks.py \
+                      --runs 3 \
+                      --json-output bench_results.json 2>&1 | tee bench_results.txt
+
+            - name: Run integrity tests
+              run: |
+                  set -euo pipefail
+                  task test:integrity 2>&1 | tee -a bench_results.txt
+
+            - name: Smart regression gate
+              id: gate
+              run: |
+                  set -euo pipefail
+                  mkdir -p cache
+                  set +e
+                  uv run python tests/backend/compare_benchmarks.py \
+                      --current bench_results.json \
+                      --previous ./cache/benchmark-data.json \
+                      --summary bench_gate_summary.txt \
+                      --noise-floor-ms 0.5 \
+                      --min-abs-delta-ms 1.5
+                  code=$?
+                  set -e
+                  echo "exit_code=${code}" >> "$GITHUB_OUTPUT"
+                  if [ "${code}" != "0" ]; then
+                      echo "::error::Benchmark gate reported actionable regressions (see summary)"
+                  fi
+                  exit "${code}"
+
+            - name: Update benchmark baseline cache
+              if: success()
+              run: |
+                  set -euo pipefail
+                  uv run python tests/backend/compare_benchmarks.py \
+                      --current bench_results.json \
+                      --previous ./cache/benchmark-data.json \
+                      --baseline-out ./cache/benchmark-data.json \
+                      --update-baseline
+
+            - name: Publish benchmark chart (informational)
+              if: success()
+              continue-on-error: true
+              uses: benchmark-action/github-action-benchmark@a60cea5bc7b49e15c1f58f411161f99e0df48372
+              with:
+                  name: Meshchat neXt Backend Benchmarks
+                  tool: customSmallerIsBetter
+                  output-file-path: bench_results.json
+                  external-data-json-path: ./cache/benchmark-data.json
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  # Chart/comment only — smart gate is the fail path.
+                  alert-threshold: "1000%"
+                  fail-on-alert: false
+                  comment-on-alert: false
+                  summary-always: true

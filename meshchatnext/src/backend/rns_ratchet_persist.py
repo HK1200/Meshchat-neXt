@@ -1,0 +1,219 @@
+# SPDX-License-Identifier: 0BSD
+"""Bound RNS Identity ratchet persistence to one worker thread.
+
+Upstream RNS.Identity._remember_ratchet starts a new daemon Thread for every
+new ratchet when not on a shared instance. Under announce flood that reaches
+Thread-4000+ while each job waits on ratchet_persist_lock, then fails with
+Errno 24 when opening ratchet files. Meshchat neXt replaces that path with a
+bounded queue and a single persist worker.
+"""
+
+from __future__ import annotations
+
+import logging
+import queue
+import threading
+import time
+from typing import Any
+
+logger = logging.getLogger("meshchatnext.rns_ratchet_persist")
+
+_PATCHED = False
+_ORIGINAL_REMEMBER = None
+_QUEUE: queue.Queue[tuple[bytes, bytes] | None] | None = None
+_WORKER: threading.Thread | None = None
+_LATEST: dict[bytes, bytes] = {}
+_LATEST_LOCK = threading.Lock()
+_QUEUE_MAX = 512
+
+
+def _persist_one(destination_hash: bytes, ratchet: bytes) -> None:
+    import RNS
+
+    # Must be the RNS-vendored module. A bare import of top-level umsgpack fails
+    # in frozen desktop builds where that package is not installed (issue 76).
+    import RNS.vendor.umsgpack as umsgpack
+
+    from meshchatnext.src.path_utils import atomic_write_bytes
+
+    with RNS.Identity.ratchet_persist_lock:
+        hexhash = RNS.hexrep(destination_hash, delimit=False)
+        ratchet_data = {"ratchet": ratchet, "received": time.time()}
+        ratchetdir = RNS.Reticulum.storagepath + "/ratchets"
+        finalpath = f"{ratchetdir}/{hexhash}"
+        atomic_write_bytes(finalpath, umsgpack.packb(ratchet_data))
+
+
+_IO_PRESSURE = False
+
+
+def set_io_pressure(active: bool) -> None:
+    """Mark the storage layer as IO-constrained.
+
+    While active the persist worker holds queued writes instead of adding
+    to an already saturated disk queue. Entries stay in the latest map, so
+    no ratchet bytes are lost while waiting.
+    """
+    global _IO_PRESSURE
+    _IO_PRESSURE = bool(active)
+
+
+def io_pressure_active() -> bool:
+    return _IO_PRESSURE
+
+
+def _worker_loop() -> None:
+    if _QUEUE is None:
+        raise RuntimeError("ratchet persist queue is not initialized")
+    while True:
+        item = _QUEUE.get()
+        if item is None:
+            return
+        if _IO_PRESSURE:
+            # Disk is stalling. Put the signal back and back off. the
+            # latest map still carries the newest ratchet bytes.
+            try:
+                _QUEUE.put_nowait(item)
+            except queue.Full:
+                pass
+            time.sleep(5.0)
+            continue
+        # Recovery after a pressured window: a dropped re-put signal can
+        # orphan latest-map entries, so re-seed a signal for every hash
+        # still waiting before resuming the drain.
+        with _LATEST_LOCK:
+            pending = [h for h in _LATEST if h != item[0]]
+        for h in pending:
+            try:
+                _QUEUE.put_nowait((h, b""))
+            except queue.Full:
+                break
+        destination_hash, _ignored = item
+        with _LATEST_LOCK:
+            ratchet = _LATEST.pop(destination_hash, None)
+        if ratchet is None:
+            continue
+        try:
+            _persist_one(destination_hash, ratchet)
+        except Exception as exc:
+            logger.error("Bounded ratchet persist failed: %s", exc)
+
+
+def _ensure_worker() -> queue.Queue[tuple[bytes, bytes] | None]:
+    global _QUEUE, _WORKER
+    if _QUEUE is not None and _WORKER is not None and _WORKER.is_alive():
+        return _QUEUE
+    with _LATEST_LOCK:
+        if _QUEUE is None:
+            _QUEUE = queue.Queue(maxsize=_QUEUE_MAX)
+        if _WORKER is None or not _WORKER.is_alive():
+            _WORKER = threading.Thread(
+                target=_worker_loop,
+                name="meshchatnext-ratchet-persist",
+                daemon=True,
+            )
+            _WORKER.start()
+        return _QUEUE
+
+
+def flush_pending(max_items: int = 2048) -> int:
+    """Synchronously persist everything still in the latest map.
+
+    Called at process shutdown: entries queued during an IO-pressure
+    window must land on disk before exit or the next start misses
+    ratchet state. Returns the number persisted.
+    """
+    written = 0
+    with _LATEST_LOCK:
+        pending = list(_LATEST.items())[:max_items]
+        for h, _r in pending:
+            _LATEST.pop(h, None)
+    for destination_hash, ratchet in pending:
+        try:
+            _persist_one(destination_hash, ratchet)
+            written += 1
+        except Exception as exc:
+            logger.error("Ratchet persist flush failed: %s", exc)
+    return written
+
+
+def _enqueue_persist(destination_hash: bytes, ratchet: bytes) -> None:
+    with _LATEST_LOCK:
+        _LATEST[destination_hash] = ratchet
+    q = _ensure_worker()
+    try:
+        q.put_nowait((destination_hash, ratchet))
+    except queue.Full:
+        # Latest map already holds the newest bytes for this hash.
+        # Drop the queue signal rather than spawning another thread.
+        logger.warning("Ratchet persist queue full, coalescing writes")
+
+
+def _patched_remember_ratchet(destination_hash: Any, ratchet: Any) -> None:
+    import RNS
+
+    try:
+        if (
+            destination_hash in RNS.Identity.known_ratchets
+            and RNS.Identity.known_ratchets[destination_hash] == ratchet
+        ):
+            return
+
+        RNS.log(
+            f"Remembering ratchet {RNS.prettyhexrep(RNS.Identity._get_ratchet_id(ratchet))} "
+            f"for {RNS.prettyhexrep(destination_hash)}",
+            RNS.LOG_EXTREME,
+        ) if RNS.sl(RNS.LOG_EXTREME) else None
+        RNS.Identity.known_ratchets[destination_hash] = ratchet
+        if not RNS.Transport.owner.is_connected_to_shared_instance:
+            _enqueue_persist(destination_hash, ratchet)
+    except Exception as e:
+        RNS.log(
+            f"Could not persist ratchet for {RNS.prettyhexrep(destination_hash)} to storage.",
+            RNS.LOG_ERROR,
+        )
+        RNS.log(f"The contained exception was: {e}")
+        RNS.trace_exception(e)
+
+
+def install_bounded_ratchet_persist() -> bool:
+    """Replace RNS Identity ratchet Thread-per-write with a single worker."""
+    global _PATCHED, _ORIGINAL_REMEMBER
+    if _PATCHED:
+        return False
+    try:
+        import RNS
+    except Exception:
+        return False
+    original = getattr(RNS.Identity, "_remember_ratchet", None)
+    if original is None or original is _patched_remember_ratchet:
+        return False
+    _ORIGINAL_REMEMBER = original
+    RNS.Identity._remember_ratchet = staticmethod(_patched_remember_ratchet)
+    _ensure_worker()
+    _PATCHED = True
+    logger.info("Installed bounded RNS ratchet persist worker")
+    return True
+
+
+def raise_nofile_soft_limit(target: int = 65536) -> tuple[int, int] | None:
+    """Raise the process soft open-file limit up to min(target, hard)."""
+    try:
+        import resource
+    except Exception:
+        return None
+    try:
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    except Exception:
+        return None
+    desired = int(target)
+    if hard > 0:
+        desired = min(desired, int(hard))
+    if soft >= desired:
+        return soft, hard
+    try:
+        resource.setrlimit(resource.RLIMIT_NOFILE, (desired, hard))
+        return desired, hard
+    except Exception as exc:
+        logger.warning("Could not raise RLIMIT_NOFILE to %s: %s", desired, exc)
+        return soft, hard

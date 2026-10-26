@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width,initial-scale=1" />
+        <meta name="color-scheme" content="dark light" />
+        <meta
+            name="description"
+            content="A practical interactive guide to Meshchat neXt: Reticulum, MeshCore, tactical maps and SIP, with independent setup paths and searchable help."
+        />
+        <title>Meshchat neXt · Field guide</title>
+        <link rel="stylesheet" href="guide.css" />
+        <script defer src="content.js"></script>
+        <script defer src="guide.js"></script>
+    </head>
+    <body>
+        <a class="skip" href="#reader">Skip to guide</a>
+        <header class="masthead">
+            <a class="brand" href="#home" aria-label="Meshchat neXt guide home"
+                ><svg viewBox="0 0 48 48" aria-hidden="true">
+                    <path d="M6 42V6h9l18 23V6h9v36h-9L15 19v23Z" fill="currentColor" /></svg
+                ><span>Meshchat <strong>neXt</strong><small>THE FIELD GUIDE</small></span></a
+            >
+            <div class="header-actions">
+                <span class="draft">LOCAL REVIEW EDITION</span
+                ><button id="theme" aria-label="Switch colour theme">◐ Theme</button
+                ><button id="print">Print / save PDF</button>
+            </div>
+        </header>
+        <div class="layout">
+            <aside aria-label="Guide navigation">
+                <label class="search-label" for="search">Find your next step</label>
+                <div class="search-wrap">
+                    <span aria-hidden="true">⌕</span
+                    ><input id="search" type="search" placeholder="Search topics, questions…" autocomplete="off" /><kbd
+                        >/</kbd
+                    >
+                </div>
+                <p id="results" class="muted small" aria-live="polite"></p>
+                <button id="topics" aria-expanded="false" aria-controls="navigation">Browse topics</button>
+                <nav id="navigation"></nav>
+                <div class="aside-note">
+                    <strong>Learn here. Configure in the app.</strong>
+                    <p>
+                        This guide does not connect radios, send messages or request your location. Only checklist
+                        progress is saved in this browser.
+                    </p>
+                    <a href="README.md">Plain-text / GitHub edition ↗</a>
+                </div>
+            </aside>
+            <main id="reader" tabindex="-1"></main>
+        </div>
+        <footer>
+            <span>Meshchat neXt · User documentation</span
+            ><span>Offline-friendly · No analytics · No account needed</span
+            ><a href="#sources">Sources & compatibility limits</a>
+        </footer>
+        <noscript
+            ><p class="noscript">
+                JavaScript is off. Read the complete <a href="README.md">Markdown guide</a>.
+            </p></noscript
+        >
+    </body>
+</html>

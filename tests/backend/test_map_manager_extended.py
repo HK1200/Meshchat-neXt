@@ -1,0 +1,192 @@
+# SPDX-License-Identifier: 0BSD
+
+import os
+import shutil
+import sqlite3
+import tempfile
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from meshchatnext.src.backend.map_manager import (
+    MAX_EXPORT_TILES,
+    MapManager,
+    is_mbtiles_filename,
+    is_path_within_dir,
+)
+
+
+@pytest.fixture
+def temp_dir():
+    dir_path = tempfile.mkdtemp()
+    yield dir_path
+    shutil.rmtree(dir_path)
+
+
+@pytest.fixture
+def mock_config():
+    config = MagicMock()
+    config.map_offline_path.get.return_value = None
+    config.map_mbtiles_dir.get.return_value = None
+    return config
+
+
+def test_map_manager_init(mock_config, temp_dir):
+    mm = MapManager(mock_config, temp_dir)
+    assert mm.storage_dir == temp_dir
+
+
+def test_get_offline_path_default(mock_config, temp_dir):
+    mm = MapManager(mock_config, temp_dir)
+    default_path = os.path.join(temp_dir, "offline_map.mbtiles")
+
+    # Not exists
+    assert mm.get_offline_path() is None
+
+    # Exists
+    with open(default_path, "w") as f:
+        f.write("data")
+    assert mm.get_offline_path() == default_path
+
+
+def test_list_mbtiles(mock_config, temp_dir):
+    mm = MapManager(mock_config, temp_dir)
+
+    # Create some dummy .mbtiles files
+    f1 = os.path.join(temp_dir, "map1.mbtiles")
+    f2 = os.path.join(temp_dir, "map2.mbtiles")
+    with open(f1, "w") as f:
+        f.write("1")
+    with open(f2, "w") as f:
+        f.write("22")
+
+    files = mm.list_mbtiles()
+    assert len(files) == 2
+    assert any(f["name"] == "map1.mbtiles" for f in files)
+    assert any(f["size"] == 2 for f in files if f["name"] == "map2.mbtiles")
+    assert all("path" not in f for f in files)
+
+
+def test_get_metadata(mock_config, temp_dir):
+    mm = MapManager(mock_config, temp_dir)
+    db_path = os.path.join(temp_dir, "test.mbtiles")
+    mock_config.map_offline_path.get.return_value = db_path
+
+    # Create valid sqlite mbtiles
+    conn = sqlite3.connect(db_path)
+    conn.execute("CREATE TABLE metadata (name text, value text)")
+    conn.execute("INSERT INTO metadata VALUES ('name', 'Test Map')")
+    conn.execute("INSERT INTO metadata VALUES ('format', 'jpg')")
+    conn.commit()
+    conn.close()
+
+    metadata = mm.get_metadata()
+    assert metadata["name"] == "Test Map"
+    assert metadata["format"] == "jpg"
+
+
+def test_get_tile(mock_config, temp_dir):
+    mm = MapManager(mock_config, temp_dir)
+    db_path = os.path.join(temp_dir, "test.mbtiles")
+    mock_config.map_offline_path.get.return_value = db_path
+
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "CREATE TABLE tiles (zoom_level integer, tile_column integer, tile_row integer, tile_data blob)",
+    )
+    # Zoom 0, Tile 0,0. TMS y for 0/0/0 is (1<<0)-1-0 = 0
+    conn.execute(
+        "INSERT INTO tiles VALUES (0, 0, 0, ?)",
+        (sqlite3.Binary(b"tile_data"),),
+    )
+    conn.commit()
+    conn.close()
+
+    tile = mm.get_tile(0, 0, 0)
+    assert tile == b"tile_data"
+
+
+def test_start_export_status(mock_config, temp_dir):
+    mm = MapManager(mock_config, temp_dir)
+
+    with patch.object(mm, "_run_export"):
+        export_id = mm.start_export("test_id", [0, 0, 1, 1], 0, 1)
+        assert export_id == "test_id"
+        status = mm.get_export_status(export_id)
+        assert status["status"] == "starting"
+
+
+def test_count_export_tiles_world_low_zoom(mock_config, temp_dir):
+    mm = MapManager(mock_config, temp_dir)
+    bbox = [-180, -85.051129, 180, 85.051129]
+    n = mm.count_export_tiles(bbox, 0, 4)
+    assert n > 0
+    assert n < MAX_EXPORT_TILES
+
+
+def test_count_export_tiles_dedupes(mock_config, temp_dir):
+    mm = MapManager(mock_config, temp_dir)
+    single = mm.count_export_tiles([0, 0, 0.0001, 0.0001], 2, 2)
+    assert single > 0
+
+
+def test_count_export_tiles_stops_at_limit(mock_config, temp_dir):
+    """Unbounded counting on a huge bbox would hang the event loop."""
+    mm = MapManager(mock_config, temp_dir)
+    bbox = [-180, -85.051129, 180, 85.051129]
+    # World coverage at zoom 0-10 is ~1.4M tiles. A bounded count must return
+    # limit + 1 immediately instead of enumerating the whole range.
+    assert mm.count_export_tiles(bbox, 0, 10, limit=10) == 11
+    assert mm.count_export_tiles(bbox, 0, 22, limit=MAX_EXPORT_TILES) == (
+        MAX_EXPORT_TILES + 1
+    )
+
+
+def test_count_export_tiles_limit_still_counts_small(mock_config, temp_dir):
+    mm = MapManager(mock_config, temp_dir)
+    n = mm.count_export_tiles([0, 0, 1, 1], 0, 2, limit=MAX_EXPORT_TILES)
+    assert n > 0
+    assert n <= MAX_EXPORT_TILES
+
+
+def test_start_export_rejects_over_cap(mock_config, temp_dir, monkeypatch):
+    mm = MapManager(mock_config, temp_dir)
+    monkeypatch.setattr(
+        "meshchatnext.src.backend.map_manager.MAX_EXPORT_TILES",
+        5,
+    )
+    with pytest.raises(ValueError):
+        mm.start_export("too_big", [-180, -85.051129, 180, 85.051129], 0, 10)
+    assert mm.get_export_status("too_big") is None
+
+
+def test_delete_mbtiles_rejects_nul_and_nonstring(mock_config, temp_dir):
+    mm = MapManager(mock_config, temp_dir)
+    assert mm.delete_mbtiles("a\x00.mbtiles") is False
+    assert mm.delete_mbtiles(None) is False
+    assert mm.delete_mbtiles(123) is False
+
+
+def test_is_path_within_dir_allows_nested_file(mock_config, temp_dir):
+    nested = os.path.join(temp_dir, "maps", "area.mbtiles")
+    os.makedirs(os.path.dirname(nested), exist_ok=True)
+    assert is_path_within_dir(nested, temp_dir)
+
+
+def test_is_path_within_dir_rejects_parent_traversal(mock_config, temp_dir):
+    outside = os.path.join(os.path.dirname(temp_dir), "escape.mbtiles")
+    assert not is_path_within_dir(outside, temp_dir)
+
+
+def test_is_path_within_dir_case_insensitive(monkeypatch, mock_config, temp_dir):
+    def fake_normcase(path):
+        return path.lower()
+
+    monkeypatch.setattr(os.path, "normcase", fake_normcase)
+    nested = os.path.join(temp_dir, "MAP.MBTILES")
+    assert is_path_within_dir(nested, temp_dir)
+
+
+def test_is_mbtiles_filename_case_insensitive():
+    assert is_mbtiles_filename("world.MBTILES")
+    assert not is_mbtiles_filename("notes.txt")

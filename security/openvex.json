@@ -1,0 +1,11 @@
+{
+    "@context": "https://openvex.dev/ns/v0.2.0",
+    "@id": "urn:meshchat-next:local-preview:openvex",
+    "version": 1,
+    "author": "Meshchat neXt local preview",
+    "timestamp": "2026-09-25T00:00:00Z",
+    "last_updated": "2026-09-25T00:00:00Z",
+    "role": "Unpublished derivative",
+    "tooling": "manual",
+    "statements": []
+}

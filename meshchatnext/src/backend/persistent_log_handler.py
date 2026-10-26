@@ -1,0 +1,336 @@
+# SPDX-License-Identifier: 0BSD
+
+import collections
+import logging
+import math
+import re
+import threading
+import time
+from datetime import UTC, datetime
+
+_LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
+
+_ACCESS_LOG_RE = re.compile(
+    r"^([\d\.\:]+) .* \"[^\"]+\" \d+ \d+ \"[^\"]*\" \"([^\"]+)\"",
+)
+
+
+class PersistentLogHandler(logging.Handler):
+    def __init__(self, database=None, capacity=5000, flush_interval=5):
+        super().__init__()
+        self.database = database
+        self.logs_buffer = collections.deque(maxlen=capacity)
+        self.flush_interval = flush_interval
+        self.last_flush_time = time.time()
+        # When False, log lines stay in the in-memory ring buffer only.
+        # Opt out with MESHCHAT_LOG_DB=0 to keep log traffic off an SD card.
+        self.db_writes_enabled = True
+        # None means never swept. 0.0 would collide with monotonic time on
+        # hosts whose uptime is under the sweep interval, deferring the
+        # first cleanup until the machine has been up ten minutes.
+        self._last_db_cleanup: float | None = None
+        self.lock = threading.RLock()
+        self.flush_lock = threading.Lock()
+
+        # Anomaly detection state
+        self.recent_messages = collections.deque(maxlen=100)
+        self.flooding_threshold = 20  # messages per second
+        self.repeat_threshold = 5  # identical messages in a row
+        self.message_counts = collections.defaultdict(int)
+        self.last_reset_time = time.time()
+
+        # UA and IP tracking
+        self.known_ips = set()
+        self.known_uas = set()
+
+        # Entropy tracking: level counts over a sliding 60s window
+        self._level_events = collections.deque(maxlen=10000)
+        self._error_events = collections.deque(maxlen=10000)
+
+    def set_database(self, database):
+        with self.lock:
+            if (
+                self.database is not None
+                and database is not None
+                and self.database is not database
+                and self.logs_buffer
+            ):
+                self._flush_to_db()
+            self.database = database
+
+    def emit(self, record):
+        # Nested emit (e.g. signal handler during a flush) must not recurse into
+        # SQLite or other handlers via handleError.
+        if getattr(self, "_emitting", False):
+            return
+        self._emitting = True
+        try:
+            msg = self.format(record)
+            timestamp = datetime.now(UTC).timestamp()
+
+            try:
+                is_anomaly, anomaly_type = self._detect_anomaly(record, msg, timestamp)
+            except Exception:
+                is_anomaly, anomaly_type = False, None
+
+            log_entry = {
+                "timestamp": timestamp,
+                "level": record.levelname,
+                "module": record.module,
+                "message": msg,
+                "is_anomaly": 1 if is_anomaly else 0,
+                "anomaly_type": anomaly_type,
+            }
+
+            with self.lock:
+                self.logs_buffer.append(log_entry)
+                now_mono = time.monotonic()
+                self._level_events.append((now_mono, record.levelname))
+                if record.levelno >= logging.ERROR:
+                    self._error_events.append(now_mono)
+
+            # Periodically flush to database if available
+            if (
+                self.database
+                and self.db_writes_enabled
+                and (time.time() - self.last_flush_time > self.flush_interval)
+            ):
+                self._flush_to_db()
+
+        except Exception:
+            try:
+                self.handleError(record)
+            except Exception:
+                pass
+        finally:
+            self._emitting = False
+
+    def _detect_access_anomaly(self, message):
+        """Detect anomalies in aiohttp access logs."""
+        # Format: IP [date] "GET ..." status size "referer" "User-Agent"
+        match = _ACCESS_LOG_RE.search(message)
+        if match:
+            ip = match.group(1)
+            ua = match.group(2)
+
+            with self.lock:
+                is_anomaly = False
+                anomaly_type = None
+
+                # Detect if this is a different UA or IP from what we've seen recently
+                if len(self.known_ips) > 0 and ip not in self.known_ips:
+                    is_anomaly = True
+                    anomaly_type = "multi_ip"
+
+                if len(self.known_uas) > 0 and ua not in self.known_uas:
+                    is_anomaly = True
+                    if anomaly_type:
+                        anomaly_type = "multi_ip_ua"
+                    else:
+                        anomaly_type = "multi_ua"
+
+                self.known_ips.add(ip)
+                self.known_uas.add(ua)
+
+                # Cap the tracking sets to prevent memory growth
+                if len(self.known_ips) > 100:
+                    self.known_ips.clear()
+                if len(self.known_uas) > 100:
+                    self.known_uas.clear()
+
+                return is_anomaly, anomaly_type
+
+        return False, None
+
+    def _detect_anomaly(self, record, message, timestamp):
+        # 1. Access anomaly detection (UA/IP) - checked for all levels of aiohttp.access
+        if record.name == "aiohttp.access":
+            is_acc_anomaly, acc_type = self._detect_access_anomaly(message)
+            if is_acc_anomaly:
+                return True, acc_type
+
+        # Only detect other anomalies for WARNING level and above
+        if record.levelno < logging.WARNING:
+            return False, None
+
+        now = time.time()
+
+        # 1. Detect Log Flooding
+        if now - self.last_reset_time > 1.0:
+            self.message_counts.clear()
+            self.last_reset_time = now
+
+        self.message_counts["total"] += 1
+        if self.message_counts["total"] > self.flooding_threshold:
+            return True, "flooding"
+
+        # 2. Detect Repeats
+        if len(self.recent_messages) > 0:
+            repeat_count = 0
+            for prev_msg in reversed(self.recent_messages):
+                if prev_msg == message:
+                    repeat_count += 1
+                else:
+                    break
+
+            if repeat_count >= self.repeat_threshold:
+                return True, "repeat"
+
+        self.recent_messages.append(message)
+        return False, None
+
+    def _flush_to_db(self):
+        if not self.database or not self.db_writes_enabled:
+            return
+
+        # Ensure only one thread flushes at a time
+        if not self.flush_lock.acquire(blocking=False):
+            return
+
+        try:
+            items_to_flush = []
+            with self.lock:
+                while self.logs_buffer:
+                    items_to_flush.append(self.logs_buffer.popleft())
+
+            if not items_to_flush:
+                return
+
+            rows = [
+                (
+                    entry["timestamp"],
+                    entry["level"],
+                    entry["module"],
+                    entry["message"],
+                    entry["is_anomaly"],
+                    entry["anomaly_type"],
+                )
+                for entry in items_to_flush
+            ]
+            try:
+                self.database.debug_logs.insert_logs(rows)
+            except Exception as e:
+                print(f"Error inserting logs: {e}")
+
+            # The retention sweep scans the whole table, so once per ten
+            # minutes is enough for a 10000-row cap.
+            now = time.monotonic()
+            if self._last_db_cleanup is None or now - self._last_db_cleanup > 600:
+                self._last_db_cleanup = now
+                try:
+                    self.database.debug_logs.cleanup_old_logs()
+                except Exception as e:
+                    print(f"Error cleaning up logs: {e}")
+
+            self.last_flush_time = time.time()
+        except Exception as e:
+            print(f"Failed to flush logs to database: {e}")
+        finally:
+            self.flush_lock.release()
+
+    def get_logs(
+        self,
+        limit=100,
+        offset=0,
+        search=None,
+        level=None,
+        module=None,
+        is_anomaly=None,
+    ):
+        if self.database:
+            # Flush current buffer first to ensure we have latest logs
+            self._flush_to_db()
+
+        with self.lock:
+            if self.database:
+                return self.database.debug_logs.get_logs(
+                    limit=limit,
+                    offset=offset,
+                    search=search,
+                    level=level,
+                    module=module,
+                    is_anomaly=is_anomaly,
+                )
+            # Fallback to in-memory buffer if DB not yet available
+            logs = self._filter_buffer(
+                search=search,
+                level=level,
+                module=module,
+                is_anomaly=is_anomaly,
+            )
+            logs.sort(key=lambda x: x["timestamp"], reverse=True)
+            return logs[offset : offset + limit]
+
+    def _filter_buffer(self, search=None, level=None, module=None, is_anomaly=None):
+        logs = list(self.logs_buffer)
+        if search:
+            needle = search.lower()
+            logs = [
+                log
+                for log in logs
+                if needle in str(log.get("message", "")).lower()
+                or needle in str(log.get("module", "")).lower()
+            ]
+        if level:
+            logs = [log for log in logs if log["level"] == level]
+        if module:
+            logs = [log for log in logs if log["module"] == module]
+        if is_anomaly is not None:
+            logs = [
+                log for log in logs if log["is_anomaly"] == (1 if is_anomaly else 0)
+            ]
+        return logs
+
+    def get_total_count(self, search=None, level=None, module=None, is_anomaly=None):
+        with self.lock:
+            if self.database:
+                return self.database.debug_logs.get_total_count(
+                    search=search,
+                    level=level,
+                    module=module,
+                    is_anomaly=is_anomaly,
+                )
+            return len(
+                self._filter_buffer(
+                    search=search,
+                    level=level,
+                    module=module,
+                    is_anomaly=is_anomaly,
+                ),
+            )
+
+    @property
+    def current_log_entropy(self):
+        """Shannon entropy over log-level distribution in the last 60 seconds."""
+        cutoff = time.monotonic() - 60.0
+        with self.lock:
+            counts = dict.fromkeys(_LOG_LEVELS, 0)
+            total = 0
+            for ts, level in self._level_events:
+                if ts >= cutoff:
+                    counts[level] = counts.get(level, 0) + 1
+                    total += 1
+        if total == 0:
+            return 0.0
+        entropy = 0.0
+        for c in counts.values():
+            if c > 0:
+                p = c / total
+                entropy -= p * math.log2(p)
+        return entropy
+
+    @property
+    def current_error_rate(self):
+        """Fraction of log events at ERROR or above in the last 60 seconds."""
+        cutoff = time.monotonic() - 60.0
+        with self.lock:
+            total = sum(1 for ts, _ in self._level_events if ts >= cutoff)
+            errors = sum(1 for ts in self._error_events if ts >= cutoff)
+        if total == 0:
+            return 0.0
+        return errors / total
+
+
+# Process-wide in-memory log sink. meshchatnext.meshchat wires this into
+# logging.basicConfig at startup. The debug routes read from it.
+memory_log_handler = PersistentLogHandler()
