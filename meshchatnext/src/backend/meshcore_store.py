@@ -240,10 +240,10 @@ class MeshCoreStore:
     @contextlib.contextmanager
     def _connect(self):
         db = sqlite3.connect(self.path, timeout=10)
-        db.row_factory = sqlite3.Row
-        db.create_function("channel_sender", 1, channel_sender, deterministic=True)
-        db.execute("PRAGMA synchronous=FULL")
         try:
+            db.row_factory = sqlite3.Row
+            db.create_function("channel_sender", 1, channel_sender, deterministic=True)
+            db.execute("PRAGMA synchronous=FULL")
             with db:
                 yield db
         finally:

@@ -310,3 +310,28 @@ it("Android Back hides node discovery and keeps the saved-nodes page", async () 
     expect(wrapper.text()).toContain("Saved repeaters, room servers and sensors");
     dispose();
 });
+
+it("shows a scan reply immediately even before the announces snapshot catches up", async () => {
+    const data = snapshot();
+    data.announces = [{ peer: "e5".repeat(32), name: "Older repeater", kind: 2 }];
+    const found = "d4".repeat(32);
+    window.api = {
+        get: vi.fn(async () => ({ data: { result: structuredClone(data) } })),
+        post: vi.fn(async () => ({ data: { result: { nodes: [{ peer: found, kind: 3 }] } } })),
+    };
+    const navigation = await router();
+    await navigation.push({ name: "meshcore-nodes" });
+    wrapper = mount(MeshCoreNodesPage, { global: { plugins: [navigation] } });
+    await flushPromises();
+    await wrapper
+        .findAll("button")
+        .find((b) => b.text() === "Discover new nodes")
+        .trigger("click");
+    await flushPromises();
+    const current = wrapper.get('[aria-label="Replied to this scan"]');
+    expect(current.text()).toContain(found);
+    expect(current.text()).toContain("Room server");
+    expect(current.text()).not.toContain("Older repeater");
+    expect(wrapper.get('[aria-label="Previously heard"]').text()).toContain("Older repeater");
+    expect(wrapper.text()).toContain("1 nearby node replied");
+});

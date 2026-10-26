@@ -121,29 +121,39 @@
                                 {{ option.label }}
                             </button>
                         </div>
-                        <article
-                            v-for="node in discoveries"
-                            :key="node.peer"
-                            class="py-2 border-b border-sem-border"
-                            :data-discovered-peer="node.peer"
+                        <section
+                            v-for="group in discoveryGroups"
+                            :key="group.label"
+                            :aria-label="group.label"
+                            class="space-y-2"
                         >
-                            <strong>{{ node.name || nodeType(node.kind) }}</strong>
-                            <p class="text-xs text-sem-fg-muted">
-                                MeshCore · {{ nodeType(node.kind) }} ·
-                                {{ freshKeys.has(node.peer) ? "Replied to this scan" : "Previously heard" }}
-                            </p>
-                            <p class="text-xs font-mono break-all">{{ node.peer }}</p>
-                            <span v-if="savedKeys.has(node.peer)" class="text-xs text-sem-fg-muted">Saved node</span>
-                            <button
-                                v-else
-                                type="button"
-                                class="secondary-chip mt-1"
-                                :disabled="busy || discovering"
-                                @click="save(node)"
+                            <h3 class="font-semibold text-sm">{{ group.label }} ({{ group.nodes.length }})</h3>
+                            <article
+                                v-for="node in group.nodes"
+                                :key="node.peer"
+                                class="py-2 border-b border-sem-border"
+                                :data-discovered-peer="node.peer"
                             >
-                                Save node
-                            </button>
-                        </article>
+                                <strong>{{ node.name || nodeType(node.kind) }}</strong>
+                                <p class="text-xs text-sem-fg-muted">
+                                    MeshCore · {{ nodeType(node.kind) }} ·
+                                    {{ freshKeys.has(node.peer) ? "Replied to this scan" : "Previously heard" }}
+                                </p>
+                                <p class="text-xs font-mono break-all">{{ node.peer }}</p>
+                                <span v-if="savedKeys.has(node.peer)" class="text-xs text-sem-fg-muted"
+                                    >Saved node</span
+                                >
+                                <button
+                                    v-else
+                                    type="button"
+                                    class="secondary-chip mt-1"
+                                    :disabled="busy || discovering"
+                                    @click="save(node)"
+                                >
+                                    Save node
+                                </button>
+                            </article>
+                        </section>
                         <p v-if="!discoveries.length" class="text-sm text-sem-fg-muted">
                             No matching infrastructure nodes heard yet.
                         </p>
@@ -200,16 +210,30 @@ const discovering = ref(false),
     discoverySearch = ref(""),
     discoveryKind = ref(0),
     discoveryStatus = ref(""),
-    freshKeys = ref(new Set());
+    freshKeys = ref(new Set()),
+    scanResults = ref([]);
 const savedKeys = computed(() => new Set((snapshot.value.nodes || []).map((n) => n.peer)));
-const discoveries = computed(() =>
-    (snapshot.value.announces || []).filter(
-        (n) =>
-            [2, 3, 4].includes(n.kind) &&
-            (!discoveryKind.value || n.kind === discoveryKind.value) &&
-            `${n.name} ${n.peer}`.toLowerCase().includes(discoverySearch.value.toLowerCase())
-    )
+const discoveries = computed(() => {
+    const known = new Map(
+        [...(snapshot.value.announces || []), ...(snapshot.value.nodes || [])].map((node) => [node.peer, node])
+    );
+    for (const node of scanResults.value) known.set(node.peer, { ...known.get(node.peer), ...node });
+    return [...known.values()]
+        .filter(
+            (node) =>
+                [2, 3, 4].includes(node.kind) &&
+                (!discoveryKind.value || node.kind === discoveryKind.value) &&
+                `${node.name || ""} ${node.peer}`.toLowerCase().includes(discoverySearch.value.toLowerCase())
+        )
+        .sort((a, b) => String(a.name || a.peer).localeCompare(String(b.name || b.peer)));
+});
+const discoveryGroups = computed(() =>
+    [
+        { label: "Replied to this scan", nodes: discoveries.value.filter((node) => freshKeys.value.has(node.peer)) },
+        { label: "Previously heard", nodes: discoveries.value.filter((node) => !freshKeys.value.has(node.peer)) },
+    ].filter((group) => group.nodes.length)
 );
+
 function nodeType(kind) {
     return { 2: "Repeater", 3: "Room server", 4: "Sensor" }[kind] || "Node";
 }
@@ -220,6 +244,7 @@ watch(
     () => snapshot.value.owner,
     () => {
         freshKeys.value = new Set();
+        scanResults.value = [];
         discoveryStatus.value = "";
     }
 );
@@ -229,13 +254,18 @@ async function discover() {
     showDiscoveries.value = true;
     busy.value = true;
     freshKeys.value = new Set();
+    scanResults.value = [];
     discoveryStatus.value = "Listening for nearby infrastructure nodes…";
     const owner = snapshot.value.owner;
     try {
         const result = await action("node-discover", {});
         if (snapshot.value.owner !== owner) return;
-        freshKeys.value = new Set((result.nodes || []).map((n) => n.peer));
-        discoveryStatus.value = `${freshKeys.value.size} nearby nodes replied. Older announces are labelled separately.`;
+        scanResults.value = result.nodes || [];
+        freshKeys.value = new Set(scanResults.value.map((node) => node.peer));
+        const count = freshKeys.value.size;
+        discoveryStatus.value = count
+            ? `${count} nearby ${count === 1 ? "node replied" : "nodes replied"}. See Replied to this scan below.`
+            : "No nearby nodes replied to this scan. Previously heard nodes remain listed separately.";
     } catch (e) {
         discoveryStatus.value =
             e.response?.data?.message ||
