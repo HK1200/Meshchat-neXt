@@ -112,7 +112,11 @@
                     </button>
                     <span v-else class="text-xs text-sem-fg-muted">Default · can be hidden</span>
                     <p
-                        v-if="channel.kind === 'public' && channel.name !== channel.name.toLowerCase()"
+                        v-if="
+                            channel.slot !== 0 &&
+                            channel.kind === 'public' &&
+                            channel.name !== channel.name.toLowerCase()
+                        "
                         class="w-full text-xs text-sem-fg-muted pb-2"
                     >
                         Existing mixed-case hashtag: other clients need the same channel key. Re-add it in lowercase to
