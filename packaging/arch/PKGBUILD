@@ -1,7 +1,7 @@
 # Maintainer: Ivan <ivan@quad4.io>
 pkgname=meshchat-next-git
 _pkgname=meshchat-next
-pkgver=0.1.1
+pkgver=0.1.2
 pkgrel=1
 pkgdesc="A simple mesh network communications app powered by the Reticulum Network Stack"
 arch=('x86_64' 'aarch64')

@@ -52,8 +52,8 @@ android {
         applicationId System.getenv("MESHCHATNEXT_APPLICATION_ID") ?: "com.haadkoe.meshchatnext"
         minSdk 24
         targetSdk 35
-        versionCode 3
-        versionName "0.1.1"
+        versionCode 4
+        versionName "0.1.2"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         ndk {

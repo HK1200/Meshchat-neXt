@@ -190,6 +190,11 @@ export default {
             return ElectronUtils.isElectron();
         },
     },
+    watch: {
+        visible(value) {
+            if (value) void this.refresh();
+        },
+    },
     async mounted() {
         await this.refresh();
         this.installerTimer = setInterval(() => {
