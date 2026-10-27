@@ -82,17 +82,6 @@ public class MainActivity extends AppCompatActivity {
     private static final String THEME_LIGHT = "light";
 
     private WebView webView;
-    private volatile String installerDiagnostic = "not sampled";
-    private void sampleInstallerDiagnostic() {
-        if (webView == null) return;
-        webView.evaluateJavascript("JSON.stringify({origin:location.origin,bridge:typeof window.MeshchatNextAndroid,install:typeof window.MeshchatNextAndroid?.installVerifiedUpdate,status:typeof window.MeshchatNextAndroid?.updateInstallStatus,ui:document.querySelector('[data-native-installer]')?.dataset,entry:document.querySelector('script[type=module]')?.src})",
-            value -> installerDiagnostic = value);
-    }
-    @Override public void dump(String prefix, java.io.FileDescriptor fd, java.io.PrintWriter writer, String[] args) {
-        writer.println(prefix + "neXt installer diagnostics: " + installerDiagnostic);
-        sampleInstallerDiagnostic();
-    }
-
     private ProgressBar progressBar;
     private ImageView loadingLogo;
     private TextView loadingText;
