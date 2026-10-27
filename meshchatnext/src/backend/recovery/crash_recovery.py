@@ -758,7 +758,8 @@ class CrashRecovery:
             )
 
         out.write(
-            "  *. If the issue persists, report it to Ivan over another LXMF client: f489752fbef161c64d65e385a4e9fc74\n",
+            "  *. Report persistent issues at https://github.com/hk1200/Meshchat-neXt/issues\n"
+            "     or Meshchat neXt Relay: ef933cd2c155bbef703fdf59100598a8 (room: bug reports).\n",
         )
         out.write("=" * 70 + "\n\n")
         out.flush()
