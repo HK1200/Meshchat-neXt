@@ -6,7 +6,6 @@ from __future__ import annotations
 import asyncio
 import io
 import os
-import sys
 import threading
 import time
 import zipfile
@@ -250,7 +249,11 @@ def register_identities_routes(routes, app):
             def restart():
                 time.sleep(1)
                 try:
-                    os.execv(sys.executable, [sys.executable, *sys.argv])  # noqa: S606
+                    from meshchatnext.src.backend.lifecycle.process_restart import (
+                        restart_current_process,
+                    )
+
+                    restart_current_process()
                 except Exception as e:
                     print(f"Failed to restart: {e}")
                     os._exit(0)

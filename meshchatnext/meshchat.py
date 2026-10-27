@@ -1613,7 +1613,11 @@ class ReticulumMeshChat:
         def restart():
             time.sleep(delay)
             try:
-                os.execv(sys.executable, [sys.executable, *sys.argv])  # noqa: S606
+                from meshchatnext.src.backend.lifecycle.process_restart import (
+                    restart_current_process,
+                )
+
+                restart_current_process()
             except Exception as e:
                 print(f"Failed to restart: {e}")
                 os._exit(0)
