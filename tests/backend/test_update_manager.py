@@ -480,6 +480,9 @@ def test_unconfigured_preview_never_uses_an_inherited_release_feed(
 
     monkeypatch.delenv("MESHCHATNEXT_UPDATE_BASE_URL", raising=False)
     monkeypatch.delenv("MESHCHATNEXT_UPDATE_SIGNER", raising=False)
+    monkeypatch.setattr(
+        "meshchatnext.src.backend.update_manager.host_platform", lambda: "android"
+    )
     monkeypatch.setattr("meshchatnext.src.backend.update_manager.DEFAULT_BASE_URL", "")
     monkeypatch.setattr(
         "meshchatnext.src.backend.update_manager.DEFAULT_SIGNER_HASH", ""
@@ -577,6 +580,9 @@ def test_neXt_release_defaults_enable_signed_github_updates(monkeypatch, tmp_pat
 
     monkeypatch.delenv("MESHCHATNEXT_UPDATE_BASE_URL", raising=False)
     monkeypatch.delenv("MESHCHATNEXT_UPDATE_SIGNER", raising=False)
+    monkeypatch.setattr(
+        "meshchatnext.src.backend.update_manager.host_platform", lambda: "android"
+    )
     manager = UpdateManager(str(tmp_path), current_version="0.1.0", channel="stable")
     assert manager.enabled
     assert _pinned_signer_hash() == bytes.fromhex(DEFAULT_SIGNER_HASH)
@@ -587,4 +593,42 @@ def test_neXt_release_defaults_enable_signed_github_updates(monkeypatch, tmp_pat
     assert (
         manager.artifact_url({"tag": "v0.2.0"}, {"file": "app.apk"})
         == f"{DEFAULT_BASE_URL}/releases/download/v0.2.0/app.apk"
+    )
+
+
+def test_appimage_restart_requires_an_actual_appimage_install(monkeypatch):
+    from meshchatnext.src.backend.http.routes.update import _apply_mode
+
+    monkeypatch.delenv("APPIMAGE", raising=False)
+    assert _apply_mode("appimage", "linux")["mode"] == "manual"
+    assert _apply_mode("deb", "linux")["mode"] == "manual"
+    monkeypatch.setenv("APPIMAGE", "/home/user/My neXt.AppImage")
+    assert _apply_mode("appimage", "linux")["mode"] == "relaunch"
+    assert _apply_mode("deb", "linux")["mode"] == "manual"
+
+
+@pytest.mark.parametrize(
+    "channel,tag",
+    [
+        ("stable", "linux-stable"),
+        ("beta", "linux-beta"),
+        ("testing", "linux-testing"),
+    ],
+)
+def test_linux_update_channel_does_not_follow_android_latest(
+    tmp_path, monkeypatch, channel, tag
+):
+    from meshchatnext.src.backend.update_manager import DEFAULT_BASE_URL
+
+    monkeypatch.delenv("MESHCHATNEXT_UPDATE_BASE_URL", raising=False)
+    monkeypatch.setattr(
+        "meshchatnext.src.backend.update_manager.host_platform", lambda: "linux"
+    )
+    manager = UpdateManager(str(tmp_path), current_version="0.1.0", channel=channel)
+    assert (
+        manager.manifest_url()
+        == f"{DEFAULT_BASE_URL}/releases/download/{tag}/latest.rsm"
+    )
+    assert manager.artifact_url({"tag": "v0.1.2-linux"}, {"file": "next.AppImage"}) == (
+        f"{DEFAULT_BASE_URL}/releases/download/v0.1.2-linux/next.AppImage"
     )

@@ -196,6 +196,12 @@ class UpdateManager:
         if not _base_url():
             raise UpdateUnavailable("Meshchat neXt update publisher is not configured")
         if _base_url() == DEFAULT_BASE_URL:
+            if host_platform() == "linux":
+                # Keep desktop publication independent of Android's latest release.
+                channel_tag = (
+                    "linux-stable" if self.track == "release" else f"linux-{self.track}"
+                )
+                return f"{DEFAULT_BASE_URL}/releases/download/{channel_tag}/{MANIFEST_NAME}"
             if self.track == "release":
                 return f"{DEFAULT_BASE_URL}/releases/latest/download/{MANIFEST_NAME}"
             return f"{DEFAULT_BASE_URL}/releases/download/{self.track}/{MANIFEST_NAME}"
@@ -279,6 +285,8 @@ class UpdateManager:
             "track": self.track,
             "platform": host_platform(),
             "arch": normalize_arch(),
+            "appimage_install": host_platform() == "linux"
+            and bool(env_str("APPIMAGE")),
             "update_available": False,
             "pending": self.pending(),
         }

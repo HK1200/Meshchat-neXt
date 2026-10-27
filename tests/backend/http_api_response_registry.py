@@ -158,6 +158,49 @@ _PAGE_NAME = "index.mu"
 HTTP_JSON_GET_CONTRACTS: tuple[HttpJsonContract, ...] = (
     HttpJsonContract(
         "GET",
+        "/api/v1/sip/status",
+        {
+            "type": "object",
+            "required": [
+                "available",
+                "platform",
+                "state",
+                "registered",
+                "accounts",
+                "call_state",
+            ],
+            "properties": {
+                "available": {"type": "boolean"},
+                "platform": {"type": "string"},
+                "state": {"type": "string"},
+                "registered": {"type": "boolean"},
+                "accounts": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": [
+                            "id",
+                            "extension",
+                            "host",
+                            "port",
+                            "save_password",
+                        ],
+                        "properties": {
+                            "id": {"type": "string"},
+                            "extension": {"type": "string"},
+                            "host": {"type": "string"},
+                            "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+                            "save_password": {"type": "boolean"},
+                        },
+                        "not": {"required": ["password"]},
+                    },
+                },
+                "call_state": {"type": "string"},
+            },
+        },
+    ),
+    HttpJsonContract(
+        "GET",
         "/api/v1/meshcore/{action}",
         {
             "type": "object",

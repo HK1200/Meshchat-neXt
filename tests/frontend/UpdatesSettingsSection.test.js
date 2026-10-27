@@ -131,3 +131,20 @@ it("does not hide a different staged update behind a previous installed status",
         delete window.MeshchatNextAndroid;
     }
 });
+
+it("prefers deb updates for a packaged Linux install", async () => {
+    window.electron = { getPlatform: () => "linux" };
+    const w = section();
+    await flushPromises();
+    w.vm.checkResult = {
+        appimage_install: false,
+        artifacts: [
+            { file: "next.AppImage", kind: "appimage" },
+            { file: "next.deb", kind: "deb" },
+        ],
+    };
+    expect(w.vm.downloadable.map((a) => a.kind)).toEqual(["deb", "appimage"]);
+    w.vm.checkResult.appimage_install = true;
+    expect(w.vm.downloadable.map((a) => a.kind)).toEqual(["appimage"]);
+    w.unmount();
+});

@@ -179,9 +179,15 @@ export default {
             // Electron on Linux updates via AppImage swap, Android via APK,
             // self-hosted installs via wheel or pyz.
             const arts = (this.checkResult && this.checkResult.artifacts) || [];
-            const pref = this.isElectron
-                ? ["appimage", "exe", "dmg", "zip", "wheel", "pyz"]
-                : ["apk", "wheel", "pyz", "zip"];
+            const packagedLinux =
+                this.isElectron &&
+                ElectronUtils.getPlatform() === "linux" &&
+                this.checkResult?.appimage_install === false;
+            const pref = packagedLinux
+                ? ["deb", "appimage", "wheel", "pyz"]
+                : this.isElectron
+                  ? ["appimage", "exe", "dmg", "zip", "wheel", "pyz"]
+                  : ["apk", "wheel", "pyz", "zip"];
             return arts
                 .filter((a) => pref.includes(a.kind))
                 .sort((a, b) => pref.indexOf(a.kind) - pref.indexOf(b.kind));

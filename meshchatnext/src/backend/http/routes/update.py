@@ -30,13 +30,24 @@ from meshchatnext.src.backend.update_manager import (
     UpdateUnavailable,
     UpdateVerifyError,
 )
+from meshchatnext.src.env_utils import env_str
 
 
 # Front-end apply modes: "relaunch" (Electron swaps the staged payload and
 # restarts), "manual" (instructions only), "none".
 def _apply_mode(kind: str, platform: str) -> dict:
     if kind == "appimage" and platform == "linux":
-        return {"mode": "relaunch"}
+        if env_str("APPIMAGE"):
+            return {"mode": "relaunch"}
+        return {
+            "mode": "manual",
+            "instructions": "This is a portable AppImage download. Save and launch it separately, or choose the deb package to update an installed application.",
+        }
+    if kind == "deb" and platform == "linux":
+        return {
+            "mode": "manual",
+            "instructions": "Save the verified deb package and open it with your system package installer to update this installation. Your app data is kept separately.",
+        }
     if kind == "apk" and platform == "android":
         return {
             "mode": "manual",
