@@ -34,6 +34,16 @@ def _lxst_filterlib_path() -> Path | None:
     return None
 
 
+def _mapped_library_paths(maps_text: str, library: str) -> list[str]:
+    """Preserve spaces in the pathname field of Linux process mappings."""
+    paths = []
+    for line in maps_text.splitlines():
+        fields = line.split(maxsplit=5)
+        if len(fields) == 6 and library in fields[5]:
+            paths.append(fields[5])
+    return paths
+
+
 def main() -> None:
     import email.header
     import email.message
@@ -88,11 +98,9 @@ def main() -> None:
         if decoded_photo["png_base64"] != preview["png_base64"]:
             raise SystemExit("frozen-freeze-probe: AV1 photo roundtrip failed")
         if getattr(sys, "frozen", False):
-            photo_paths = [
-                line.split()[-1]
-                for line in Path("/proc/self/maps").read_text().splitlines()
-                if "libvox_av1" in line
-            ]
+            photo_paths = _mapped_library_paths(
+                Path("/proc/self/maps").read_text(), "libvox_av1"
+            )
             root = Path(sys.executable).resolve().parent
             if not photo_paths or any(
                 not Path(p).resolve().is_relative_to(root) for p in photo_paths
@@ -109,11 +117,9 @@ def main() -> None:
             # Prove we are not accidentally passing against a host-installed
             # libcodec2 while shipping an incomplete desktop bundle.
             root = Path(sys.executable).resolve().parent
-            mappings = [
-                line.split()[-1]
-                for line in Path("/proc/self/maps").read_text().splitlines()
-                if "libcodec2" in line
-            ]
+            mappings = _mapped_library_paths(
+                Path("/proc/self/maps").read_text(), "libcodec2"
+            )
             if not mappings or any(
                 not Path(p).resolve().is_relative_to(root) for p in mappings
             ):
