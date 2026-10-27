@@ -207,11 +207,6 @@ export default {
     activated() {
         void this.refresh();
     },
-    watch: {
-        visible(value) {
-            if (value) void this.refresh();
-        },
-    },
     beforeUnmount() {
         clearInterval(this.installerTimer);
     },
