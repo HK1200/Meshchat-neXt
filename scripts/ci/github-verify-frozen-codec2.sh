@@ -125,7 +125,13 @@ if [[ "$(uname -s)" == "Darwin" ]] && command -v otool >/dev/null 2>&1; then
 fi
 
 if [[ "$(uname -s)" == "Linux" ]]; then
-    resolved_codec="$(ldd "${EXT}" | awk '/libcodec2/ {print $3}')"
+    # ldd's resolved pathname may contain spaces (the deb installs under
+    # /opt/Meshchat neXt). Strip only the arrow prefix and address suffix.
+    resolved_codec="$(ldd "${EXT}" | sed -nE '/^[[:space:]]*libcodec2[^[:space:]]*[[:space:]]+=>[[:space:]]+/{
+        s/^[^>]*=>[[:space:]]*//
+        s/[[:space:]]+[(]0x[[:xdigit:]]+[)][[:space:]]*$//
+        p
+    }')"
     if [[ -z "${resolved_codec}" || ! -f "${resolved_codec}" ]]; then
         echo "frozen codec2 verify: codec2 dependency cannot be resolved" >&2
         exit 1
