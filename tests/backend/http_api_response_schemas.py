@@ -534,7 +534,7 @@ MAP_REGIONAL_DOWNLOAD_SCHEMA: dict = {
     "type": "object",
     "required": ["status", "received", "total"],
     "properties": {
-        "status": {"enum": ["idle", "downloading", "completed", "cancelled", "error"]},
+        "status": {"enum": ["idle", "downloading", "completed", "cancelled", "failed"]},
         "received": {"type": "integer", "minimum": 0},
         "total": {"type": "integer", "minimum": 0},
         "filename": _STRING,

@@ -146,3 +146,15 @@ def test_every_json_get_route_is_registered_or_excluded():
         "GET /api/v1 routes missing from HTTP JSON contract registry "
         f"(add schema or exclude): {uncovered}"
     )
+
+
+@pytest.mark.parametrize("state", ["idle", "downloading", "completed", "cancelled", "failed"])
+def test_regional_download_states_match_contract(state):
+    from tests.backend.http_api_response_schemas import MAP_REGIONAL_DOWNLOAD_SCHEMA
+
+    body = {"status": state, "received": 0, "total": 0}
+    if state == "failed":
+        body["error"] = "Checksum mismatch"
+    if state == "completed":
+        body["filename"] = "regional.mbtiles"
+    assert_matches_schema(body, MAP_REGIONAL_DOWNLOAD_SCHEMA)
