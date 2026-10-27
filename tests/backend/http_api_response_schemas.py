@@ -530,6 +530,19 @@ MAP_OFFLINE_METADATA_SCHEMA: dict = {
     "additionalProperties": True,
 }
 
+MAP_REGIONAL_DOWNLOAD_SCHEMA: dict = {
+    "type": "object",
+    "required": ["status", "received", "total"],
+    "properties": {
+        "status": {"enum": ["idle", "downloading", "completed", "cancelled", "error"]},
+        "received": {"type": "integer", "minimum": 0},
+        "total": {"type": "integer", "minimum": 0},
+        "filename": _STRING,
+        "error": _STRING,
+    },
+    "additionalProperties": False,
+}
+
 MAP_MBTILES_SCHEMA: dict = {
     "type": "array",
     "items": _OBJECT,
