@@ -21,6 +21,7 @@ const path = require("node:path");
 
 const { createBackendProcessManager } = require("./backendProcess");
 const { readPackagedAppVersion } = require("./appVersion");
+const { buildRelaunchOptions } = require("./relaunchOptions");
 const { getCrashRecoveryInfo } = require("./offlineRecovery");
 const {
     loadUiThemePreference,
@@ -469,17 +470,6 @@ trustedIpcHandle("prompt", async (event, message, defaultValue = "") => {
         },
     });
 });
-
-function buildRelaunchOptions(extraArgs = []) {
-    const relaunchOptions = {};
-    if (extraArgs.length > 0) {
-        relaunchOptions.args = process.argv.slice(1).concat(extraArgs);
-    }
-    if (!process.defaultApp && process.platform === "linux" && process.env.APPIMAGE) {
-        relaunchOptions.execPath = process.env.APPIMAGE;
-    }
-    return relaunchOptions;
-}
 
 function relaunchApp(extraArgs = []) {
     app.relaunch(buildRelaunchOptions(extraArgs));
