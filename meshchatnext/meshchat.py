@@ -807,6 +807,10 @@ class ReticulumMeshChat:
     @staticmethod
     def _probe_host_audio_unavailable() -> bool:
         """Return True when LXST cannot open a host capture device."""
+        if sys.platform.startswith("linux"):
+            from meshchatnext.src.backend.host_audio_probe import host_audio_unavailable
+
+            return host_audio_unavailable()
         try:
             from LXST.Sources import Backend
 

@@ -122,6 +122,7 @@ includes = [
     "meshchatnext.src.backend.appcontainer_launcher",
     "meshchatnext.src.backend.seccomp_sandbox",
     "meshchatnext.src.backend.frozen_freeze_probe",
+    "meshchatnext.src.backend.host_audio_probe",
     "RNS.vendor.umsgpack",
     "RNS.vendor.configobj",
 ]
