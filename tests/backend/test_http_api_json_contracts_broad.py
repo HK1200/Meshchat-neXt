@@ -148,7 +148,9 @@ def test_every_json_get_route_is_registered_or_excluded():
     )
 
 
-@pytest.mark.parametrize("state", ["idle", "downloading", "completed", "cancelled", "failed"])
+@pytest.mark.parametrize(
+    "state", ["idle", "downloading", "completed", "cancelled", "failed"]
+)
 def test_regional_download_states_match_contract(state):
     from tests.backend.http_api_response_schemas import MAP_REGIONAL_DOWNLOAD_SCHEMA
 
