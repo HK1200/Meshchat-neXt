@@ -155,6 +155,12 @@ public final class UpdateInstallerActivity extends Activity {
                     Uri.parse("package:" + getPackageName())), PERMISSION); return;
             }
             proceed.setEnabled(false);
+            state("preparing", "Preparing the verified update for Android’s installer…");
+            new Thread(this::installSession, "next-stage-installer").start();
+        } catch (Exception error) { state("failed", "Android’s installer could not be opened. Use Save file and open the APK from Downloads instead."); }
+    }
+    private void installSession() {
+        try {
             // Session installation preserves the user's existing full-screen calling choice.
             // Never grant this permission to an app whose user has not already allowed it.
             PackageInstaller installer = getPackageManager().getPackageInstaller();
@@ -176,7 +182,10 @@ public final class UpdateInstallerActivity extends Activity {
                 try (InputStream input = new FileInputStream(verified);
                      OutputStream output = session.openWrite("base.apk", 0, verified.length())) {
                     byte[] buffer = new byte[65536]; int count;
-                    while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
+                    while ((count = input.read(buffer)) != -1) {
+                        if (cancelled) throw new IOException("Installation preparation cancelled");
+                        output.write(buffer, 0, count);
+                    }
                     session.fsync(output);
                 }
                 Intent callback = new Intent(this, UpdateInstallerActivity.class).setAction(CALLBACK)
@@ -185,10 +194,13 @@ public final class UpdateInstallerActivity extends Activity {
                 int flags = PendingIntent.FLAG_UPDATE_CURRENT;
                 if (Build.VERSION.SDK_INT >= 31) flags |= PendingIntent.FLAG_MUTABLE;
                 PendingIntent result = PendingIntent.getActivity(this, id, callback, flags);
+                if (cancelled) throw new IOException("Installation preparation cancelled");
                 state("installer_opened", "Android’s installer is open. Review and approve the update there; downloading alone does not install it.");
                 session.commit(result.getIntentSender());
             } catch (Exception error) { installer.abandonSession(id); throw error; }
-        } catch (Exception error) { state("failed", "Android’s installer could not be opened. Use Save file and open the APK from Downloads instead."); }
+        } catch (Exception error) {
+            if (!cancelled) state("failed", "Android’s installer could not be opened. Use Save file and open the APK from Downloads instead.");
+        }
     }
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent); setIntent(intent);
