@@ -8,7 +8,11 @@ function patch(source) {
     const end = source.indexOf("\natexit()", start);
     if (start < 0 || end < 0 || !source.slice(start, end).includes("unshare -Ur"))
         throw new Error("AppImage launcher template changed; review sandbox policy before packaging");
-    return source.slice(0, start) + "# Meshchat neXt: preserve Chromium sandbox; never infer a bypass from unshare.\nNO_SANDBOX=()\n" + source.slice(end);
+    return (
+        source.slice(0, start) +
+        "# Meshchat neXt: preserve Chromium sandbox; never infer a bypass from unshare.\nNO_SANDBOX=()\n" +
+        source.slice(end)
+    );
 }
 function main() {
     const target = path.resolve(__dirname, "../node_modules/app-builder-lib/out/targets/appimage/appImageUtil.js");

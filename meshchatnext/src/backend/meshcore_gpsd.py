@@ -12,6 +12,15 @@ import json
 import math
 import time
 from datetime import datetime
+from typing import TypeGuard
+
+
+def _finite_number(value: object) -> TypeGuard[int | float]:
+    return (
+        isinstance(value, (int, float))
+        and type(value) in (int, float)
+        and math.isfinite(value)
+    )
 
 
 def gpsd_fix(report, *, now=None):
@@ -23,19 +32,16 @@ def gpsd_fix(report, *, now=None):
     ):
         return None
     latitude, longitude = report.get("lat"), report.get("lon")
-    if any(
-        type(v) not in (int, float) or not math.isfinite(v)
-        for v in (latitude, longitude)
-    ):
+    if not _finite_number(latitude) or not _finite_number(longitude):
         return None
     if not -90 <= latitude <= 90 or not -180 <= longitude <= 180:
         return None
     estimates = []
     eph = report.get("eph")
-    if type(eph) in (int, float) and math.isfinite(eph) and eph >= 0:
+    if _finite_number(eph) and eph >= 0:
         estimates.append(eph)
     x, y = report.get("epx"), report.get("epy")
-    if all(type(v) in (int, float) and math.isfinite(v) and v >= 0 for v in (x, y)):
+    if _finite_number(x) and _finite_number(y) and x >= 0 and y >= 0:
         estimates.append(math.hypot(x, y))
     if not estimates or max(estimates) > 255:
         return None
