@@ -232,6 +232,13 @@ def mock_app(db, tmp_path, temp_db):
         stack.enter_context(patch("RNS.Reticulum"))
         stack.enter_context(patch("RNS.Transport"))
         stack.enter_context(patch("LXMF.LXMRouter"))
+        # This fixture mocks all physical services. Keep it independent of
+        # desktop audio; real probe abort/timeout behavior has dedicated tests.
+        stack.enter_context(
+            patch.object(
+                ReticulumMeshChat, "_probe_host_audio_unavailable", return_value=False
+            )
+        )
         stack.enter_context(
             patch("meshchatnext.src.backend.identity_context.TelephoneManager"),
         )
