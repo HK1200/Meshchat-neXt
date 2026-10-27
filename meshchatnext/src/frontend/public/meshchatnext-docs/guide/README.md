@@ -1,6 +1,6 @@
 # Meshchat neXt · User guide
 
-User guide for Meshchat neXt 0.1.0, reviewed on 26 October 2026. Features vary by platform, firmware and peer application.
+User guide for Meshchat neXt 0.1.2, reviewed on 27 October 2026. Features vary by platform, firmware and peer application.
 
 ## One app, independent services
 
@@ -12,16 +12,35 @@ SIP → separate provider account → IP extension calls.
 
 Contact linking groups addresses; it does not bridge networks.
 
+## Install an Android app update
+
+neXt verifies official updates before handing the APK to Android. Downloading an update and installing it are separate steps.
+
+### How to
+
+1. Open Settings → App features → Updates and check for updates. Download the APK offered for your device.
+2. After verification, neXt opens Android’s installer. If Android asks whether neXt may install apps, allow it for neXt and return to continue.
+3. Review Android’s update confirmation and choose Update. Your existing app data stays in place. Cancel leaves the installed app unchanged and the verified download available to retry.
+4. If you return later, tap Install update. Save update file remains available if you prefer opening the APK yourself from Downloads.
+5. Reopen neXt after installation. Keep the existing app installed when updating; uninstalling can remove your data.
+
+### Keep in mind
+
+- Android approval is always required; neXt does not silently install updates.
+- The installer rechecks the file, app identity, signing certificate and version before opening Android’s confirmation.
+- Updates preserve the existing Android permission for full-screen incoming SIP calls. A user who has not allowed it can enable it from SIP settings.
+
 ## Start here: one app, separate networks
 
 Meshchat neXt puts several communications tools in one place. You can use just one or combine them. Combining the screens does not combine their networks, accounts or radio protocols.
 
 ### How to
 
-1. Choose what you actually need: Reticulum, MeshCore, SIP, or any combination. You can change the visible features later in Settings → App features.
-2. For Reticulum, choose a network interface: internet TCP, local network, an RNode radio, or several. For MeshCore, connect a separate companion radio. For SIP, supply your provider account.
-3. Check the network label before messaging, sharing an identity or calling. The same person can have several unrelated addresses.
-4. Use Settings → App features → Run setup guide if you leave first launch. The setup Back button returns through setup; Set up later is the explicit way to finish early. Expand the Help tiles for each choice.
+1. Install the APK matching your Android architecture: ARM64 (64-bit ARM), ARMv7 (32-bit ARM), or x86_64 (64-bit Intel/AMD). Android 7 or later is supported; SIP calling requires Android 9 or later.
+2. Choose what you actually need: Reticulum, MeshCore, SIP, or any combination. You can change the visible features later in Settings → App features.
+3. For Reticulum, choose a network interface: internet TCP, local network, an RNode radio, or several. For MeshCore, connect a separate companion radio. For SIP, supply your provider account.
+4. Check the network label before messaging, sharing an identity or calling. The same person can have several unrelated addresses.
+5. Use Settings → App features → Run setup guide if you leave first launch. The setup Back button returns through setup; Set up later is the explicit way to finish early. Expand the Help tiles for each choice.
 
 ### Keep in mind
 
@@ -222,7 +241,7 @@ A hashtag channel is a shared conversation identified by its name-derived key. A
 - Anyone who has a channel key can participate. A public hashtag’s key is not a private invitation.
 - Banishment hides a sender locally. It does not ban them from the radio network or other people’s clients.
 - Use a temporary private test channel for repeated experiments, rather than filling a neighborhood public channel with tests.
-- The compact chat header keeps notification mode controls; channel scope stays in Manage channels. Use the attachment row for either Photo or Voice clip.
+- The compact chat header keeps notification mode controls; channel scope stays in Manage channels. Use the attachment row’s Photo or Voice clip button to open its scrollable editor.
 
 ## Reply to a person and control notifications
 
@@ -318,7 +337,7 @@ neXt supports MediaMesh photos and Codec2 recorded voice in MeshCore DMs and cha
 ### How to
 
 1. Connect a compatible Radio2 companion and confirm the recipient has compatible firmware/client support. For channels, share the same channel key and suitable scope.
-2. In a MeshCore conversation or channel, open the Attachments row and choose Photo or Voice clip. Record a short clip, stop, preview, then explicitly send. Closing or switching attachment type discards the current draft.
+2. In a MeshCore conversation or channel, choose Photo or Voice clip in the Attachments row. Its editor opens in a scrollable dialog. Record a short clip, stop, preview, then explicitly send. Closing or switching attachment type discards the current draft.
 3. On the receiving side, wait for the indicated parts to download. Play/view only after completion; an announcement arriving does not mean all media parts arrived.
 4. If interrupted, reconnect and use the explicit retry/download control on the same item. Completed cached media remains usable offline; incomplete downloads are not presented as complete.
 5. If the sender cannot be resolved, add/verify their full MeshCore public key. Do not substitute a short displayed name for a cryptographic identity.
@@ -354,7 +373,7 @@ A map can show overlays while its background is blank. Map tiles are the backgro
 ### How to
 
 1. Before going offline, open Map with internet access and inspect the area and zoom levels you need.
-2. Use the map’s offline/MBTiles controls to install an appropriate map or restore the bundled starter tiles if offered. Starter coverage is limited; it is not every place at every zoom.
+2. The bundled map includes a world overview and a compact PNW/southern British Columbia overview through zoom 9. Open Map, tap Offline maps, then choose Download and use regional detail (104 MB) for road/town context through zoom 12. The app verifies and selects the download automatically. You can also restore the included overview or import your own MBTiles file from the same panel. Coverage is limited; it is not every place at every zoom.
 3. Confirm that the map source and selected MBTiles file match the view. A tile set’s area and zoom range determine what can display.
 4. Test with network access unavailable before leaving. Pan and zoom through the intended operational area rather than checking a single screen.
 5. If one phone works and another does not, compare their downloaded files, selected source, coverage and zoom. Each installation has its own tile storage.
@@ -427,7 +446,7 @@ Telephone contains the SIP dialer and connection status. Account credentials are
 
 1. Check the selected SIP account is registered. Use Reconnect when the status shows it is disconnected.
 2. Dial an extension supported by your provider. On another client such as Linphone, use an appropriate account/server and test two-way audio.
-3. For incoming calls, use neXt’s Answer/Decline controls and notification. Allow Android call notifications and background execution where needed.
+3. For incoming calls, use neXt’s Answer/Decline screen or notification. Allow Android call notifications and background execution. On Android 14 or later, use Allow lock-screen call display if SIP settings requests it; this lets incoming calls appear above the lock screen.
 4. Enable automatic reconnection for launch/recovery. Permit both Wi-Fi and mobile data if you want failover; switching routes can still end an active call.
 5. If registration returns 401 or 403, verify the actual server, UDP/TLS transport, extension and provider connection limit. The provider’s console and account details matter.
 
@@ -792,4 +811,4 @@ No. It is a local reading aid. Checklists save browser progress only; no keys, r
 
 ## Review boundaries
 
-This guide describes Meshchat neXt 0.1.0. Compatibility is specific to the firmware, codec, server and package in use; it does not imply support for every ATAK deployment. A firmware assistant is not included. External projects and firmware change. Check the exact neXt release notes and hardware before flashing.
+This guide describes Meshchat neXt 0.1.2. Compatibility is specific to the firmware, codec, server and package in use; it does not imply support for every ATAK deployment. A firmware assistant is not included. External projects and firmware change. Check the exact neXt release notes and hardware before flashing.

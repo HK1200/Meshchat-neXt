@@ -2,6 +2,25 @@
 window.NEXT_GUIDE = {
     articles: [
         {
+            id: "updates",
+            title: "Install an Android app update",
+            group: "Essentials",
+            lead: "neXt verifies official updates before handing the APK to Android. Downloading an update and installing it are separate steps.",
+            steps: [
+                "Open Settings → App features → Updates and check for updates. Download the APK offered for your device.",
+                "After verification, neXt opens Android’s installer. If Android asks whether neXt may install apps, allow it for neXt and return to continue.",
+                "Review Android’s update confirmation and choose Update. Your existing app data stays in place. Cancel leaves the installed app unchanged and the verified download available to retry.",
+                "If you return later, tap Install update. Save update file remains available if you prefer opening the APK yourself from Downloads.",
+                "Reopen neXt after installation. Keep the existing app installed when updating; uninstalling can remove your data.",
+            ],
+            notes: [
+                "Android approval is always required; neXt does not silently install updates.",
+                "The installer rechecks the file, app identity, signing certificate and version before opening Android’s confirmation.",
+                "Updates preserve the existing Android permission for full-screen incoming SIP calls. A user who has not allowed it can enable it from SIP settings.",
+            ],
+            related: ["backups", "sip-calls"],
+        },
+        {
             id: "start",
             title: "Start here: one app, separate networks",
             group: "Essentials",
@@ -440,7 +459,7 @@ window.NEXT_GUIDE = {
             steps: [
                 "Check the selected SIP account is registered. Use Reconnect when the status shows it is disconnected.",
                 "Dial an extension supported by your provider. On another client such as Linphone, use an appropriate account/server and test two-way audio.",
-                "For incoming calls, use neXt’s Answer/Decline controls and notification. Allow Android call notifications and background execution where needed.",
+                "For incoming calls, use neXt’s Answer/Decline screen or notification. Allow Android call notifications and background execution. On Android 14 or later, use Allow lock-screen call display if SIP settings requests it; this lets incoming calls appear above the lock screen.",
                 "Enable automatic reconnection for launch/recovery. Permit both Wi-Fi and mobile data if you want failover; switching routes can still end an active call.",
                 "If registration returns 401 or 403, verify the actual server, UDP/TLS transport, extension and provider connection limit. The provider’s console and account details matter.",
             ],

@@ -1,5 +1,12 @@
 # Meshchat neXt changelog
 
+## 0.1.2
+
+- Verified Android updates open Android’s installer directly, with clear completion and cancellation feedback and a manual file fallback.
+- Updates preserve the existing permission for lock-screen incoming calls.
+- SIP incoming calls have a dedicated lock-screen Answer/Decline screen and repeating vibration that stops when answered or declined.
+- Added outgoing SIP ringback and improved background SIP connection handling.
+
 ## 0.1.1
 
 - Additional Android APKs for 32-bit ARM and x86_64, alongside ARM64.

@@ -1,6 +1,18 @@
 <!-- SPDX-License-Identifier: 0BSD -->
 <template>
     <section class="space-y-4 py-4 text-sem-fg" :aria-label="mode === 'settings' ? 'SIP settings' : 'SIP telephone'">
+        <div
+            v-if="state.available && state.full_screen_allowed === false"
+            class="rounded-xl border border-sem-warning p-3 text-sm space-y-2"
+        >
+            <p>
+                Android needs permission to show incoming SIP calls above the lock screen. Calls can still appear as
+                notifications.
+            </p>
+            <button type="button" class="secondary-chip" @click="allowLockScreenCalls">
+                Allow lock-screen call display
+            </button>
+        </div>
         <div v-if="mode === 'phone'" class="rounded-xl border border-sem-border bg-sem-surface p-4 space-y-3">
             <div class="flex flex-wrap items-center justify-between gap-2">
                 <p role="status" class="text-sm">
@@ -258,6 +270,9 @@
     </section>
 </template>
 <script setup>
+function allowLockScreenCalls() {
+    window.MeshchatNextAndroid?.openSipFullScreenSettings?.();
+}
 import { computed, onMounted, onBeforeUnmount, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import { HOIP_DEFAULTS, sipState as state, refreshSip, sipCommand } from "../../js/sip";
