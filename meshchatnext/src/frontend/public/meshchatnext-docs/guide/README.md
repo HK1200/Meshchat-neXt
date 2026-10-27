@@ -1,6 +1,6 @@
 # Meshchat neXt · User guide
 
-User guide for Meshchat neXt 0.1.2, reviewed on 27 October 2026. Features vary by platform, firmware and peer application.
+User guide for Meshchat neXt 0.1.2. Features vary by platform, firmware and peer application.
 
 ## One app, independent services
 

@@ -390,12 +390,12 @@
         heading(
             "Built from the app. Checked against the protocols.",
             "Sources & review limits",
-            "This guide covers Meshchat neXt 0.1.0. Check the release notes for platform support, validation results and known limitations."
+            "This guide accompanies Meshchat neXt. Check your release notes for platform support, validation results and known limitations."
         );
         reader.append(
             el(
                 "p",
-                "Menus, defaults and validation notes were checked against the current neXt source and local development records on 26 October 2026. External projects can change; use the release notes for your exact build.",
+                "Menus and defaults follow the source revision accompanying this guide. External projects can change; use the release notes for your exact build.",
                 "muted"
             )
         );
