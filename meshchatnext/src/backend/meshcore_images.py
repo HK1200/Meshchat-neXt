@@ -6,6 +6,7 @@ from __future__ import annotations
 import base64
 import ctypes
 import struct
+import sys
 import threading
 import zlib
 from pathlib import Path
@@ -19,10 +20,15 @@ MAX_BYTES = 64 * 156
 def library():
     configured = env_str("MESHCHAT_AV1_LIBRARY")
     candidates = [configured] if configured else []
+    if getattr(sys, "frozen", False):
+        candidates.append(
+            str(Path(sys.executable).resolve().parent / "lib/libvox_av1.so")
+        )
     native = env_str("MESHCHAT_NATIVE_LIB_DIR")
     if native:
         candidates.append(str(Path(native) / "libvox_av1.so"))
     candidates += [
+        str(Path(__file__).resolve().parents[3] / ".local/av1/libvox_av1.so"),
         str(Path(__file__).resolve().parents[3] / "temp-tests/av1-build/libvox_av1.so"),
         "libvox_av1.so",
     ]

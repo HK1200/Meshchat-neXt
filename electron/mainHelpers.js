@@ -13,6 +13,17 @@ const IGNORED_CLI_ARGUMENTS = new Set([
     "--enable-logging=stderr",
 ]);
 
+// Desktop launchers and test tools add Electron switches with values. These
+// belong to Chromium/Node, not the Python backend's strict argument parser.
+const ELECTRON_VALUE_FLAGS = new Set([
+    "--inspect",
+    "--inspect-brk",
+    "--remote-debugging-port",
+    "--remote-debugging-address",
+    "--ozone-platform",
+    "--ozone-platform-hint",
+]);
+
 // URL-like argv entries (lxmf://..., rns://...) arrive from cold-start deep
 // links. The backend runs argparse in strict mode, so forwarding them would
 // exit the backend with code 2.
@@ -30,7 +41,19 @@ const PROTOCOL_URL_ARG_PATTERN = /^(?:lxmf|rns):\/\//i;
  */
 function getUserProvidedArguments(argv) {
     const list = Array.isArray(argv) ? argv : [];
-    return list.slice(1).filter((arg) => !IGNORED_CLI_ARGUMENTS.has(arg) && !URL_SCHEME_ARG_PATTERN.test(arg));
+    const result = [];
+    for (let i = 1; i < list.length; i++) {
+        const arg = list[i];
+        const flag = typeof arg === "string" ? arg.split("=", 1)[0] : arg;
+        if (ELECTRON_VALUE_FLAGS.has(flag)) {
+            if (arg === flag && typeof list[i + 1] === "string" && !list[i + 1].startsWith("--")) i++;
+            continue;
+        }
+        if (arg === "--remote-debugging-pipe" || IGNORED_CLI_ARGUMENTS.has(arg) || URL_SCHEME_ARG_PATTERN.test(arg))
+            continue;
+        result.push(arg);
+    }
+    return result;
 }
 
 /**

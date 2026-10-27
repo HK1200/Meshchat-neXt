@@ -32,6 +32,28 @@ describe("electron/mainHelpers", () => {
         expect(getUserProvidedArguments(argv)).toEqual(["--storage-dir", "D:/data"]);
     });
 
+    it("keeps Electron debugger and Wayland switches out of backend arguments", () => {
+        const argv = [
+            "/app/neXt",
+            "--inspect=0",
+            "--remote-debugging-port=0",
+            "--ozone-platform",
+            "wayland",
+            "--data-dir",
+            "/tmp/next",
+            "--port",
+            "18530",
+        ];
+        expect(getUserProvidedArguments(argv)).toEqual(["--data-dir", "/tmp/next", "--port", "18530"]);
+    });
+
+    it("an optional debugger value does not swallow the next backend flag", () => {
+        expect(getUserProvidedArguments(["/app/neXt", "--inspect", "--headless", "--port=18530"])).toEqual([
+            "--headless",
+            "--port=18530",
+        ]);
+    });
+
     it("formatRenderProcessGoneDetails handles null/undefined", () => {
         expect(formatRenderProcessGoneDetails(null)).toBe("no details");
         expect(formatRenderProcessGoneDetails(undefined)).toBe("no details");

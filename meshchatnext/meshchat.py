@@ -6287,6 +6287,11 @@ class ReticulumMeshChat:
         from meshchatnext.src.backend.meshcore_http import install_meshcore_lifecycle
 
         install_meshcore_lifecycle(app, self)
+        from meshchatnext.src.backend.sip_desktop_http import (
+            install_sip_desktop_lifecycle,
+        )
+
+        install_sip_desktop_lifecycle(app, self)
         from meshchatnext.src.backend.regional_map_download import (
             install_regional_map_lifecycle,
         )

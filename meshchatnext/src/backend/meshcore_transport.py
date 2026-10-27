@@ -11,8 +11,29 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import math
+import sys
+
+from meshchatnext.src.env_utils import env_str
 
 MAX_FRAME = 300
+
+
+def transport_platform():
+    if env_str("ANDROID_ROOT"):
+        return "android"
+    return "linux" if sys.platform.startswith("linux") else "unsupported"
+
+
+def create_connection(kind, target, *, context=None, **options):
+    if context is not None or transport_platform() == "android":
+        return AndroidConnection(kind, target, context=context, **options)
+    if transport_platform() == "linux":
+        from meshchatnext.src.backend.meshcore_desktop_transport import (
+            DesktopConnection,
+        )
+
+        return DesktopConnection(kind, target, **options)
+    raise ConnectionError("MeshCore radios are not yet supported on this platform")
 
 
 class SerialFrames:
@@ -330,6 +351,10 @@ def request_usb_permission(context, path):
 
 def attached_usb_devices(context=None):
     """List serial candidates without opening, probing or selecting a device."""
+    if context is None and transport_platform() == "linux":
+        from meshchatnext.src.backend.meshcore_desktop_transport import attached_devices
+
+        return attached_devices()
     try:
         if context is None:
             from usb4a.usb import get_context
@@ -365,6 +390,10 @@ def permit_usb_device(path, context=None):
     """Request permission only for the explicitly selected serial candidate."""
     if not isinstance(path, str) or not path:
         raise ValueError("Select a USB radio")
+    if context is None and transport_platform() == "linux":
+        from meshchatnext.src.backend.meshcore_desktop_transport import permit_device
+
+        return permit_device(path)
     if context is None:
         try:
             from usb4a.usb import get_context
@@ -458,7 +487,7 @@ async def probe_radio(kind, target, *, context=None, **options):
 
 
 def paired_ble_devices(context=None):
-    """Read Android's paired BLE candidates without opening or resetting any radio."""
+    """Read Android paired devices or Linux UART advertisements without connecting."""
     try:
         if context is None:
             from usb4a.usb import get_context
@@ -484,3 +513,14 @@ def paired_ble_devices(context=None):
         raise ConnectionError(
             "Paired Bluetooth devices unavailable; check permission"
         ) from error
+
+
+async def available_ble_devices(context=None):
+    """Keep Linux BlueZ discovery on the application's existing asyncio loop."""
+    if context is not None or transport_platform() == "android":
+        return await asyncio.to_thread(paired_ble_devices, context)
+    if transport_platform() == "linux":
+        from meshchatnext.src.backend.meshcore_desktop_transport import discover_devices
+
+        return await discover_devices()
+    raise ConnectionError("Bluetooth discovery is unavailable on this platform")

@@ -271,11 +271,19 @@ def test_verify_frozen_codec2_script_requires_dylib_on_darwin(tmp_path: Path) ->
 def test_verify_frozen_codec2_script_accepts_extension(tmp_path: Path) -> None:
     root = _frozen_pycodec2_tree(tmp_path)
     (root / "lib" / "pycodec2" / "libcodec2.dylib").write_bytes(b"lib")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    uname = bin_dir / "uname"
+    uname.write_text("#!/bin/sh\necho Darwin\n", encoding="utf-8")
+    uname.chmod(0o755)
+    env = os.environ.copy()
+    env["PATH"] = f"{bin_dir}{os.pathsep}{env.get('PATH', '')}"
     result = subprocess.run(  # nosec: BAN-B607
         ["bash", str(_VERIFY), str(root)],
         check=False,
         capture_output=True,
         text=True,
+        env=env,
     )
     assert result.returncode == 0
     assert "frozen codec2 verify: OK" in result.stdout
@@ -314,3 +322,50 @@ def test_ci_wires_codec2_freeze_guards() -> None:
     assert "libcodec2" in unify
     assert "libscipy_openblas" in unify
     assert "MESHCHATNEXT_UNIFY_ARM64_DIR" in unify
+
+
+def test_linux_auditwheel_layout_is_preserved(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(
+        "meshchatnext.src.backend.bake_frozen_pycodec2.sys.platform", "linux"
+    )
+    root = _frozen_pycodec2_tree(tmp_path)
+    libs = root / "lib" / "pycodec2.libs"
+    libs.mkdir()
+    hashed = libs / "libcodec2-1234.so.1.2"
+    hashed.write_bytes(b"auditwheel-library")
+    bake_frozen_pycodec2(root)
+    assert hashed.read_bytes() == b"auditwheel-library"
+    assert not (root / "lib" / "libcodec2.so").exists()
+    assert "auditwheel libcodec2 already bundled" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("bundled", [True, False])
+def test_linux_checker_rejects_host_codec_resolution(tmp_path, bundled):
+    import shlex
+
+    root = _frozen_pycodec2_tree(tmp_path / "bundle")
+    libs = root / "lib" / "pycodec2.libs"
+    libs.mkdir()
+    library = libs / "libcodec2-test.so.1.2"
+    library.write_bytes(b"library")
+    resolved = library if bundled else tmp_path / "host-libcodec2.so"
+    if not bundled:
+        resolved.write_bytes(b"host")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    for name, body in {
+        "uname": "echo Linux",
+        "ldd": "printf '%s\\n' "
+        + shlex.quote(f"libcodec2-test.so.1.2 => {resolved} (0x1234)"),
+    }.items():
+        tool = bin_dir / name
+        tool.write_text("#!/bin/sh\n" + body + "\n")
+        tool.chmod(0o755)
+    env = os.environ.copy()
+    env["PATH"] = f"{bin_dir}{os.pathsep}{env.get('PATH', '')}"
+    result = subprocess.run(
+        ["bash", str(_VERIFY), str(root)], capture_output=True, text=True, env=env
+    )
+    assert (result.returncode == 0) is bundled
+    if not bundled:
+        assert "outside bundle" in result.stderr

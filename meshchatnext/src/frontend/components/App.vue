@@ -415,7 +415,7 @@
                 </div>
             </template>
         </template>
-        <SipCallBanner v-if="appFeatures.sip" />
+        <SipCallBanner v-if="appFeatures.sip" :dnd="Boolean(config?.do_not_disturb_enabled)" />
         <CallOverlay
             v-if="
                 appFeatures.reticulum &&
@@ -553,6 +553,7 @@ import { showDatabaseHealthIssuesToastIfNeeded, resetDatabaseHealthWarningState 
 import MaterialDesignIcon from "./MaterialDesignIcon.vue";
 import QRCode from "qrcode";
 import LanguageSelector from "./LanguageSelector.vue";
+import { sipState, sipCommand } from "../js/sip";
 import SipCallBanner from "./sip/SipCallBanner.vue";
 import CallOverlay from "./call/CallOverlay.vue";
 import CommandPalette from "./CommandPalette.vue";
@@ -1123,6 +1124,21 @@ export default {
                     this.onBackendProcessExited(payload);
                 });
             }
+            window.electron.onSipResume?.(() => {
+                if (this.appFeatures.sip && sipState.platform === "linux" && sipState.enabled)
+                    sipCommand("resume").catch(() => {});
+            });
+            window.electron.onSipCall?.(async (payload) => {
+                if (payload?.callId !== sipState.call_id || !this.appFeatures.sip) return;
+                if (payload.action === "answer" || payload.action === "decline") {
+                    try {
+                        await sipCommand(payload.action === "answer" ? "answer" : "hangup");
+                    } catch {
+                        /* Open the call controls for manual recovery. */
+                    }
+                }
+                this.$router.push({ path: "/call", query: { network: "sip", tab: "phone" } });
+            });
             window.electron.onProtocolLink((url) => {
                 this.handleProtocolLink(url);
             });

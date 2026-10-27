@@ -153,6 +153,15 @@ contextBridge.exposeInMainWorld("electron", {
     getIntegrityStatus: async function () {
         return await invokeTrusted("get-integrity-status");
     },
+    updateSipCall: function (payload) {
+        return invokeTrusted("sip-call-update", payload);
+    },
+    onSipResume: function (callback) {
+        onTrusted("sip-network-resume", () => callback());
+    },
+    onSipCall: function (callback) {
+        onTrusted("open-sip-call", (_event, payload) => callback(payload));
+    },
     showNotification: function (title, body, silent = false, destinationHash = null) {
         invokeTrusted("show-notification", { title, body, silent, destinationHash });
     },

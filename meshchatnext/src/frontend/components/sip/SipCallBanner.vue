@@ -28,8 +28,32 @@
 </template>
 <script setup>
 import { useRouter } from "vue-router";
-import { onMounted, onBeforeUnmount, ref } from "vue";
+import { onMounted, onBeforeUnmount, ref, watch } from "vue";
 import { sipState as state, refreshSip, sipCommand } from "../../js/sip";
+import { createSipDesktopRingtone } from "../../js/sipDesktopRingtone";
+const ringtone = createSipDesktopRingtone();
+const props = defineProps({ dnd: { type: Boolean, default: false } });
+watch(
+    () => [state.platform, state.enabled, state.call_state, state.call_id, props.dnd],
+    () => {
+        if (state.platform === "linux" && window.electron) {
+            if (state.call_state === "incoming" && !props.dnd) ringtone.start(state.call_id);
+            else ringtone.stop();
+        }
+        if (state.platform === "linux" && window.electron?.updateSipCall)
+            window.electron
+                .updateSipCall({
+                    enabled: Boolean(state.enabled),
+                    incoming: state.call_state === "incoming",
+                    active: state.call_state !== "idle",
+                    callId: state.call_id || "",
+                    peer: state.peer || "",
+                    dnd: props.dnd,
+                })
+                .catch(() => {});
+    },
+    { immediate: true }
+);
 const error = ref("");
 const router = useRouter();
 async function answer() {
@@ -45,7 +69,11 @@ onMounted(() => {
     refreshSip();
     timer = setInterval(refreshSip, 1000);
 });
-onBeforeUnmount(() => clearInterval(timer));
+onBeforeUnmount(() => {
+    clearInterval(timer);
+    ringtone.stop();
+    if (state.platform === "linux") window.electron?.updateSipCall?.({ enabled: false, incoming: false });
+});
 async function hangup() {
     try {
         await sipCommand("hangup");

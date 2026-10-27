@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: MIT
-"""Android Keystore credentials; no plaintext or unsupported-platform fallback."""
+"""Platform secure credentials; no plaintext or temporary-storage fallback."""
 
 from meshchatnext.src.backend.meshcore_store import public_key
+from meshchatnext.src.backend.meshcore_transport import transport_platform
 
 
 class NodePasswords:
@@ -13,12 +14,19 @@ class NodePasswords:
         if not self._attempted:
             self._attempted = True
             try:
-                from java import jclass
-                from usb4a.usb import get_context
+                if transport_platform() == "linux":
+                    from meshchatnext.src.backend.meshcore_desktop_credentials import (
+                        DesktopNodePasswords,
+                    )
 
-                self._provider = jclass(
-                    "com.meshchatnext.meshcore.SecureNodePasswords"
-                )(get_context().getApplicationContext())
+                    self._provider = DesktopNodePasswords()
+                elif transport_platform() == "android":
+                    from java import jclass
+                    from usb4a.usb import get_context
+
+                    self._provider = jclass(
+                        "com.meshchatnext.meshcore.SecureNodePasswords"
+                    )(get_context().getApplicationContext())
             except Exception:
                 self._provider = None
         return self._provider

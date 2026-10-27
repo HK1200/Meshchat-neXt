@@ -59,11 +59,27 @@ describe("MeshCore radio settings", () => {
         expect(wrapper.text()).toContain("Radio2 are unchanged");
     });
 
-    it("does not repeatedly request Android-only paired discovery from a desktop backend", async () => {
+    it("does not request discovery when the backend reports it unavailable", async () => {
         setup({ snapshot: ref({ available: true, connected: false, owner, bluetooth_discovery_supported: false }) });
         await flushPromises();
         expect(window.api.get).not.toHaveBeenCalled();
-        expect(wrapper.text()).toContain("Paired-radio selection requires an Android backend");
+        expect(wrapper.text()).toContain("Bluetooth device discovery is unavailable on this backend");
+    });
+
+    it("offers Linux radio discovery without Android pairing instructions", async () => {
+        setup({
+            snapshot: ref({
+                available: true,
+                connected: false,
+                owner,
+                bluetooth_discovery_supported: true,
+                radio_platform: "linux",
+            }),
+        });
+        await flushPromises();
+        expect(window.api.get).toHaveBeenCalled();
+        expect(wrapper.text()).toContain("Find nearby radios");
+        expect(wrapper.text()).not.toContain("Pair your radio in Android");
     });
 
     it("cancels paired-radio discovery when the settings view is removed", async () => {
@@ -288,7 +304,9 @@ it("hides regions during setup and preserves the tool link in normal settings", 
     await wrapper.setProps({ setupMode: true });
     expect(wrapper.text()).not.toContain("Channel regions are optional");
     expect(wrapper.text()).not.toContain("MeshCore regions & channel scoping");
-    expect(wrapper.findAllComponents({ name: "RouterLink" }).some(link => link.text().includes("channel scoping"))).toBe(false);
+    expect(
+        wrapper.findAllComponents({ name: "RouterLink" }).some((link) => link.text().includes("channel scoping"))
+    ).toBe(false);
     await wrapper.setProps({ setupMode: false });
     expect(wrapper.text()).toContain("MeshCore regions & channel scoping");
 });

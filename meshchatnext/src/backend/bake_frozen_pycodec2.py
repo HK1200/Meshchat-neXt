@@ -184,6 +184,15 @@ def bake_frozen_pycodec2(build_dir: Path) -> None:
     if ext_so is None:
         raise SystemExit(f"bake_frozen_pycodec2: no pycodec2 extension under {pkg}")
 
+    # Linux auditwheel wheels keep their hashed SONAME and relative RPATH in
+    # the sibling .libs directory. Preserve that layout instead of copying a
+    # host library or renaming a dependency the extension still references.
+    if sys.platform.startswith("linux") and _iter_codec2_libs(
+        lib_dir / "pycodec2.libs"
+    ):
+        print("bake_frozen_pycodec2: auditwheel libcodec2 already bundled")
+        return
+
     candidates = _iter_codec2_libs(pkg) + _iter_codec2_libs(lib_dir, recursive=False)
     dist_dir = _pycodec2_dist_dir()
     if dist_dir is not None:

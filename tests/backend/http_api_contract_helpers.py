@@ -26,6 +26,7 @@ def http_route_source_paths(repo_root: Path) -> list[Path]:
     if http_root.is_dir():
         paths.extend(sorted(http_root.rglob("*.py")))
     paths.append(repo_root / "meshchatnext/src/backend/meshcore_http.py")
+    paths.append(repo_root / "meshchatnext/src/backend/sip_desktop_http.py")
     return [p for p in paths if p.is_file()]
 
 

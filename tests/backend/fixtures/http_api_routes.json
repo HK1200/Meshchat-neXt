@@ -1629,6 +1629,14 @@
             "path": "/api/v1/sideband-plugins/reload"
         },
         {
+            "method": "POST",
+            "path": "/api/v1/sip/command"
+        },
+        {
+            "method": "GET",
+            "path": "/api/v1/sip/status"
+        },
+        {
             "method": "GET",
             "path": "/api/v1/spam-keywords"
         },

@@ -67,10 +67,10 @@ async def _read(service, owner, request, action):
         result = await asyncio.to_thread(attached_usb_devices)
     elif action == "bluetooth-devices":
         from meshchatnext.src.backend.meshcore_transport import (
-            paired_ble_devices,
+            available_ble_devices,
         )
 
-        result = await asyncio.to_thread(paired_ble_devices)
+        result = await available_ble_devices()
     elif action == "tak-status":
         if not request.query.get("owner"):
             raise ValueError("Select an identity")
@@ -169,9 +169,10 @@ async def _write(service, owner, request, action):
         ),
         "team-beacon-start": (
             {"expected_owner", "interval", "expected_channel_id", "expected_scope"},
-            set(),
+            {"source", "duration_minutes"},
         ),
         "team-beacon-stop": ({"expected_owner"}, {"token"}),
+        "team-beacon-status": ({"expected_owner"}, set()),
         "team-beacon-position": (
             {
                 "expected_owner",
@@ -470,6 +471,7 @@ async def _write(service, owner, request, action):
             "team-send": ("tactical", "send"),
             "team-beacon-start": ("tactical", "beacon_start"),
             "team-beacon-stop": ("tactical", "beacon_stop"),
+            "team-beacon-status": ("tactical", "beacon_status"),
             "team-beacon-position": ("tactical", "beacon_position"),
             "voice-fetch": ("voice", "fetch"),
             "voice-play": ("voice", "play"),

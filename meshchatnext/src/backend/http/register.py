@@ -29,6 +29,9 @@ def register_all_routes(routes, app):
     from meshchatnext.src.backend.meshcore_http import register_meshcore_routes
 
     register_meshcore_routes(routes, app)
+    from meshchatnext.src.backend.sip_desktop_http import register_sip_desktop_routes
+
+    register_sip_desktop_routes(routes, app)
     return (
         create_bad_request_middleware(app),
         create_sqlite_unavailable_middleware(app),

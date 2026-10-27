@@ -68,6 +68,10 @@ def test_native_provider_is_lazy_and_storage_errors_do_not_disclose_credentials(
 ):
     import sys
 
+    monkeypatch.setattr(
+        "meshchatnext.src.backend.meshcore_credentials.transport_platform",
+        lambda: "android",
+    )
     provider = Provider()
     context = SimpleNamespace(getApplicationContext=lambda: "application-context")
     monkeypatch.setitem(
@@ -124,3 +128,25 @@ async def test_radio_battery_preserves_measured_voltage_and_rejects_unknown_valu
     session._connection = None
     with pytest.raises(ConnectionError):
         await session.read_battery()
+
+
+def test_linux_provider_selected_without_opening_keyring(monkeypatch):
+    from meshchatnext.src.backend.meshcore_desktop_credentials import (
+        DesktopNodePasswords,
+    )
+
+    monkeypatch.setattr(
+        "meshchatnext.src.backend.meshcore_credentials.transport_platform",
+        lambda: "linux",
+    )
+    vault = NodePasswords()
+    assert isinstance(vault.provider(), DesktopNodePasswords)
+    assert vault.provider()._service is None
+
+
+def test_unsupported_platform_has_no_plaintext_fallback(monkeypatch):
+    monkeypatch.setattr(
+        "meshchatnext.src.backend.meshcore_credentials.transport_platform",
+        lambda: "unsupported",
+    )
+    assert NodePasswords().provider() is None

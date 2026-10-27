@@ -1,4 +1,5 @@
 <template>
+    <MeshCoreGpsdControls v-bind="props" />
     <details v-if="supported" class="border border-sem-border rounded-lg p-2 text-xs">
         <summary class="cursor-pointer">Automatic position sharing · Android</summary>
         <div class="space-y-2 mt-2">
@@ -55,6 +56,7 @@
 <script setup>
 /* eslint-disable security/detect-possible-timing-attacks -- Lifetime counters are public. */
 import { ref, watch, onBeforeUnmount } from "vue";
+import MeshCoreGpsdControls from "./MeshCoreGpsdControls.vue";
 import { getAndroidPosition } from "../../../js/androidLocation";
 import { getCsrfToken } from "../../../js/csrfToken";
 import { apiPath } from "../../../js/constants";

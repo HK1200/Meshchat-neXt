@@ -16,6 +16,13 @@ static struct ua *agent;
 static struct call *current;
 static struct tmr digit_timer;
 static struct tmr shutdown_timer;
+/* Keep the existing UDP mapping alive without creating another registration. */
+static struct tmr keepalive_timer;
+static bool keepalive_enabled, keepalive_pending;
+static char keepalive_uri[384];
+static void keepalive_tick(void *arg);
+static void keepalive_response(int err, const struct sip_msg *msg, void *arg);
+
 static void finish_shutdown(void *arg) { (void)arg; re_cancel(); }
 static void release_digit(void *arg){(void)arg;if(current)call_send_digit(current,KEYCODE_REL);}
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
@@ -34,6 +41,21 @@ static void event(const char *state, const char *peer, int code) {
     (*env)->DeleteLocalRef(env, s);
     (*env)->DeleteLocalRef(env, p);
     if (attached) (*vm)->DetachCurrentThread(vm);
+}
+
+static void keepalive_response(int err, const struct sip_msg *msg, void *arg) {
+    (void)arg;
+    keepalive_pending = false;
+    if (!keepalive_enabled || !agent) return;
+    event("keepalive", NULL, err ? -err : (msg ? msg->scode : 0));
+    tmr_start(&keepalive_timer, 20000, keepalive_tick, NULL);
+}
+static void keepalive_tick(void *arg) {
+    (void)arg;
+    if (!keepalive_enabled || !agent || keepalive_pending) return;
+    keepalive_pending = true;
+    int err = ua_options_send(agent, keepalive_uri, keepalive_response, NULL);
+    if (err) keepalive_response(err, NULL, NULL);
 }
 /* AAudio allocates a recording session for Android's hardware audio effects. */
 void next_sip_audio_session(int session) {
@@ -75,9 +97,13 @@ static void events(enum bevent_ev ev, struct bevent *e, void *arg) {
             event("registering", NULL, 0);
             break;
         case BEVENT_REGISTER_OK:
+            keepalive_enabled = true;
+            if (!keepalive_pending) tmr_start(&keepalive_timer, 20000, keepalive_tick, NULL);
             event("registered", NULL, 0);
             break;
         case BEVENT_REGISTER_FAIL: {
+            keepalive_enabled = false;
+            tmr_cancel(&keepalive_timer);
             const char *text = bevent_get_text(e);
             int code = 0;
             if (text && text[0] >= '0' && text[0] <= '9')
@@ -158,6 +184,8 @@ static void commands(int id, void *data, void *arg) {
             if (current) err = call_hold(current, text && text[0] == '1');
             break;
         case 9:
+            keepalive_enabled = false;
+            tmr_cancel(&keepalive_timer);
             /* Allow the authenticated expires=0 transaction to finish before
                stopping the event loop. Never wait indefinitely for a dead network. */
             if (agent) {
@@ -225,6 +253,8 @@ JNIEXPORT jint JNICALL Java_com_meshchatnext_sip_SipEngine_run(JNIEnv *env, jcla
     }
     err = bevent_register(events, NULL);
     if (err) goto close;
+    keepalive_enabled = keepalive_pending = false;
+    re_snprintf(keepalive_uri, sizeof(keepalive_uri), "sip:%s:%d;transport=udp", host, port);
     re_snprintf(aor, sizeof(aor),
                 "<sip:%s@%s:%d;transport=udp>;regint=0;audio_codecs=opus/48000/2,PCMU/8000/1,PCMA/"
                 "8000/1;ptime=20;rtpkeep=zero",
@@ -254,6 +284,8 @@ close:
     pthread_mutex_lock(&lock);
     queue = mem_deref(queue);
     pthread_mutex_unlock(&lock);
+    keepalive_enabled = false;
+    tmr_cancel(&keepalive_timer);
     tmr_cancel(&digit_timer);
     tmr_cancel(&shutdown_timer);
     current = NULL;

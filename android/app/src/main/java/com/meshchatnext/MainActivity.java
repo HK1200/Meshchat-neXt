@@ -82,6 +82,17 @@ public class MainActivity extends AppCompatActivity {
     private static final String THEME_LIGHT = "light";
 
     private WebView webView;
+    private volatile String installerDiagnostic = "not sampled";
+    private void sampleInstallerDiagnostic() {
+        if (webView == null) return;
+        webView.evaluateJavascript("JSON.stringify({origin:location.origin,bridge:typeof window.MeshchatNextAndroid,install:typeof window.MeshchatNextAndroid?.installVerifiedUpdate,status:typeof window.MeshchatNextAndroid?.updateInstallStatus,ui:document.querySelector('[data-native-installer]')?.dataset,entry:document.querySelector('script[type=module]')?.src})",
+            value -> installerDiagnostic = value);
+    }
+    @Override public void dump(String prefix, java.io.FileDescriptor fd, java.io.PrintWriter writer, String[] args) {
+        writer.println(prefix + "neXt installer diagnostics: " + installerDiagnostic);
+        sampleInstallerDiagnostic();
+    }
+
     private ProgressBar progressBar;
     private ImageView loadingLogo;
     private TextView loadingText;
@@ -1783,6 +1794,39 @@ public class MainActivity extends AppCompatActivity {
                         BRIDGE_LOCATION_PERMISSION_REQUEST_CODE
                     )
             );
+        }
+
+        @JavascriptInterface
+        public void openSipFullScreenSettings() {
+            activity.runOnUiThread(() -> {
+                if (android.os.Build.VERSION.SDK_INT >= 34)
+                    activity.startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
+                        Uri.parse("package:" + activity.getPackageName())));
+            });
+        }
+
+        @JavascriptInterface
+        public String updateInstallStatus() {
+            return UpdateInstallerActivity.status(appContext());
+        }
+
+        @JavascriptInterface
+        public String installVerifiedUpdate(String pending) {
+            String[] result = {"{\"accepted\":false,\"message\":\"Return to the app and tap Install update.\"}"};
+            java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
+            Runnable launch = () -> {
+                try {
+                    if (activity.hasWindowFocus() && activity.webView != null
+                        && RemoteBackendUrl.isLocalBackendUrl(activity.webView.getUrl())) {
+                        activity.startActivity(new Intent(activity, UpdateInstallerActivity.class).putExtra("pending", pending));
+                        result[0] = "{\"accepted\":true}";
+                    }
+                } finally { done.countDown(); }
+            };
+            if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) launch.run();
+            else { activity.runOnUiThread(launch); try { done.await(2, java.util.concurrent.TimeUnit.SECONDS); }
+                catch (InterruptedException error) { Thread.currentThread().interrupt(); } }
+            return result[0];
         }
 
         @JavascriptInterface

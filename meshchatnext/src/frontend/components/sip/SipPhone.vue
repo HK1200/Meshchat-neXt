@@ -1,6 +1,18 @@
 <!-- SPDX-License-Identifier: 0BSD -->
 <template>
     <section class="space-y-4 py-4 text-sem-fg" :aria-label="mode === 'settings' ? 'SIP settings' : 'SIP telephone'">
+        <div
+            v-if="state.available && state.full_screen_allowed === false"
+            class="rounded-xl border border-sem-warning p-3 text-sm space-y-2"
+        >
+            <p>
+                Android needs permission to show incoming SIP calls above the lock screen. Calls can still appear as
+                notifications.
+            </p>
+            <button type="button" class="secondary-chip" @click="allowLockScreenCalls">
+                Allow lock-screen call display
+            </button>
+        </div>
         <div v-if="mode === 'phone'" class="rounded-xl border border-sem-border bg-sem-surface p-4 space-y-3">
             <div class="flex flex-wrap items-center justify-between gap-2">
                 <p role="status" class="text-sm">
@@ -42,6 +54,7 @@
                     >
                         {{ state.muted ? "Unmute" : "Mute" }}</button
                     ><button
+                        v-if="state.platform !== 'linux'"
                         class="secondary-chip"
                         type="button"
                         :aria-pressed="state.speaker"
@@ -84,7 +97,8 @@
             </div>
             <p v-if="!state.available" class="text-sm text-sem-fg-muted">
                 {{
-                    state.error || "SIP calling is available in the Android app. Account passwords stay on that device."
+                    state.error ||
+                    "SIP calling requires a supported app build. Account passwords stay on the device running the service."
                 }}
             </p>
             <div v-else class="space-y-3">
@@ -213,8 +227,8 @@
                 ><input v-model="form.save_password" type="checkbox" />Save password securely on this device</label
             >
             <p class="text-xs text-sem-fg-muted">
-                Saved passwords use Android Keystore encryption and are excluded from backups. With saving off, re-enter
-                the password after the SIP service stops.
+                Saved passwords use this device’s secure password store and are excluded from app backups. With saving
+                off, re-enter the password after the SIP service stops.
             </p>
             <fieldset class="space-y-2">
                 <legend class="text-sm mb-2">Allowed networks</legend>
@@ -224,13 +238,16 @@
                 <label class="flex items-center gap-2 text-sm"
                     ><input v-model="form.allowed_networks" type="checkbox" value="mobile" />Mobile data</label
                 >
+                <label v-if="state.ethernet_available" class="flex items-center gap-2 text-sm"
+                    ><input v-model="form.allowed_networks" type="checkbox" value="ethernet" />Wired network</label
+                >
                 <label v-if="state.i2p_available" class="flex items-center gap-2 text-sm"
                     ><input v-model="form.allowed_networks" type="checkbox" value="i2p" />I2P</label
                 >
             </fieldset>
             <p class="text-xs text-sem-fg-muted">
-                SIP uses an available allowed network, preferring Wi-Fi. It reconnects over mobile data when Wi-Fi drops
-                if both are allowed. Switching networks may end an active call.
+                SIP uses an available allowed connection and reconnects when it changes. Switching connections may end
+                an active call.
             </p>
             <div class="flex flex-wrap gap-2">
                 <button type="submit" class="primary-chip">Save account</button
@@ -258,6 +275,9 @@
     </section>
 </template>
 <script setup>
+function allowLockScreenCalls() {
+    window.MeshchatNextAndroid?.openSipFullScreenSettings?.();
+}
 import { computed, onMounted, onBeforeUnmount, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import { HOIP_DEFAULTS, sipState as state, refreshSip, sipCommand } from "../../js/sip";
@@ -277,7 +297,7 @@ const selectedAccount = computed(() => state.accounts.find((a) => a.id === selec
 const statusLabel = computed(
     () =>
         ({
-            unavailable: state.error ? "SIP unavailable" : "Android app required",
+            unavailable: state.error ? "SIP unavailable" : "Supported app build required",
             starting: "Starting SIP service",
             disconnected: "Disconnected",
             registering: "Registering",
@@ -313,7 +333,15 @@ function edit(a) {
                     ? ["wifi", "mobile"]
                     : [a.network || "wifi"],
           }
-        : { ...HOIP_DEFAULTS, allowed_networks: [...HOIP_DEFAULTS.allowed_networks], label: "HOIP", extension: "" };
+        : {
+              ...HOIP_DEFAULTS,
+              allowed_networks: [
+                  ...HOIP_DEFAULTS.allowed_networks,
+                  ...(state.platform === "linux" ? ["ethernet"] : []),
+              ],
+              label: "HOIP",
+              extension: "",
+          };
 }
 function cancel() {
     form.value = null;

@@ -58,6 +58,23 @@ bin_dir = ROOT / "bin"
 if bin_dir.exists() and bin_dir.is_dir():
     include_files.append(("bin", "bin"))
 
+linux_sip = ROOT / ".local/linux-sip/meshchatnext-sip"
+if sys.platform.startswith("linux") and linux_sip.is_file():
+    include_files.append((str(linux_sip), "bin/meshchatnext-sip"))
+    native_licenses = linux_sip.parent / "licenses"
+    if native_licenses.is_dir():
+        include_files.append((str(native_licenses), "licenses/linux-sip"))
+
+linux_av1 = ROOT / ".local/av1/libvox_av1.so"
+if not linux_av1.is_file():
+    linux_av1 = ROOT / "temp-tests/av1-build/libvox_av1.so"
+if sys.platform.startswith("linux") and linux_av1.is_file():
+    include_files.append((str(linux_av1), "lib/libvox_av1.so"))
+    include_files.extend(
+        (str(linux_av1.parent / "aom" / notice), "licenses/av1/" + notice)
+        for notice in ("LICENSE", "PATENTS")
+    )
+
 # macOS slices skip the pycodec2 extension and ship libcodec2 at the
 # site-packages root for meshchatnext/pycodec2_ctypes.py to dlopen. When the
 # extension is installed (Linux, Windows) the package is traced normally;
@@ -81,6 +98,7 @@ packages = (
         "LXST",
     ]
     + (["pycodec2"] if pycodec2_installed else [])
+    + (["secretstorage", "jeepney"] if sys.platform.startswith("linux") else [])
     + [
         "lxmfy",
         "rns_filesync",

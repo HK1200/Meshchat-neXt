@@ -20,7 +20,7 @@ from meshchatnext.src.backend.meshcore_settings import (
     radio_frame,
     validate_changes,
 )
-from meshchatnext.src.backend.meshcore_transport import AndroidConnection
+from meshchatnext.src.backend.meshcore_transport import create_connection
 
 
 class MeshCoreSession:
@@ -31,7 +31,7 @@ class MeshCoreSession:
     Identity and radio settings remain on the companion until explicitly edited.
     """
 
-    def __init__(self, *, connection_factory=AndroidConnection, client_factory=None):
+    def __init__(self, *, connection_factory=create_connection, client_factory=None):
         self._connection_factory = connection_factory
         self._client_factory = client_factory
         self._lock = asyncio.Lock()

@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: 0BSD
-import { reactive } from "vue";
+import { reactive, watch } from "vue";
+import { appFeatures } from "./appFeatures";
+import { apiPath } from "./constants";
 export const HOIP_DEFAULTS = Object.freeze({
     host: "premium.hamsoverip.com",
     port: 5160,
@@ -18,9 +20,44 @@ export const sipState = reactive({
     peer: "",
     error: "",
 });
+let desktopRefresh = null;
+async function desktopCommand(op, fields = {}) {
+    const api = globalThis.window?.api;
+    if (!api?.post) throw new Error("SIP calling is unavailable in this build");
+    const { data } = await api.post(apiPath("/sip/command"), { ...fields, op });
+    Object.assign(sipState, data);
+    return data;
+}
+watch(
+    () => appFeatures.sip,
+    (enabled) => {
+        if (sipState.platform === "linux")
+            desktopCommand("feature", { enabled }).catch(() => {
+                sipState.error = "Could not update SIP feature settings";
+            });
+    }
+);
 export function refreshSip() {
     const bridge = globalThis.window?.MeshchatNextAndroid;
-    if (typeof bridge?.sipStatus !== "function") return sipState;
+    if (typeof bridge?.sipStatus !== "function") {
+        const api = globalThis.window?.api;
+        if (api?.get && !desktopRefresh) {
+            desktopRefresh = api
+                .get(apiPath("/sip/status"))
+                .then(async ({ data }) => {
+                    Object.assign(sipState, data);
+                    if (data.platform === "linux" && data.feature_enabled !== appFeatures.sip)
+                        await desktopCommand("feature", { enabled: appFeatures.sip });
+                })
+                .catch(() => {
+                    if (sipState.platform === "linux") sipState.error = "Could not read desktop SIP status";
+                })
+                .finally(() => {
+                    desktopRefresh = null;
+                });
+        }
+        return sipState;
+    }
     try {
         Object.assign(sipState, JSON.parse(bridge.sipStatus()));
     } catch {
@@ -30,7 +67,7 @@ export function refreshSip() {
 }
 export async function sipCommand(op, fields = {}) {
     const bridge = globalThis.window?.MeshchatNextAndroid;
-    if (typeof bridge?.sipCommand !== "function") throw new Error("SIP calling is available in the Android app");
+    if (typeof bridge?.sipCommand !== "function") return desktopCommand(op, fields);
     const result = JSON.parse(bridge.sipCommand(JSON.stringify({ ...fields, op })));
     if (!result.ok) throw new Error(result.error || "SIP action failed");
     if (result.request_id) {

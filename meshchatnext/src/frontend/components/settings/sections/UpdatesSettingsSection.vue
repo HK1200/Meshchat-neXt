@@ -34,6 +34,9 @@
 
         <div
             v-if="pending"
+            :data-native-installer="nativeInstaller"
+            :data-pending-kind="pending.kind"
+            :data-install-state="installState"
             class="rounded-xl border border-sem-warning dark:border-sem-warning bg-sem-warning/15 p-3 text-sm space-y-2"
         >
             <div class="font-medium">
@@ -43,6 +46,15 @@
                 {{ pending.file }}
             </div>
             <div class="flex flex-wrap gap-2">
+                <button
+                    v-if="nativeInstaller && pending.kind === 'apk' && installState !== 'installed'"
+                    type="button"
+                    class="px-3 py-1.5 rounded-lg bg-sem-warning text-white text-sm font-medium disabled:opacity-50"
+                    :disabled="busy"
+                    @click="installAndroid"
+                >
+                    Install update
+                </button>
                 <button
                     v-if="pending.apply && pending.apply.mode === 'relaunch'"
                     type="button"
@@ -78,7 +90,10 @@
                     {{ $t("updates.discard") }}
                 </button>
             </div>
-            <div v-if="pending.apply && pending.apply.mode === 'manual'" class="text-xs text-sem-fg-muted">
+            <div
+                v-if="pending.apply && pending.apply.mode === 'manual' && !nativeInstaller"
+                class="text-xs text-sem-fg-muted"
+            >
                 {{ pending.apply.instructions }}
             </div>
         </div>
@@ -144,9 +159,15 @@ export default {
             busyApply: false,
             notice: "",
             errorText: "",
+            installState: "",
+            installerTimer: null,
+            nativeInstallerReady: false,
         };
     },
     computed: {
+        nativeInstaller() {
+            return this.nativeInstallerReady;
+        },
         pendingPayloadUrl() {
             return pendingUpdateDownloadUrl();
         },
@@ -171,13 +192,67 @@ export default {
     },
     async mounted() {
         await this.refresh();
+        this.installerTimer = setInterval(() => {
+            if (this.visible) {
+                this.detectNativeInstaller();
+                this.readInstallerStatus();
+            }
+        }, 1000);
+    },
+    activated() {
+        void this.refresh();
+    },
+    watch: {
+        visible(value) {
+            if (value) void this.refresh();
+        },
+    },
+    beforeUnmount() {
+        clearInterval(this.installerTimer);
     },
     methods: {
+        detectNativeInstaller() {
+            this.nativeInstallerReady = typeof window.MeshchatNextAndroid?.installVerifiedUpdate === "function";
+        },
+        readInstallerStatus() {
+            if (!this.nativeInstaller || !this.pending) return;
+            try {
+                const value = JSON.parse(window.MeshchatNextAndroid.updateInstallStatus());
+                if (value.sha256 === this.pending.sha256) {
+                    this.installState = value.state;
+                    this.notice = value.message || "";
+                } else if (this.installState) {
+                    this.installState = "";
+                    this.notice = "";
+                }
+            } catch {
+                /* Older Android bridges retain the manual fallback. */
+            }
+        },
+        async installAndroid() {
+            if (!this.pending || !this.nativeInstaller) return;
+            this.busyApply = true;
+            this.errorText = "";
+            try {
+                const result = JSON.parse(
+                    window.MeshchatNextAndroid.installVerifiedUpdate(JSON.stringify(this.pending))
+                );
+                this.notice = result.accepted
+                    ? "Preparing Android installation. Android will ask you to approve the update."
+                    : result.message || "Return to the app and try Install update again.";
+            } catch {
+                this.errorText = "Could not open Android installation. Use Save file and open the APK from Downloads.";
+            } finally {
+                this.busyApply = false;
+            }
+        },
         async refresh() {
+            this.detectNativeInstaller();
             try {
                 const [status, pending] = await Promise.all([getUpdateStatus(), getPendingUpdate()]);
                 this.status = status.data || {};
                 this.pending = (pending.data && pending.data.pending) || null;
+                this.readInstallerStatus();
             } catch {
                 this.status = {};
             }
@@ -207,6 +282,8 @@ export default {
                 this.pending = (res.data && res.data.pending) || null;
                 if (!this.pending) {
                     this.errorText = this.$t("updates.download_failed");
+                } else if (this.nativeInstaller && this.pending.kind === "apk") {
+                    await this.installAndroid();
                 }
             } catch (e) {
                 this.errorText = e?.response?.data?.error || this.$t("updates.download_failed");
@@ -226,6 +303,7 @@ export default {
             try {
                 const res = await applyUpdateFile(file);
                 this.pending = (res.data && res.data.pending) || null;
+                if (this.nativeInstaller && this.pending?.kind === "apk") await this.installAndroid();
             } catch (e) {
                 this.errorText = e?.response?.data?.error || this.$t("updates.file_rejected");
             } finally {
@@ -264,6 +342,8 @@ export default {
                 await discardUpdate();
             } finally {
                 this.pending = null;
+                this.installState = "";
+                this.notice = "";
             }
         },
     },

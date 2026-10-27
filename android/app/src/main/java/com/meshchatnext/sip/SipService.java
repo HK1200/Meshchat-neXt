@@ -18,8 +18,49 @@ import org.json.*;
 /** Dedicated process: DNS, SIP and RTP are bound together to an allowed network. */
 public final class SipService extends Service {
     private static final int NOTIFICATION = AppBackgroundNotification.ID, INCOMING = 6401;
+    private static final String CALL_CHANNEL = "sip_incoming_calls_v2";
+    private static final long[] CALL_VIBRATION = {0, 600, 300, 600, 1200};
     private volatile boolean foregroundActive;
     private String lastBackgroundStatus = "";
+    private String incomingToken = "";
+    private Vibrator incomingVibrator;
+    private Runnable incomingVibrationStart;
+    private void stopIncomingVibration() {
+        if (incomingVibrationStart != null) main.removeCallbacks(incomingVibrationStart);
+        incomingVibrationStart = null;
+        if (incomingVibrator != null) incomingVibrator.cancel();
+    }
+    private void startIncomingVibration() {
+        stopIncomingVibration();
+        final String token = incomingToken;
+        incomingVibrationStart = () -> work.execute(() -> {
+            if (!token.equals(incomingToken) || !"incoming".equals(callState)) return;
+            NotificationManager notifications = getSystemService(NotificationManager.class);
+            if (!notifications.areNotificationsEnabled()
+                || notifications.getCurrentInterruptionFilter() != NotificationManager.INTERRUPTION_FILTER_ALL) return;
+            if (Build.VERSION.SDK_INT >= 26) {
+                NotificationChannel channel = notifications.getNotificationChannel(CALL_CHANNEL);
+                if (channel == null || channel.getImportance() == NotificationManager.IMPORTANCE_NONE
+                    || !channel.shouldVibrate()) return;
+            }
+            try {
+                if (incomingVibrator == null) incomingVibrator = getSystemService(Vibrator.class);
+                if (incomingVibrator != null && incomingVibrator.hasVibrator()) {
+                    AudioAttributes attributes = new AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build();
+                    long[] timings = {0, 800, 400, 800, 1400};
+                    if (Build.VERSION.SDK_INT >= 26)
+                        incomingVibrator.vibrate(VibrationEffect.createWaveform(
+                            timings, new int[]{0, 255, 0, 255, 0}, 0), attributes);
+                    else incomingVibrator.vibrate(timings, 0, attributes);
+                }
+            } catch (RuntimeException ignored) { }
+        });
+        // Some OEM notification effects replace custom channel patterns. Start after that short effect.
+        main.postDelayed(incomingVibrationStart, 500L);
+    }
+
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService work = Executors.newSingleThreadExecutor();
     private final List<Messenger> listeners = new ArrayList<>();
@@ -29,6 +70,16 @@ public final class SipService extends Service {
     private JSONArray accounts;
     private JSONObject active;
     private JSONObject quality = new JSONObject();
+    private int keepaliveResponses, keepaliveLastCode;
+    @Override protected void dump(java.io.FileDescriptor fd, java.io.PrintWriter writer, String[] args) {
+        writer.println("SIP state=" + state + " registered=" + registered + " call=" + callState);
+        writer.println("SIP CPU=" + (connectionCpu != null && connectionCpu.isHeld())
+            + " WiFi=" + (connectionWifi != null && connectionWifi.isHeld()));
+        writer.println("SIP keepaliveResponses=" + keepaliveResponses + " lastCode=" + keepaliveLastCode);
+        writer.println("SIP fullScreenAllowed=" + (Build.VERSION.SDK_INT < 34
+            || getSystemService(NotificationManager.class).canUseFullScreenIntent()));
+    }
+
     public void onCallStats(String json) {
         long emitted = generation;
         work.execute(() -> {
@@ -66,6 +117,67 @@ public final class SipService extends Service {
     private AudioManager audio;
     private AudioFocusRequest focus;
     private volatile boolean audioFocusHeld;
+    private PowerManager.WakeLock connectionCpu;
+    private android.net.wifi.WifiManager.WifiLock connectionWifi;
+    private final Runnable renewConnectionLocks = new Runnable() {
+        @Override public void run() {
+            work.execute(() -> {
+                if (desired && bound != null && engine != null && engine.isAlive())
+                    holdConnectionLocks();
+            });
+        }
+    };
+    @SuppressWarnings("deprecation")
+    private void holdConnectionLocks() {
+        main.removeCallbacks(renewConnectionLocks);
+        try {
+            if (connectionCpu == null) {
+                connectionCpu = getSystemService(PowerManager.class).newWakeLock(
+                    PowerManager.PARTIAL_WAKE_LOCK, "meshchatnext:sip-connection");
+                connectionCpu.setReferenceCounted(false);
+            }
+            connectionCpu.acquire(180000L);
+            NetworkCapabilities caps = connectivity.getNetworkCapabilities(bound);
+            boolean wifi = caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI);
+            if (wifi) {
+                if (connectionWifi == null) {
+                    android.net.wifi.WifiManager manager = (android.net.wifi.WifiManager)
+                        getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+                    connectionWifi = manager.createWifiLock(
+                        android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF,
+                        "meshchatnext:sip-wifi");
+                    connectionWifi.setReferenceCounted(false);
+                }
+                if (!connectionWifi.isHeld()) connectionWifi.acquire();
+            } else if (connectionWifi != null && connectionWifi.isHeld()) connectionWifi.release();
+            main.postDelayed(renewConnectionLocks, 60000L);
+        } catch (RuntimeException e) {
+            releaseConnectionLocks();
+            error = "Background SIP connection could not stay awake; check app battery settings";
+        }
+    }
+    private void releaseConnectionLocks() {
+        main.removeCallbacks(renewConnectionLocks);
+        if (connectionCpu != null && connectionCpu.isHeld()) connectionCpu.release();
+        if (connectionWifi != null && connectionWifi.isHeld()) connectionWifi.release();
+    }
+
+    private android.media.ToneGenerator ringbackTone;
+    private final SipRingback ringback = new SipRingback(new SipRingback.Output() {
+        public void start() {
+            try {
+                ringbackTone = new android.media.ToneGenerator(AudioManager.STREAM_VOICE_CALL, 65);
+                ringbackTone.startTone(android.media.ToneGenerator.TONE_SUP_RINGTONE);
+            } catch (RuntimeException ignored) { stop(); }
+        }
+        public void stop() {
+            if (ringbackTone != null) {
+                ringbackTone.stopTone();
+                ringbackTone.release();
+                ringbackTone = null;
+            }
+        }
+    });
     private final AudioManager.OnAudioFocusChangeListener audioFocusListener = change -> {
         if (change == AudioManager.AUDIOFOCUS_LOSS || change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT)
             main.post(() -> SipEngine.command(3, ""));
@@ -170,11 +282,20 @@ public final class SipService extends Service {
             nm.createNotificationChannel(new NotificationChannel(
                 "sip_service", "SIP connection", NotificationManager.IMPORTANCE_LOW));
             NotificationChannel calls = new NotificationChannel(
-                "sip_calls", "SIP incoming calls", NotificationManager.IMPORTANCE_HIGH);
+                CALL_CHANNEL, "SIP incoming calls", NotificationManager.IMPORTANCE_HIGH);
             calls.setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE),
                 new AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
                     .build());
+            calls.enableVibration(true);
+            calls.setVibrationPattern(CALL_VIBRATION);
+            // Preserve explicit sound/importance choices when moving off the legacy channel.
+            NotificationChannel old = nm.getNotificationChannel("sip_calls");
+            if (old != null) {
+                if (Build.VERSION.SDK_INT >= 29 && old.hasUserSetImportance()) calls.setImportance(old.getImportance());
+                if (Build.VERSION.SDK_INT >= 30 && old.hasUserSetSound())
+                    calls.setSound(old.getSound(), old.getAudioAttributes());
+            }
             nm.createNotificationChannel(calls);
         }
         connectivity.registerNetworkCallback(
@@ -190,6 +311,15 @@ public final class SipService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         foreground(false);
+        if (intent != null && "decline".equals(intent.getAction())) {
+            final String token = intent.getStringExtra("call_token");
+            work.execute(() -> {
+                if (incomingToken.equals(token) && "incoming".equals(callState)) {
+                    stopIncomingVibration();
+                    SipEngine.command(3, "");
+                }
+            });
+        }
         if (intent != null && "hangup".equals(intent.getAction()))
             work.execute(() -> { SipEngine.command(3, ""); });
         if (intent == null && preferences.getBoolean("enabled", false))
@@ -217,6 +347,21 @@ public final class SipService extends Service {
                 }
             });
         return preferences.getBoolean("enabled", false) ? START_STICKY : START_NOT_STICKY;
+    }
+    private PendingIntent incomingScreen(boolean answer) {
+        Intent intent = new Intent(this, SipIncomingCallActivity.class)
+            .putExtra("call_token", incomingToken).putExtra("peer", peer).putExtra("answer", answer)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        intent.setData(Uri.parse("meshchatnext://sip/incoming/" + incomingToken + (answer ? "/answer" : "/show")));
+        return PendingIntent.getActivity(this, answer ? 6403 : 6402, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+    }
+    private PendingIntent declineIncoming() {
+        Intent intent = new Intent(this, SipService.class).setAction("decline")
+            .putExtra("call_token", incomingToken);
+        intent.setData(Uri.parse("meshchatnext://sip/decline/" + incomingToken));
+        return PendingIntent.getService(this, 6404, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
     private PendingIntent open() {
         Intent i = new Intent(this, MainActivity.class);
@@ -443,13 +588,19 @@ public final class SipService extends Service {
                 break;
             }
             case "answer":
+                if (req.has("call_token") && !incomingToken.equals(req.getString("call_token")))
+                    throw new IllegalArgumentException("This incoming call has ended");
                 if ("incoming".equals(callState)) {
+                    stopIncomingVibration();
                     if (!prepareAudio())
                         throw new IllegalArgumentException("Allow microphone access to answer");
                     SipEngine.command(2, "");
                 }
                 break;
             case "hangup":
+                if (req.has("call_token") && !incomingToken.equals(req.getString("call_token")))
+                    throw new IllegalArgumentException("This incoming call has ended");
+                stopIncomingVibration();
                 SipEngine.command(3, "");
                 break;
             case "mute":
@@ -569,6 +720,7 @@ public final class SipService extends Service {
                     if (started != generation)
                         return;
                     registered = false;
+                    releaseConnectionLocks();
                     if (desired) {
                         state = "reconnecting";
                         if (code != 0)
@@ -586,6 +738,7 @@ public final class SipService extends Service {
                 });
             }, "next-sip-engine");
             engine.start();
+            holdConnectionLocks();
         } catch (Exception e) {
             state = "engine_failed";
             error = "SIP account could not start";
@@ -593,6 +746,7 @@ public final class SipService extends Service {
         publish();
     }
     private void stopEngine() {
+        releaseConnectionLocks();
         generation++;
         stopping = true;
         registered = false;
@@ -611,6 +765,7 @@ public final class SipService extends Service {
         bound = null;
         connectivity.bindProcessToNetwork(null);
         callState = "idle";
+        incomingToken = "";
         releaseAudio();
     }
     private boolean prepareAudio() {
@@ -659,6 +814,8 @@ public final class SipService extends Service {
             audio.setSpeakerphoneOn(speaker);
     }
     private void releaseAudio() {
+        stopIncomingVibration();
+        ringback.stop();
         onAudioSession(0);
         getSystemService(NotificationManager.class).cancel(INCOMING);
         main.post(() -> {
@@ -688,11 +845,17 @@ public final class SipService extends Service {
         work.execute(() -> {
             if (emitted != generation)
                 return;
+            ringback.event(value);
             switch (value) {
+                case "keepalive":
+                    keepaliveResponses++;
+                    keepaliveLastCode = code;
+                    break;
                 case "registering":
                     state = value;
                     break;
                 case "registered":
+                    holdConnectionLocks();
                     registered = true;
                     error = "";
                     recoveryDelay = 1000;
@@ -700,6 +863,7 @@ public final class SipService extends Service {
                     foreground(audioFocusHeld);
                     break;
                 case "registration_failed":
+                    releaseConnectionLocks();
                     registered = false;
                     state = value;
                     error = "SIP registration rejected (" + code
@@ -714,25 +878,41 @@ public final class SipService extends Service {
                     callState = value;
                     peer = remote;
                     if ("incoming".equals(value)) {
-                        Notification n = notificationBuilder("sip_calls")
-                                             .setSmallIcon(R.drawable.ic_stat_meshchatnext)
-                                             .setContentTitle("Incoming SIP call")
-                                             .setContentText(remote)
-                                             .setContentIntent(open())
-                                             .setCategory(Notification.CATEGORY_CALL)
-                                             .setOngoing(true)
-                                             .build();
+                        incomingToken = UUID.randomUUID().toString().replace("-", "");
+                        Notification.Builder builder = notificationBuilder(CALL_CHANNEL)
+                            .setSmallIcon(R.drawable.ic_stat_meshchatnext)
+                            .setContentTitle("Incoming SIP call")
+                            .setContentText(remote)
+                            .setContentIntent(incomingScreen(false))
+                            .setFullScreenIntent(incomingScreen(false), true)
+                            .setCategory(Notification.CATEGORY_CALL)
+                            .setVisibility(Notification.VISIBILITY_PUBLIC)
+                            .setOngoing(true);
+                        if (Build.VERSION.SDK_INT >= 31) {
+                            builder.setStyle(Notification.CallStyle.forIncomingCall(
+                                new Person.Builder().setName(remote.isEmpty() ? "SIP caller" : remote).build(),
+                                declineIncoming(), incomingScreen(true)));
+                        } else {
+                            builder.addAction(new Notification.Action.Builder(null, "Decline", declineIncoming()).build());
+                            builder.addAction(new Notification.Action.Builder(null, "Answer", incomingScreen(true)).build());
+                        }
+                        Notification n = builder.build();
                         if (Build.VERSION.SDK_INT < 26) {
                             n.sound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
                             n.priority = Notification.PRIORITY_HIGH;
+                            n.vibrate = CALL_VIBRATION;
                         }
                         n.flags |= Notification.FLAG_INSISTENT;
                         getSystemService(NotificationManager.class).notify(INCOMING, n);
-                    } else if ("connected".equals(value))
+                        startIncomingVibration();
+                    } else if ("connected".equals(value)) {
+                        stopIncomingVibration();
                         getSystemService(NotificationManager.class).cancel(INCOMING);
+                    }
                     break;
                 case "ended":
-                                            callState = "idle";
+                    incomingToken = "";
+                    callState = "idle";
                     peer = "";
                     releaseAudio();
                     foreground(false);
@@ -769,6 +949,7 @@ public final class SipService extends Service {
             String json =
                 new JSONObject()
                     .put("available", true)
+                    .put("full_screen_allowed", Build.VERSION.SDK_INT < 34 || getSystemService(NotificationManager.class).canUseFullScreenIntent())
                     .put("i2p_available", false)
                     .put("last_request", lastRequest)
                     .put("request_error", requestError)
@@ -776,6 +957,7 @@ public final class SipService extends Service {
                     .put("registered", registered)
                     .put("enabled", preferences.getBoolean("enabled", false))
                     .put("call_state", callState)
+                    .put("call_token", incomingToken)
                     .put("peer", peer)
                     .put("error", error)
                     .put("network", networkName)

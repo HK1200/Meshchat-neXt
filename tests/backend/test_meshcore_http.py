@@ -238,7 +238,11 @@ class HttpTests(unittest.IsolatedAsyncioTestCase):
             permit.assert_called_once()
         self.assertEqual(self.service.calls, [])
 
-    async def test_paired_bluetooth_listing_does_not_connect_service(self):
+    @patch(
+        "meshchatnext.src.backend.meshcore_transport.transport_platform",
+        return_value="android",
+    )
+    async def test_paired_bluetooth_listing_does_not_connect_service(self, _platform):
         devices = [{"name": "MeshCore", "address": "AA:BB:CC:DD:EE:FF"}]
         with patch(
             "meshchatnext.src.backend.meshcore_transport.paired_ble_devices",

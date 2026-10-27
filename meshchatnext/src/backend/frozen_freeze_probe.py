@@ -62,6 +62,63 @@ def main() -> None:
                 "frozen-freeze-probe: codec2 ctypes binding returned no samples"
             )
 
+    if sys.platform.startswith("linux"):
+        import jeepney  # noqa: F401
+        import numpy as np
+        import pycodec2
+        import secretstorage  # noqa: F401
+        from meshcore.ble_cx import BLEConnection  # noqa: F401
+        from meshcore.serial_cx import SerialConnection  # noqa: F401
+
+        from meshchatnext.src.backend.meshcore_desktop_transport import (
+            DesktopConnection,
+        )
+
+        # Constructing an adapter must not connect or probe a user's radio.
+        DesktopConnection("usb", "/dev/meshchatnext-unopened-probe")
+        import base64
+
+        from meshchatnext.src.backend.meshcore_images import decode_image, encode_image
+
+        rgb = bytes(
+            v for y in range(32) for x in range(32) for v in (x * 8, y * 8, 128)
+        )
+        photo, _aspect, preview = encode_image(base64.b64encode(rgb).decode(), 32, 32)
+        decoded_photo = decode_image(photo)
+        if decoded_photo["png_base64"] != preview["png_base64"]:
+            raise SystemExit("frozen-freeze-probe: AV1 photo roundtrip failed")
+        if getattr(sys, "frozen", False):
+            photo_paths = [
+                line.split()[-1]
+                for line in Path("/proc/self/maps").read_text().splitlines()
+                if "libvox_av1" in line
+            ]
+            root = Path(sys.executable).resolve().parent
+            if not photo_paths or any(
+                not Path(p).resolve().is_relative_to(root) for p in photo_paths
+            ):
+                raise SystemExit(
+                    "frozen-freeze-probe: photo codec resolved outside bundle"
+                )
+        codec = pycodec2.Codec2(1200)
+        count = codec.samples_per_frame()
+        decoded = codec.decode(codec.encode(np.zeros(count, dtype=np.int16)))
+        if len(decoded) != count or not np.isfinite(decoded).all():
+            raise SystemExit("frozen-freeze-probe: Codec2 roundtrip failed")
+        if getattr(sys, "frozen", False):
+            # Prove we are not accidentally passing against a host-installed
+            # libcodec2 while shipping an incomplete desktop bundle.
+            root = Path(sys.executable).resolve().parent
+            mappings = [
+                line.split()[-1]
+                for line in Path("/proc/self/maps").read_text().splitlines()
+                if "libcodec2" in line
+            ]
+            if not mappings or any(
+                not Path(p).resolve().is_relative_to(root) for p in mappings
+            ):
+                raise SystemExit("frozen-freeze-probe: Codec2 resolved outside bundle")
+
     print("frozen-freeze-probe ok", flush=True)
 
 

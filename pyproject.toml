@@ -44,6 +44,7 @@ dependencies = [
   "certifi>=2026.10.23",
   "landlockpy>=0.2.0,<0.3",
   "seccompy==0.2.0",
+  "secretstorage==3.5.0 ; sys_platform == 'linux'",
 ]
 
 [project.scripts]

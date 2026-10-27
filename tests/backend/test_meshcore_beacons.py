@@ -65,7 +65,9 @@ async def test_old_native_stop_cannot_revoke_new_consent():
     beacon, _ = consent()
     old = beacon.start(300, "c" * 64, None)["token"]
     new = beacon.start(300, "c" * 64, None)["token"]
-    target = SimpleNamespace(beacons=beacon)
+    target = SimpleNamespace(
+        beacons=beacon, gpsd_beacons=SimpleNamespace(stop=AsyncMock())
+    )
     with pytest.raises(ValueError):
         await MeshCoreTactical.beacon_stop(target, token=old)
     assert beacon.token == new

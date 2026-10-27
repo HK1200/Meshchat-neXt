@@ -23,14 +23,16 @@
                     </select></label
                 >
                 <label v-if="kind === 'ble'"
-                    >Paired Bluetooth radio
+                    >{{ linuxRadio ? "Nearby Bluetooth devices" : "Paired Bluetooth radio" }}
                     <select
                         v-model="bluetoothChoice"
                         class="input-field"
-                        aria-label="Paired Bluetooth radio"
+                        :aria-label="linuxRadio ? 'Nearby Bluetooth devices' : 'Paired Bluetooth radio'"
                         @change="chooseBluetooth"
                     >
-                        <option disabled value="">Choose a paired radio</option>
+                        <option disabled value="">
+                            {{ linuxRadio ? "Choose your MeshCore radio" : "Choose a paired radio" }}
+                        </option>
                         <option
                             v-if="
                                 target &&
@@ -77,10 +79,16 @@
                     :disabled="loadingDevices || controlsBusy"
                     @click="loadDevices"
                 >
-                    {{ loadingDevices ? "Loading radios…" : "Refresh paired radios" }}
+                    {{
+                        loadingDevices ? "Loading radios…" : linuxRadio ? "Find nearby radios" : "Refresh paired radios"
+                    }}
                 </button>
                 <p v-if="deviceProblem" role="alert" class="text-xs text-sem-danger">{{ deviceProblem }}</p>
-                <p class="text-xs text-sem-fg-muted">
+                <p v-if="linuxRadio" class="text-xs text-sem-fg-muted">
+                    Make your MeshCore companion available over Bluetooth, then find nearby radios. Nearby devices may
+                    include RNodes; select only your MeshCore companion. No radio is connected by discovery.
+                </p>
+                <p v-else class="text-xs text-sem-fg-muted">
                     Pair your radio in Android Bluetooth settings, then refresh. These are paired Bluetooth devices;
                     select your MeshCore companion, not your RNode.
                 </p>
@@ -95,7 +103,11 @@
                     {{ loadingUsb ? "Loading USB radios…" : "Refresh USB radios" }}
                 </button>
                 <p v-if="usbProblem" role="alert" class="text-xs text-sem-danger">{{ usbProblem }}</p>
-                <p class="text-xs text-sem-fg-muted">
+                <p v-if="linuxRadio" class="text-xs text-sem-fg-muted">
+                    Connect a USB MeshCore companion and select its serial device. Your Linux user needs permission to
+                    access that device. Configure your RNode separately under Interfaces.
+                </p>
+                <p v-else class="text-xs text-sem-fg-muted">
                     Connect through an OTG cable, then select your MeshCore companion. Select your RNode separately
                     under Interfaces. Android may ask for USB permission when you connect.
                 </p>
@@ -285,6 +297,7 @@ const props = defineProps({ setupMode: Boolean, suggestedConnection: { type: Obj
 const emit = defineEmits(["busy"]);
 const lifetime = new AbortController();
 const { snapshot, error, action, refresh } = useMeshCoreUi();
+const linuxRadio = computed(() => snapshot.value.radio_platform === "linux");
 const kind = ref("ble"),
     target = ref(""),
     busy = ref(false),
@@ -334,11 +347,15 @@ async function loadUsbDevices() {
         if (!stopped) {
             usbDevices.value = Array.isArray(data.result) ? data.result : [];
             if (!usbDevices.value.length)
-                usbProblem.value =
-                    "No USB serial radios found. Attach your MeshCore radio through an OTG cable and refresh.";
+                usbProblem.value = linuxRadio.value
+                    ? "No serial radios found. Attach your USB MeshCore companion and refresh."
+                    : "No USB serial radios found. Attach your MeshCore radio through an OTG cable and refresh.";
         }
     } catch {
-        if (!stopped) usbProblem.value = "Could not list USB radios. Check the OTG connection and refresh.";
+        if (!stopped)
+            usbProblem.value = linuxRadio.value
+                ? "Could not list serial devices. Check the USB cable and Linux device access."
+                : "Could not list USB radios. Check the OTG connection and refresh.";
     } finally {
         loadingUsb.value = false;
     }
@@ -353,7 +370,7 @@ function chooseBluetooth() {
 }
 async function loadDevices() {
     if (snapshot.value.bluetooth_discovery_supported === false) {
-        deviceProblem.value = "Paired-radio selection requires an Android backend.";
+        deviceProblem.value = "Bluetooth device discovery is unavailable on this backend.";
         return;
     }
     if (loadingDevices.value) return;
@@ -364,13 +381,15 @@ async function loadDevices() {
         if (!stopped) {
             devices.value = Array.isArray(data.result) ? data.result : [];
             if (!devices.value.length)
-                deviceProblem.value =
-                    "No paired BLE radios found. Pair a radio in Android settings or enter its address manually.";
+                deviceProblem.value = linuxRadio.value
+                    ? "No candidate radios found. Check that your MeshCore companion is advertising, or enter its address manually."
+                    : "No paired BLE radios found. Pair a radio in Android settings or enter its address manually.";
         }
     } catch {
         if (!stopped)
-            deviceProblem.value =
-                "Could not list paired radios. Check Bluetooth permission, or enter the address manually.";
+            deviceProblem.value = linuxRadio.value
+                ? "Could not find radios. Check your Linux Bluetooth adapter and permissions, or enter the address manually."
+                : "Could not list paired radios. Check Bluetooth permission, or enter the address manually.";
     } finally {
         loadingDevices.value = false;
     }

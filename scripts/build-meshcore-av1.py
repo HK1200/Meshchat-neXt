@@ -22,8 +22,13 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--android-abi", choices=["arm64-v8a", "armeabi-v7a", "x86_64"])
     parser.add_argument("--ndk")
+    parser.add_argument(
+        "--work-dir", type=Path, help="Persistent native build/cache folder"
+    )
     args = parser.parse_args()
-    cache = ROOT / "temp-tests" / "av1-build"
+    cache = (
+        args.work_dir.resolve() if args.work_dir else ROOT / "temp-tests" / "av1-build"
+    )
     cache.mkdir(parents=True, exist_ok=True)
     archive = cache / "aom.tgz"
     if not archive.exists():

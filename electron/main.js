@@ -258,6 +258,26 @@ const {
     closeAllMessageNotifications,
 } = require("./messageNotifications.js");
 
+const { createSipCallNotifications } = require("./sipCallNotifications.js");
+let sipPowerSaveBlockerId = null;
+const updateSipCall = createSipCallNotifications({
+    Notification,
+    getWindow: () => (mainWindow && !mainWindow.isDestroyed() ? mainWindow : null),
+    setCallActive(active) {
+        if (active && sipPowerSaveBlockerId === null)
+            sipPowerSaveBlockerId = powerSaveBlocker.start("prevent-app-suspension");
+        else if (!active && sipPowerSaveBlockerId !== null) {
+            powerSaveBlocker.stop(sipPowerSaveBlockerId);
+            sipPowerSaveBlockerId = null;
+        }
+    },
+});
+app.on("before-quit", () => updateSipCall({ enabled: false, incoming: false, active: false }));
+powerMonitor.on("resume", () => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("sip-network-resume");
+});
+trustedIpcHandle("sip-call-update", (_event, payload) => updateSipCall(payload));
+
 trustedIpcHandle("show-notification", (event, payload) => {
     const data = payload && typeof payload === "object" ? payload : {};
     const title = String(data.title == null ? "" : data.title).slice(0, 200);

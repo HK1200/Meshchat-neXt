@@ -60,6 +60,7 @@ shopt -s nullglob
 candidates=(
     "${PKG}"/libcodec2.dylib
     "${PKG}"/libcodec2.so
+    "${BUILD_EXE}"/lib/pycodec2.libs/libcodec2*.so*
     "${PKG}"/libcodec2.dll
     "${PKG}"/.dylibs/libcodec2*.dylib
     "${BUILD_EXE}/lib"/libcodec2*.dylib
@@ -121,6 +122,18 @@ if [[ "$(uname -s)" == "Darwin" ]] && command -v otool >/dev/null 2>&1; then
             exit 1
         fi
     done < <(otool -L "${EXT}" | awk '/libcodec2/{print $1}')
+fi
+
+if [[ "$(uname -s)" == "Linux" ]]; then
+    resolved_codec="$(ldd "${EXT}" | awk '/libcodec2/ {print $3}')"
+    if [[ -z "${resolved_codec}" || ! -f "${resolved_codec}" ]]; then
+        echo "frozen codec2 verify: codec2 dependency cannot be resolved" >&2
+        exit 1
+    fi
+    case "$(realpath "${resolved_codec}")" in
+        "$(realpath "${BUILD_EXE}")"/*) ;;
+        *) echo "frozen codec2 verify: codec2 resolved outside bundle" >&2; exit 1 ;;
+    esac
 fi
 
 if [[ ${#libs[@]} -gt 0 ]]; then

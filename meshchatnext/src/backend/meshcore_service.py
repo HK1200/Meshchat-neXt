@@ -14,7 +14,7 @@ from meshchatnext.src.backend.meshcore_channels import MeshCoreChannels
 from meshchatnext.src.backend.meshcore_messaging import MeshCoreMessaging
 from meshchatnext.src.backend.meshcore_session import MeshCoreSession
 from meshchatnext.src.backend.meshcore_store import MeshCoreStore
-from meshchatnext.src.env_utils import env_str
+from meshchatnext.src.backend.meshcore_transport import transport_platform
 
 
 class IdentityChanged(ConnectionError):
@@ -183,7 +183,9 @@ class MeshCoreService:
             healthy = healthy and not self.messages.status()["processing_failed"]
         return {
             "available": True,
-            "bluetooth_discovery_supported": bool(env_str("ANDROID_ROOT")),
+            "bluetooth_discovery_supported": transport_platform()
+            in ("android", "linux"),
+            "radio_platform": transport_platform(),
             "state": ("connection_lost" if self._state == "connected" else self._state)
             if not healthy
             else "connected",
@@ -213,7 +215,7 @@ class MeshCoreService:
     async def _close_connection(self):
         messages, session = self.messages, self.session
         if self.tactical is not None:
-            self.tactical.beacons.stop()
+            await self.tactical.beacon_stop()
             await self.tactical.cot.close()
         if self.voice is not None:
             await self.voice.close()

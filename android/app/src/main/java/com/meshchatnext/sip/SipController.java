@@ -8,11 +8,14 @@ public final class SipController {
     private final Context context;
     private Messenger service;
     private boolean launchChecked = false;
+    private volatile long snapshotVersion;
+    public long statusVersion() { return snapshotVersion; }
     private volatile String snapshot = "{\"available\":true,\"state\":\"starting\",\"call_state\":"
         + "\"idle\",\"registered\":false,\"accounts\":[]}";
     private final Messenger reply = new Messenger(new Handler(Looper.getMainLooper(), m -> {
         if (m.what == 2) {
             snapshot = m.getData().getString("json", snapshot);
+            snapshotVersion++;
             if (!launchChecked) {
                 launchChecked = true;
                 try {

@@ -24,6 +24,7 @@ from meshchatnext.src.backend.meshcore_geofences import (
     CrossingMonitor,
     boundary_version,
 )
+from meshchatnext.src.backend.meshcore_gpsd import GpsdBeaconSession
 from meshchatnext.src.backend.meshcore_store import notification_key, public_key
 from meshchatnext.src.backend.meshcore_tactical_wire import (
     AFFILIATIONS,
@@ -44,6 +45,7 @@ from meshchatnext.src.backend.meshcore_tactical_wire import (
     integer,
     text,
 )
+from meshchatnext.src.backend.meshcore_transport import transport_platform
 
 
 def _db(folder):
@@ -138,6 +140,7 @@ class MeshCoreTactical:
         self.config = preferences(self.folder, self.owner)
         self.last_send = {}
         self.beacons = BeaconConsent(self)
+        self.gpsd_beacons = GpsdBeaconSession(self.beacons)
         self.cot = CotSession(self.folder)
         self.monitor = CrossingMonitor()
         self._monitor_lock = threading.RLock()
@@ -188,8 +191,39 @@ class MeshCoreTactical:
     async def cot_send(self, record):
         return await self.cot.send_point(record)
 
-    async def beacon_start(self, interval, expected_channel_id, expected_scope):
-        return self.beacons.start(interval, expected_channel_id, expected_scope)
+    async def beacon_start(
+        self,
+        interval,
+        expected_channel_id,
+        expected_scope,
+        source=None,
+        duration_minutes=15,
+    ):
+        if source not in (None, "gpsd"):
+            raise ValueError("Unsupported location source")
+        if source == "gpsd" and (
+            transport_platform() != "linux"
+            or type(duration_minutes) is not int
+            or duration_minutes not in (15, 30, 60)
+        ):
+            raise ValueError("Choose a supported Linux GPS sharing duration")
+        await self.gpsd_beacons.stop()
+        result = self.beacons.start(interval, expected_channel_id, expected_scope)
+        if source == "gpsd":
+            try:
+                await self.gpsd_beacons.start(result["token"], duration_minutes)
+            except Exception:
+                self.beacons.stop()
+                raise
+        return result
+
+    async def beacon_status(self):
+        task = self.gpsd_beacons.task
+        return {
+            "available": transport_platform() == "linux",
+            "active": bool(task and not task.done() and self.beacons.token),
+            "error": self.gpsd_beacons.error,
+        }
 
     async def beacon_stop(self, token=None):
         if token is not None and (
@@ -198,6 +232,7 @@ class MeshCoreTactical:
             or not secrets.compare_digest(token, self.beacons.token)
         ):
             raise ValueError("Beacon consent already changed")
+        await self.gpsd_beacons.stop()
         return self.beacons.stop()
 
     async def beacon_position(self, token, latitude, longitude, accuracy, timestamp):
@@ -270,7 +305,7 @@ class MeshCoreTactical:
             for value in (enabled, monitor_geofences, notify_team_alerts)
         ):
             raise ValueError("Invalid team mode")
-        self.beacons.stop()
+        await self.beacon_stop()
         text(callsign, 20)
         integer(role, 0, 24)
         integer(color, 0, len(COLORS) - 1)
