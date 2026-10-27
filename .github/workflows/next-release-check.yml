@@ -12,6 +12,7 @@ permissions:
     contents: read
 jobs:
     verify:
+        if: ${{ !startsWith(inputs.tag || github.event.release.tag_name, 'linux-') }}
         runs-on: ubuntu-latest
         steps:
             - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
@@ -33,3 +34,27 @@ jobs:
                   gh release download "$RELEASE_TAG" --dir release-check --pattern '*.apk' --pattern latest.rsm --pattern latest.json
                   apksigner="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)"
                   python scripts/ci/verify-next-release.py release-check --tag "$RELEASE_TAG" --apksigner "$apksigner" --signer-hash "$NEXT_UPDATE_SIGNER_HASH" --certificate-sha256 "$NEXT_APK_CERTIFICATE_SHA256"
+
+    verify-linux:
+        if: ${{ startsWith(inputs.tag || github.event.release.tag_name, 'linux-') }}
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+              with:
+                  persist-credentials: false
+            - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+              with:
+                  python-version: "3.11"
+            - name: Verify published Linux packages and signed update feed
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  GH_REPO: ${{ github.repository }}
+                  NEXT_UPDATE_SIGNER_HASH: ${{ vars.NEXT_UPDATE_SIGNER_HASH }}
+                  RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}
+              run: |
+                  set -euo pipefail
+                  python -m pip install 'rns==1.5.7'
+                  gh release download "$RELEASE_TAG" --dir release-check --pattern latest.rsm --pattern latest.json
+                  package_tag="$(python scripts/ci/verify-linux-release.py release-check --tag "$RELEASE_TAG" --signer "$NEXT_UPDATE_SIGNER_HASH" --manifest-only)"
+                  gh release download "$package_tag" --dir release-check --pattern '*.AppImage' --pattern '*.deb'
+                  python scripts/ci/verify-linux-release.py release-check --tag "$RELEASE_TAG" --signer "$NEXT_UPDATE_SIGNER_HASH"

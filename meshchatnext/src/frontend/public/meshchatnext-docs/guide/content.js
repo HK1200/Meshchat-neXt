@@ -2,6 +2,46 @@
 window.NEXT_GUIDE = {
     articles: [
         {
+            id: "linux",
+            title: "Install and use neXt on Linux",
+            group: "Essentials",
+            lead: "The Linux desktop build brings the independent Reticulum, MeshCore and SIP services to 64-bit Intel/AMD computers. The initial supported target is Linux Mint 22 or Ubuntu 24.04 and newer; an Android x86_64 APK is not a Linux package.",
+            steps: [
+                "Download the Linux amd64 .deb for your system package installer, or the x86_64 .AppImage for a portable application. Keep the checksum file from the same release. ARM Linux, 32-bit Linux and other distributions are not covered by this initial build.",
+                "For the .deb, open it with your system package installer and approve installation. Launch Meshchat neXt from the application menu. For AppImage, save it in a writable folder you own, allow running it as a program in file properties, then open it. Do not run neXt as root or disable its sandbox.",
+                "Close the other desktop copy before starting a replacement. Back up your existing identity and messages first. Keep the same data folder to retain your setup; Android backups and other apps may cover only supported fields, not complete history.",
+                "Choose the services you want in first-start setup. Reticulum internet TCP offers rmap.world:4242; MeshCore needs its own companion. RNode and MeshCore may run together through separate connections. Close other apps holding the same USB port or Bluetooth device.",
+                "For USB use a data cable, refresh devices and choose the correct radio. If Linux denies serial access, grant your user the distribution’s serial-device group permission and sign out/in; do not make the port world-writable. For MeshCore BLE, enable the system Bluetooth service, close the phone connection and refresh/select the companion in neXt.",
+                "For SIP, use Settings → SIP and your own provider credentials. Select the usable Wi-Fi, mobile or wired connections. Allow your desktop microphone and notifications; test incoming calls and two-way speech. Secure password saving requires an available, unlocked Secret Service keyring.",
+                "Keep the computer awake for continuous reception. After waking or reconnecting a cable, check each service’s connection state; reconnect or refresh the USB device if necessary. Sleeping a computer pauses communication.",
+            ],
+            notes: [
+                "The initial native package requires GLIBC 2.38 or newer. Mint 22 / Ubuntu 24.04 are the tested baseline; other desktop environments and distributions still need their own checks.",
+                "Keep the normal application sandbox enabled. If AppImage cannot mount, install your distribution’s compatible FUSE support, or launch with APPIMAGE_EXTRACT_AND_RUN=1. A sandbox error should be diagnosed; --no-sandbox is not the installation procedure.",
+                "Radio GPS position telemetry and the computer’s own GPS are separate. Optional automatic team sharing uses an explicitly configured localhost GPSD receiver with fresh time/accuracy data and your consent. A T1000-E position alone does not verify that GPSD sharing works.",
+            ],
+            related: ["linux-updates", "reticulum", "meshcore", "sip", "gps", "backups"],
+        },
+        {
+            id: "linux-updates",
+            title: "Update a Linux installation",
+            group: "Essentials",
+            lead: "Linux updates use a separate signed feed from Android. The AppImage and Debian package have different installation steps; a download does not silently install system packages.",
+            steps: [
+                "Open Settings → App features → Updates. Check for an update and download the Linux file offered for your installation. neXt verifies the signed manifest, size and checksum before offering it.",
+                "For AppImage, use Restart to apply when available. The desktop application replaces its writable AppImage, keeps a rollback copy and restarts with the same data-folder arguments. Keep the AppImage in a folder you own.",
+                "For .deb, use Show file to locate the verified package, close neXt and open the file in your system package installer to upgrade it. Approve the system confirmation, then reopen neXt. The app does not silently run a privileged package install.",
+                "Keep your existing data folder and do not delete it to update. Check your identity, interfaces and services after reopening. If an update is cancelled, the existing installed version remains available.",
+                "If installation fails, retain your data and the verified file. Check disk space, folder permissions and the release instructions; report the version, package type and error without sharing passwords or private keys.",
+            ],
+            notes: [
+                "The first Linux release already contains signed update support. Its linux-stable feed is independent of the Android latest-release feed.",
+                "Back up before upgrades. A rollback application copy is not a backup of your message database.",
+                "Never apply an Android APK on Linux or replace a Linux AppImage with a package intended for another operating system.",
+            ],
+            related: ["linux", "updates", "backups", "support"],
+        },
+        {
             id: "updates",
             title: "Install an Android app update",
             group: "Essentials",
@@ -26,7 +66,7 @@ window.NEXT_GUIDE = {
             group: "Essentials",
             lead: "Meshchat neXt puts several communications tools in one place. You can use just one or combine them. Combining the screens does not combine their networks, accounts or radio protocols.",
             steps: [
-                "Install the APK matching your Android architecture: ARM64 (64-bit ARM), ARMv7 (32-bit ARM), or x86_64 (64-bit Intel/AMD). Android 7 or later is supported; SIP calling requires Android 9 or later.",
+                "On Linux, start with the Install and use neXt on Linux topic. On Android, install the APK matching your architecture: ARM64 (64-bit ARM), ARMv7 (32-bit ARM), or x86_64 (64-bit Intel/AMD). Android 7 or later is supported; SIP calling requires Android 9 or later.",
                 "Choose what you actually need: Reticulum, MeshCore, SIP, or any combination. You can change the visible features later in Settings → App features.",
                 "For Reticulum, choose a network interface: internet TCP, local network, an RNode radio, or several. For MeshCore, connect a separate companion radio. For SIP, supply your provider account.",
                 "Check the network label before messaging, sharing an identity or calling. The same person can have several unrelated addresses.",
@@ -175,8 +215,8 @@ window.NEXT_GUIDE = {
             lead: "A companion/client node connects your phone to a MeshCore radio network. Repeaters extend coverage, room servers host conversations, and sensors provide supported data/services; they are not substitutes for your local companion.",
             steps: [
                 "Check that your exact device has companion firmware for the intended connection. BLE and USB companion builds can differ. See the official MeshCore releases; choose the precise board/module.",
-                "For BLE, pair in Android settings, close other apps using the same companion, then Settings → MeshCore → Refresh paired radios → select it → Connect.",
-                "For USB, attach a supported USB companion through OTG, refresh USB radios, choose the device, allow Android access and connect.",
+                "For BLE, enable system Bluetooth and close other apps or phones using the same companion, then Settings → MeshCore → refresh/select the radio → Connect. Android may also require system pairing and Bluetooth permissions.",
+                "For USB, attach a supported USB companion with a data cable (OTG on Android), refresh USB radios, choose the device and connect. Android asks for USB access; Linux requires your user to have permission for that serial device.",
                 "Read the identity and existing radio profile before changing anything. The node’s saved settings take priority.",
                 "Check Messages → Announces → MeshCore and send a small DM to a known reachable peer.",
             ],
@@ -440,8 +480,8 @@ window.NEXT_GUIDE = {
             steps: [
                 "Enable SIP in App features, then Settings → SIP → Add account. Enter your own extension and password; no test account is shipped.",
                 "Confirm the provider server, port and transport. The editable HOIP preset is premium.hamsoverip.com:5160 using UDP. Use your account’s assigned details if they differ.",
-                "Leave Save password securely enabled if desired. Android uses Keystore-backed storage and excludes saved SIP credentials from backups. Without saving, re-enter the password after the service stops.",
-                "Allow Wi-Fi and/or mobile data independently. I2P is shown only when a supported transport exists and needs a reachable compatible endpoint; an ordinary public server is not automatically available over I2P.",
+                "Leave Save password securely enabled if desired. Android uses Keystore-backed storage and excludes saved SIP credentials from backups. Linux uses an available, unlocked Secret Service keyring. Without saving, re-enter the password after the service stops.",
+                "Allow Wi-Fi and/or mobile data independently; Linux also offers wired networking. I2P is shown only when a supported transport exists and needs a reachable compatible endpoint; an ordinary public server is not automatically available over I2P.",
                 "Select the account, connect and enable automatic reconnection if you want persistent service. Open Telephone to call an extension or use a SIP contact.",
             ],
             notes: [
