@@ -61,6 +61,8 @@ env:
         mirror.gcr.io:443
         *.sigstore.dev:443
         check.trivy.dev:443
+        grype.anchore.io:443
+        toolbox-data.anchore.io:443
         cgr.dev:443
         *.cgr.dev:443
         dl-cdn.alpinelinux.org:443
