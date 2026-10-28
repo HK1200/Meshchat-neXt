@@ -98,7 +98,11 @@ packages = (
         "LXST",
     ]
     + (["pycodec2"] if pycodec2_installed else [])
-    + (["secretstorage", "jeepney"] if sys.platform.startswith("linux") else [])
+    + (
+        ["secretstorage", "jeepney", "dbus_fast"]
+        if sys.platform.startswith("linux")
+        else []
+    )
     + [
         "lxmfy",
         "rns_filesync",

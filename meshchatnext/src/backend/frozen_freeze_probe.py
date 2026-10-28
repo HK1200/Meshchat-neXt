@@ -73,6 +73,21 @@ def main() -> None:
             )
 
     if sys.platform.startswith("linux"):
+        # Compiled D-Bus serializers import private modules dynamically. A plain
+        # Bleak import does not exercise them; serialize without opening any bus
+        # or scanning a user's Bluetooth devices.
+        from dbus_fast import Message
+
+        dbus_probe = Message(
+            destination="org.bluez",
+            path="/",
+            interface="org.freedesktop.DBus.Peer",
+            member="Ping",
+        )
+        if not dbus_probe._marshall(False):
+            raise SystemExit(
+                "frozen-freeze-probe: Bluetooth D-Bus serialization failed"
+            )
         import jeepney  # noqa: F401
         import numpy as np
         import pycodec2
