@@ -6,7 +6,11 @@
                 <span class="shrink-0">MeshCore</span>
                 <span class="font-mono truncate" :title="contact.meshcore_key">{{ contact.meshcore_key }}</span>
             </div>
-            <button type="button" class="text-sem-accent" @click="$router.push(meshcoreRoute(contact.meshcore_key))">
+            <button
+                type="button"
+                class="text-sem-accent"
+                @click="$router.push(meshcoreRoute(contact.meshcore_key, snapshot.radio_id))"
+            >
                 Message via MeshCore
             </button>
         </div>

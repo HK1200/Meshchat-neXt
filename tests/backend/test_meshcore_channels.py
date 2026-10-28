@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: MIT
+import asyncio
 import hashlib
 import tempfile
 import unittest
@@ -76,6 +77,73 @@ class ChannelTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.client.slots[0], ("Public", PUBLIC_GROUP_KEY))
         self.assertEqual(self.client.slots[1], ("Private team", key))
         self.assertEqual(len(self.client.writes), 1)
+
+    async def test_late_other_slot_reply_waits_for_matching_channel_without_requery(
+        self,
+    ):
+        calls = []
+        before = len(self.client.subscribers)
+
+        async def query(slot):
+            calls.append(slot)
+            asyncio.get_running_loop().call_soon(
+                self.client.emit,
+                Types.CHANNEL_INFO,
+                {
+                    "channel_idx": slot,
+                    "channel_name": "Expected",
+                    "channel_secret": bytes(16),
+                },
+            )
+            return event(
+                Types.CHANNEL_INFO,
+                {
+                    "channel_idx": slot - 1,
+                    "channel_name": "Stale",
+                    "channel_secret": bytes([1]) * 16,
+                },
+            )
+
+        self.client.get_channel = query
+        row, key = await self.channels._read(1)
+        self.assertEqual(row["name"], "Expected")
+        self.assertEqual(key, bytes(16))
+        self.assertEqual(calls, [1])
+        self.assertEqual(len(self.client.subscribers), before)
+
+    async def test_missing_matching_channel_times_out_and_unsubscribes(self):
+        before = len(self.client.subscribers)
+        self.channels.READ_TIMEOUT = 0.02
+
+        async def query(slot):
+            return event(
+                Types.CHANNEL_INFO,
+                {
+                    "channel_idx": 0,
+                    "channel_name": "Stale",
+                    "channel_secret": bytes(16),
+                },
+            )
+
+        self.client.get_channel = query
+        with self.assertRaisesRegex(ConnectionError, "Matching channel response"):
+            await self.channels._read(1)
+        self.assertEqual(len(self.client.subscribers), before)
+
+    async def test_matching_channel_still_rejects_invalid_secret(self):
+        async def query(slot):
+            return event(
+                Types.CHANNEL_INFO,
+                {
+                    "channel_idx": slot,
+                    "channel_name": "Test",
+                    "channel_secret": b"invalid",
+                },
+            )
+
+        self.client.get_channel = query
+        with self.assertRaisesRegex(ConnectionError, "Unsupported channel key"):
+            await self.channels._read(1)
 
     async def test_refresh_is_read_only_and_redacts_keys(self):
         rows = await self.channels.refresh()

@@ -15,6 +15,7 @@ from meshchatnext.src.backend.http.uploads import (
     PayloadTooLargeError,
     read_json_limited,
 )
+from meshchatnext.src.backend.meshcore_fleet import MeshCoreFleet
 from meshchatnext.src.backend.meshcore_voice import VoiceCapabilityError
 from meshchatnext.src.backend.privacy_mode import (
     OutboundHttpBlockedError,
@@ -25,6 +26,25 @@ HEADERS = {"Cache-Control": "no-store", "Pragma": "no-cache"}
 
 
 async def _read(service, owner, request, action):
+    radio_context = None
+    if isinstance(service, MeshCoreFleet):
+        if action == "ui":
+            return await service.ui(
+                owner.identity.hash.hex(),
+                peer=request.query.get("peer"),
+                channel=request.query.get("channel_id"),
+                radio_id=request.query.get("radio"),
+                expected_owner=request.query.get("owner"),
+            )
+        if action == "notification-target":
+            return await service.notification_target(
+                owner.identity.hash.hex(), request.query.get("key")
+            )
+        selected = service.resolve(
+            request.query.get("radio"), request.query.get("owner")
+        )
+        radio_context = service._id(selected)
+        service = selected
     reads = {
         "identity": ("session", "read_identity"),
         "clock": ("session", "read_clock"),
@@ -79,6 +99,8 @@ async def _read(service, owner, request, action):
         )
     elif action == "map":
         result = await service.map_snapshot(owner.identity.hash.hex())
+        if radio_context is not None:
+            result["radio_id"] = radio_context
     elif action == "ui":
         result = await service.ui(
             owner.identity.hash.hex(),
@@ -139,6 +161,10 @@ async def _write(service, owner, request, action):
         ),
         "usb-permission": ({"path"}, set()),
         "connect": ({"kind", "target"}, {"receive", "auto_reconnect"}),
+        "radio-add": ({"kind", "target", "label"}, {"receive", "auto_reconnect"}),
+        "radio-configure": (set(), {"radio_id", "label", "view", "active"}),
+        "radio-remove": ({"radio_id"}, set()),
+        "radio-enabled": ({"radio_id", "enabled"}, set()),
         "team-attachment-prepare": (
             {"pcm_base64", "request_id", "expected_owner", "expected_channel_id"},
             set(),
@@ -335,6 +361,22 @@ async def _write(service, owner, request, action):
     required, optional = specs[action]
     if not required <= body.keys() or body.keys() - required - optional:
         raise ValueError("Invalid request fields")
+    if isinstance(service, MeshCoreFleet):
+        radio_id = request.query.get("radio")
+        if action == "radio-add":
+            return await service.add(**body)
+        if action == "radio-configure":
+            return await service.configure(**body)
+        if action == "radio-remove":
+            return await service.remove(**body)
+        if action == "radio-enabled":
+            return await service.set_enabled(**body)
+        if action == "connect":
+            return await service.connect(radio_id=radio_id, **body)
+        service = service.resolve(
+            radio_id,
+            body.get("expected_owner") or body.get("expected_current_public_key"),
+        )
     if "expected_owner" in required or action in (
         "radio2",
         "announce",
@@ -506,12 +548,21 @@ def register_meshcore_routes(routes, owner):
         service = getattr(owner, "meshcore_service", None)
         action = request.match_info["action"]
         if request.method == "GET" and action == "status":
-            return web.json_response(
-                service.status()
-                if service
-                else {"available": False, "connected": False},
-                headers=HEADERS,
-            )
+            try:
+                status = (
+                    service.status(request.query.get("radio"))
+                    if isinstance(service, MeshCoreFleet)
+                    else service.status()
+                    if service
+                    else {"available": False, "connected": False}
+                )
+                return web.json_response(status, headers=HEADERS)
+            except (ValueError, TypeError):
+                return web.json_response(
+                    {"message": "Select a saved MeshCore radio"},
+                    status=400,
+                    headers=HEADERS,
+                )
         if service is None:
             return web.json_response(
                 {"message": "MeshCore is unavailable in this build"},
@@ -539,10 +590,15 @@ def register_meshcore_routes(routes, owner):
             return web.json_response(
                 {"message": str(error)}, status=400, headers=HEADERS
             )
-        except (ValueError, TypeError, KeyError, UnicodeDecodeError):
-            return web.json_response(
-                {"message": "Invalid MeshCore request"}, status=400, headers=HEADERS
+        except (ValueError, TypeError, KeyError, UnicodeDecodeError) as error:
+            message = (
+                str(error)
+                if isinstance(error, ValueError)
+                and action
+                in {"radio-add", "radio-configure", "radio-remove", "radio-enabled"}
+                else "Invalid MeshCore request"
             )
+            return web.json_response({"message": message}, status=400, headers=HEADERS)
         except PermissionError:
             return web.json_response(
                 {"message": "Firmware disables this identity operation"},
@@ -567,12 +623,11 @@ def install_meshcore_lifecycle(web_app, owner):
         if importlib.util.find_spec("meshcore") is None:
             return
         from meshchatnext.src.backend.meshcore_notifications import deliver_notification
-        from meshchatnext.src.backend.meshcore_service import MeshCoreService
 
         async def notify(event):
             await deliver_notification(owner, event)
 
-        owner.meshcore_service = MeshCoreService(
+        owner.meshcore_service = MeshCoreFleet(
             Path(owner.storage_dir) / "meshcore", notification_sink=notify
         )
         await owner.meshcore_service.start()

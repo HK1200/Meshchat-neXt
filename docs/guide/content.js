@@ -218,10 +218,13 @@ window.NEXT_GUIDE = {
                 "For BLE, enable system Bluetooth and close other apps or phones using the same companion, then Settings → MeshCore → refresh/select the radio → Connect. Android may also require system pairing and Bluetooth permissions.",
                 "For USB, attach a supported USB companion with a data cable (OTG on Android), refresh USB radios, choose the device and connect. Android asks for USB access; Linux requires your user to have permission for that serial device.",
                 "Read the identity and existing radio profile before changing anything. The node’s saved settings take priority.",
+                "To use several companions, open Settings → MeshCore → Add another MeshCore radio. Name each one and keep its own identity. Each enabled radio connects and reconnects independently.",
+                "Choose Combined inbox with radio labels or Separate radio views. In a direct conversation, check the sending-radio selector before sending. Channels, nodes and settings use the selected radio.",
                 "Check Messages → Announces → MeshCore and send a small DM to a known reachable peer.",
             ],
             notes: [
                 "neXt can run this companion alongside an independent RNode. That is two connections to two separate systems.",
+                "Multiple MeshCore companions do not forward messages between one another. A manual Disconnect or Disable stops that radio’s automatic attempts; other enabled radios continue. Reconnection requires neXt to be running, the transport to be available and any required permissions or pairing to be in place.",
                 "After USB re-enumeration, refresh/select/connect may be required. Check the cable and power arrangement before repeatedly reconnecting.",
                 "A connected companion can still be unable to hear your local mesh if its primary radio profile differs.",
             ],
@@ -661,6 +664,11 @@ window.NEXT_GUIDE = {
             "Can an RNode and MeshCore run together?",
             "Yes, as independent connections to separate compatible devices. They keep their own radio settings and identities.",
             "rnode",
+        ],
+        [
+            "Can several MeshCore radios stay connected together?",
+            "Yes. Add and name them in Settings → MeshCore. Give each radio its own identity. Choose a combined inbox with radio labels or separate radio views; enabled radios keep receiving and reconnecting in either mode. Select the sending radio explicitly in a conversation.",
+            "meshcore",
         ],
         [
             "Can the same board be an RNode and a MeshCore companion?",

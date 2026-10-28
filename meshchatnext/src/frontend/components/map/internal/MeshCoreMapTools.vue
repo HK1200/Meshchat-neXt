@@ -191,6 +191,7 @@ const open = ref(false),
     selectedTeam = ref(null),
     mapCenter = ref(null),
     owner = ref(null),
+    radioId = ref(null),
     connected = ref(false),
     busy = ref(false),
     problem = ref("");
@@ -459,7 +460,9 @@ async function refresh() {
     busy.value = true;
     problem.value = "";
     try {
-        const { data } = await window.api.get(apiPath("/meshcore/map"));
+        const { data } = await window.api.get(apiPath("/meshcore/map"), {
+            params: { radio: router?.currentRoute?.value?.query?.meshcoreRadio },
+        });
         if (stopped || token !== generation) return;
         const result = data.result || {};
         if (owner.value !== result.owner || team.value?.channel_id !== result.tactical?.channel_id) {
@@ -478,6 +481,7 @@ async function refresh() {
                 ) || null;
         }
         owner.value = result.owner;
+        radioId.value = result.radio_id || null;
         connected.value = Boolean(result.connected);
         team.value = result.tactical || null;
         channels.value = result.channels || [];
@@ -587,10 +591,17 @@ async function addContact() {
     }
 }
 function message() {
-    router?.push({ name: "messages", query: { meshcore: selected.value.peer } });
+    router?.push({
+        name: "messages",
+        query: { meshcore: selected.value.peer, ...(radioId.value ? { meshcoreRadio: radioId.value } : {}) },
+    });
 }
 function manage() {
-    router?.push({ name: "meshcore-nodes", params: { peer: selected.value.peer } });
+    router?.push({
+        name: "meshcore-nodes",
+        params: { peer: selected.value.peer },
+        ...(radioId.value ? { query: { meshcoreRadio: radioId.value } } : {}),
+    });
 }
 watch(owner, clearRange);
 const timer = setInterval(() => {

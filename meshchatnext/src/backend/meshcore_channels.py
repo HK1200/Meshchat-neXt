@@ -61,6 +61,8 @@ class ChannelUpdateError(ConnectionError):
 
 
 class MeshCoreChannels:
+    READ_TIMEOUT = 8.0
+
     def __init__(self, messenger):
         self.messages = messenger
         self.session = messenger.session
@@ -70,9 +72,29 @@ class MeshCoreChannels:
         self.messages._check()
 
     async def _read(self, slot):
-        payload = self.session._payload(
-            await self.session._client.commands.get_channel(slot)
-        )
+        # A reconnect can deliver a late CHANNEL_INFO for the preceding slot.
+        # Subscribe before querying and correlate by slot; never replay the query
+        # or accept another channel's metadata/key as this channel's response.
+        matching = asyncio.get_running_loop().create_future()
+
+        def receive(event):
+            payload = event.payload
+            if isinstance(payload, dict) and payload.get("channel_idx") == slot:
+                if not matching.done():
+                    matching.set_result(event)
+
+        client = self.session._client
+        subscription = client.subscribe(self.messages._types.CHANNEL_INFO, receive)
+        try:
+            async with asyncio.timeout(self.READ_TIMEOUT):
+                payload = self.session._payload(await client.commands.get_channel(slot))
+                if payload.get("channel_idx") != slot:
+                    payload = self.session._payload(await matching)
+        except TimeoutError:
+            raise ConnectionError("Matching channel response not received") from None
+        finally:
+            subscription.unsubscribe()
+            matching.cancel()
         if payload.get("channel_idx") != slot or not isinstance(
             payload.get("channel_name"), str
         ):

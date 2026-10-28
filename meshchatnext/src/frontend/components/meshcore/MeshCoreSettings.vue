@@ -14,6 +14,13 @@
         <p v-if="connectionIssue" role="status" class="text-sm text-sem-fg-muted">{{ connectionIssue }}</p>
         <p v-if="error || problem" role="alert" class="text-sm text-sem-danger">{{ problem || error }}</p>
         <p v-if="notice" role="status" class="text-sm text-sem-accent">{{ notice }}</p>
+        <MeshCoreRadios
+            v-if="!props.setupMode"
+            :snapshot="snapshot"
+            :action="action"
+            :disabled="busy || backupBusy || identityBusy || radio2Busy"
+            @busy="radioManagerBusy = $event"
+        />
         <form class="space-y-3" @submit.prevent="connect">
             <fieldset :disabled="controlsBusy" class="grid gap-3 sm:grid-cols-2">
                 <label
@@ -286,6 +293,7 @@
 </template>
 <script setup>
 import { computed, ref, watch, onBeforeUnmount } from "vue";
+import MeshCoreRadios from "./MeshCoreRadios.vue";
 import MeshCoreRadio2Settings from "./MeshCoreRadio2Settings.vue";
 import MeshCoreBackups from "./MeshCoreBackups.vue";
 import MeshCoreIdentitySettings from "./MeshCoreIdentitySettings.vue";
@@ -323,13 +331,16 @@ const identityRefresh = ref(0);
 const backupBusy = ref(false),
     identityBusy = ref(false);
 const radio2Busy = ref(false);
+const radioManagerBusy = ref(false);
 watch([() => props.suggestedConnection, () => snapshot.value.connected, () => busy.value], ([hint]) => {
     if (!hint || snapshot.value.connected || busy.value || !isBluetoothAddress(hint.target)) return;
     kind.value = "ble";
     target.value = hint.target;
     bluetoothChoice.value = hint.target;
 });
-const controlsBusy = computed(() => busy.value || backupBusy.value || identityBusy.value || radio2Busy.value);
+const controlsBusy = computed(
+    () => busy.value || backupBusy.value || identityBusy.value || radio2Busy.value || radioManagerBusy.value
+);
 watch(controlsBusy, (value) => emit("busy", value));
 const devices = ref([]),
     bluetoothChoice = ref(""),
@@ -426,7 +437,10 @@ async function read() {
     problem.value = "";
     notice.value = "";
     try {
-        const { data } = await window.api.get(apiPath("/meshcore/settings"), { signal: lifetime.signal });
+        const { data } = await window.api.get(apiPath("/meshcore/settings"), {
+            signal: lifetime.signal,
+            params: { radio: snapshot.value.radio_id },
+        });
         if (!stopped && token === generation && owner === snapshot.value.owner && snapshot.value.connected) {
             accept(data.result);
             notice.value = "Current settings read from radio.";

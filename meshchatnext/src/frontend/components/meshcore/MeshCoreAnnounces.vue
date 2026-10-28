@@ -86,7 +86,7 @@
                                     v-else
                                     type="button"
                                     class="text-xs text-sem-accent hover:underline"
-                                    @click="$router.push(meshcoreRoute(device.peer))"
+                                    @click="$router.push(meshcoreRoute(device.peer, snapshot.radio_id))"
                                 >
                                     Message via MeshCore
                                 </button>
@@ -105,7 +105,7 @@
                                     v-else
                                     type="button"
                                     class="text-xs text-sem-accent hover:underline"
-                                    @click="$router.push(meshcoreNodeRoute(device.peer))"
+                                    @click="$router.push(meshcoreNodeRoute(device.peer, snapshot.radio_id))"
                                 >
                                     View saved node
                                 </button>

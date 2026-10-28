@@ -33,7 +33,8 @@ def notification_text(event):
             )
         except ValueError:
             pass
-    return f"MeshCore · {label}"[:200], text[:200]
+    radio = f" · {event['radio_label']}" if event.get("radio_label") else ""
+    return f"MeshCore{radio} · {label}"[:200], text[:200]
 
 
 async def deliver_notification(owner, event):

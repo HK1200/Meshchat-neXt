@@ -8,6 +8,7 @@ import contextlib
 import json
 import os
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 
 from meshchatnext.src.backend.meshcore_channels import MeshCoreChannels
@@ -55,7 +56,7 @@ def validate_selection(value):
         from meshchatnext.src.backend.meshcore_store import public_key
 
         public_key(value["owner"])
-    return dict(value)
+    return {**value, "target": value["target"].strip()}
 
 
 class MeshCoreService:
@@ -66,13 +67,18 @@ class MeshCoreService:
         session_factory=MeshCoreSession,
         messenger_factory=MeshCoreMessaging,
         channel_factory=MeshCoreChannels,
-        store_factory=MeshCoreStore,
+        store_factory: Callable[[Path], MeshCoreStore] = MeshCoreStore,
         poll_interval=1,
         retry_max=30,
         notification_sink=None,
+        state_folder=None,
+        identity_claim=None,
     ):
         self.folder = Path(folder)
-        self._path = self.folder / "connection.json"
+        self._state_folder = Path(state_folder) if state_folder else self.folder
+        self._path = self._state_folder / "connection.json"
+        self._identity_claim = identity_claim
+        self._known_owner = None
         self._session_factory = session_factory
         self._messenger_factory = messenger_factory
         self._channel_factory = channel_factory
@@ -117,6 +123,18 @@ class MeshCoreService:
                 pass
             except (ValueError, TypeError, OSError):
                 self._state = "invalid_selection"
+            from meshchatnext.src.backend.meshcore_store import public_key
+
+            try:
+                self._known_owner = public_key(
+                    json.loads(
+                        await asyncio.to_thread(
+                            (self._state_folder / "ui-owner.json").read_text
+                        )
+                    )
+                )
+            except (FileNotFoundError, ValueError, TypeError, OSError):
+                self._known_owner = None
             self._task = asyncio.create_task(self._watch())
             if self._notification_sink is not None:
                 self._notification_task = asyncio.create_task(self._notify_loop())
@@ -246,6 +264,8 @@ class MeshCoreService:
                 and identity["public_key"] != selection["owner"]
             ):
                 raise IdentityChanged("Selected device identity changed")
+            if self._identity_claim is not None:
+                await self._identity_claim(identity["public_key"])
             if self._store is None:
                 self._store = await asyncio.to_thread(
                     self._store_factory, self.folder / "history.sqlite"
@@ -285,9 +305,10 @@ class MeshCoreService:
                 )
                 self.messages.tactical = self.tactical
                 self.tactical.on_notification = self._queue_notification
+            self._known_owner = identity["public_key"]
             selection["owner"] = identity["public_key"]
             await asyncio.to_thread(
-                _save, self.folder / "ui-owner.json", identity["public_key"]
+                _save, self._state_folder / "ui-owner.json", identity["public_key"]
             )
             await self._persist(selection)
             if selection["receive"]:
@@ -322,8 +343,8 @@ class MeshCoreService:
         async with self._lock:
             if self._closed:
                 raise RuntimeError("MeshCore service is closed")
-            await self._persist(None)
             self._selection = selection
+            await self._persist(selection)
             await self._dial()
             return self.status()
 
@@ -380,7 +401,7 @@ class MeshCoreService:
                     owner = public_key(
                         json.loads(
                             await asyncio.to_thread(
-                                (self.folder / "ui-owner.json").read_text
+                                (self._state_folder / "ui-owner.json").read_text
                             )
                         )
                     )
@@ -552,7 +573,7 @@ class MeshCoreService:
                 owner = public_key(
                     json.loads(
                         await asyncio.to_thread(
-                            (self.folder / "ui-owner.json").read_text
+                            (self._state_folder / "ui-owner.json").read_text
                         )
                     )
                 )

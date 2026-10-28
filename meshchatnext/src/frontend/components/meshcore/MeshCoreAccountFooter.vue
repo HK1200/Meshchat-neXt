@@ -61,6 +61,20 @@
         </div>
         <div v-if="expanded && !collapsed" class="border-t border-sem-border p-2 space-y-2 text-xs">
             <div class="px-2 py-1.5 space-y-2" aria-label="MeshCore radio connection">
+                <label v-if="snapshot.radios?.length > 1" class="block"
+                    >Selected MeshCore radio
+                    <select
+                        class="input-field"
+                        aria-label="Selected MeshCore radio"
+                        :value="snapshot.radio_id"
+                        :disabled="busy"
+                        @change="action('radio-configure', { active: $event.target.value })"
+                    >
+                        <option v-for="item in snapshot.radios" :key="item.id" :value="item.id">
+                            {{ item.label }}
+                        </option>
+                    </select>
+                </label>
                 <p role="status" class="flex items-center gap-2">
                     <span
                         class="size-2 rounded-full"
@@ -77,7 +91,7 @@
                     {{
                         busyConnection
                             ? `${busyConnection}…`
-                            : snapshot.connected || snapshot.selected
+                            : snapshot.connected || (snapshot.selected && snapshot.auto_reconnect)
                               ? "Disconnect MeshCore"
                               : "Connect MeshCore"
                     }}
@@ -155,9 +169,11 @@ function validRadio(value) {
         value.target.length <= 256
     );
 }
-function savedRadio() {
+function savedRadio(radioId) {
     try {
-        const value = JSON.parse(localStorage.getItem(radioKey));
+        const value = JSON.parse(
+            localStorage.getItem(radioId && radioId !== "default" ? `${radioKey}.${radioId}` : radioKey)
+        );
         return validRadio(value) ? { kind: value.kind, target: value.target } : null;
     } catch {
         return null;
@@ -173,12 +189,18 @@ const connectionStatus = computed(() => {
     return "Disconnected";
 });
 watch(
-    () => snapshot.value.connection,
-    (value) => {
-        if (!validRadio(value)) return;
+    () => [snapshot.value.radio_id, snapshot.value.connection],
+    ([radioId, value], previous) => {
+        if (!validRadio(value)) {
+            if (radioId !== previous?.[0]) radio.value = savedRadio(radioId);
+            return;
+        }
         radio.value = { kind: value.kind, target: value.target };
         try {
-            localStorage.setItem(radioKey, JSON.stringify(radio.value));
+            localStorage.setItem(
+                radioId && radioId !== "default" ? `${radioKey}.${radioId}` : radioKey,
+                JSON.stringify(radio.value)
+            );
         } catch {
             /* Connecting still works without local storage. */
         }
@@ -202,7 +224,7 @@ watch(
 );
 async function toggleConnection() {
     if (busy.value) return;
-    const disconnecting = snapshot.value.connected || snapshot.value.selected;
+    const disconnecting = snapshot.value.connected || (snapshot.value.selected && snapshot.value.auto_reconnect);
     if (!disconnecting && !radio.value) {
         await router.push({ name: "meshcore-settings" });
         return;

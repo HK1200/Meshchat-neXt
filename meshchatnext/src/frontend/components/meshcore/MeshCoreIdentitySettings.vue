@@ -87,7 +87,10 @@ async function read() {
     problem.value = "";
     notice.value = "";
     try {
-        const { data } = await window.api.get(apiPath("/meshcore/identity"), { signal: lifetime.signal });
+        const { data } = await window.api.get(apiPath("/meshcore/identity"), {
+            signal: lifetime.signal,
+            params: { radio: props.snapshot.radio_id },
+        });
         if (stopped || current !== revision || owner !== props.snapshot.owner || !props.snapshot.connected) return;
         if (data.result?.public_key !== owner || typeof data.result?.name !== "string")
             throw new Error("Identity changed");

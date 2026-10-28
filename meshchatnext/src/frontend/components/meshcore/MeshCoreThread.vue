@@ -39,6 +39,25 @@
                     : "MeshCore disconnected — saved messages remain available"
             }}
         </p>
+        <label v-if="snapshot.radios?.length > 1" class="px-4 py-2 text-xs text-sem-fg-muted">
+            Radio for this conversation
+            <select
+                class="input-field"
+                aria-label="Sending MeshCore radio"
+                :value="snapshot.radio_id"
+                :disabled="busy"
+                @change="
+                    router.replace({
+                        query: { ...router.currentRoute.value.query, meshcoreRadio: $event.target.value },
+                    })
+                "
+            >
+                <option v-for="radio in snapshot.radios" :key="radio.id" :value="radio.id">
+                    {{ radio.label }} ·
+                    {{ radio.connected ? "Connected" : radio.auto_reconnect ? "Reconnecting" : "Disconnected" }}
+                </option>
+            </select>
+        </label>
         <p v-if="positionError" role="alert" class="px-4 py-2 text-sm text-sem-danger">{{ positionError }}</p>
         <p v-if="error" role="alert" class="px-4 text-sm text-sem-danger">{{ error }}</p>
         <div
@@ -169,13 +188,17 @@ watch(
     }
 );
 watch(
-    () => snapshot.value.owner,
-    (owner, previous) => {
+    () => [snapshot.value.owner, snapshot.value.radio_id],
+    ([owner, radioId], [previous, previousRadio]) => {
         if (previous && owner !== previous) {
-            draft.value = "";
             pending = null;
             uncertain.value = false;
-            error.value = "MeshCore identity changed. Start a new message.";
+            if (radioId && previousRadio && radioId !== previousRadio) {
+                error.value = ""; // An explicit sending-radio choice keeps the unsent draft.
+            } else {
+                draft.value = "";
+                error.value = "MeshCore identity changed. Start a new message.";
+            }
         }
     }
 );

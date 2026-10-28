@@ -197,7 +197,7 @@ async function load() {
             });
             wake = null;
             if (token !== generation) return;
-            const { data } = await window.api.get(apiPath("/meshcore/ui"));
+            const { data } = await window.api.get(apiPath("/meshcore/ui"), { params: { owner: props.owner } });
             if (token !== generation) return;
             const job = data.result?.voice_jobs?.[author + ":" + meta.sid];
             progress.value = job ? `Receiving ${job.received}/${job.total} parts` : "Waiting for sender…";

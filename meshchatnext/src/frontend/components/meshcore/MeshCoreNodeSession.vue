@@ -488,7 +488,7 @@ async function operate(action, extra = {}) {
         const { data } = await window.api.post(
             apiPath(`/meshcore/${action}`),
             { peer, expected_owner: owner, ...extra },
-            { timeout: 150000 }
+            { timeout: 150000, ...(props.snapshot.radio_id ? { params: { radio: props.snapshot.radio_id } } : {}) }
         );
         if (stopped || token !== generation) return;
         const result = data.result;
@@ -552,13 +552,17 @@ async function recover() {
     busy.value = true;
     emit("busy", true);
     try {
-        const { data: saved } = await window.api.get(apiPath("/meshcore/status"));
+        const context = props.snapshot.radio_id ? { params: { radio: props.snapshot.radio_id } } : {};
+        const { data: saved } = props.snapshot.radio_id
+            ? await window.api.get(apiPath("/meshcore/status"), context)
+            : await window.api.get(apiPath("/meshcore/status"));
         if (!saved.connection) throw new Error("No selected radio");
-        await window.api.post(apiPath("/meshcore/disconnect"), {});
+        if (props.snapshot.radio_id) await window.api.post(apiPath("/meshcore/disconnect"), {}, context);
+        else await window.api.post(apiPath("/meshcore/disconnect"), {});
         await window.api.post(
             apiPath("/meshcore/connect"),
             { ...saved.connection, receive: saved.receiving, auto_reconnect: saved.auto_reconnect },
-            { timeout: 150000 }
+            { timeout: 150000, ...context }
         );
         adminUncertain.value = false;
         uncertain.value = false;

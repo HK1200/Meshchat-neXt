@@ -114,7 +114,10 @@ async function run(write) {
                   ...(enabled.value ? draft.value : {}),
                   expected_owner: owner,
               })
-            : await window.api.get(apiPath("/meshcore/radio2"), { signal: lifetime.signal });
+            : await window.api.get(apiPath("/meshcore/radio2"), {
+                  signal: lifetime.signal,
+                  params: { radio: props.snapshot.radio_id },
+              });
         if (!stopped && token === generation && owner === props.snapshot.owner && props.snapshot.connected) {
             accept(data.result);
             if (write) notice.value = "Radio2 settings saved and verified.";

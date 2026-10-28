@@ -1,11 +1,15 @@
 import { appFeatures } from "./appFeatures";
-import { ref, onMounted, onBeforeUnmount, watch } from "vue";
+import { ref, onMounted, onBeforeUnmount, watch, getCurrentInstance } from "vue";
 import { apiPath, EMITTER_EVENTS } from "./constants";
 import GlobalEmitter from "./GlobalEmitter";
 
-export function meshcoreRoute(peer) {
+export function meshcoreRoute(peer, radioId = null) {
     if (!/^[0-9a-f]{64}$/i.test(peer || "")) throw new Error("Invalid MeshCore public key");
-    return { name: "messages", params: { destinationHash: "" }, query: { meshcore: peer.toLowerCase() } };
+    return {
+        name: "messages",
+        params: { destinationHash: "" },
+        query: { meshcore: peer.toLowerCase(), ...(radioId ? { meshcoreRadio: radioId } : {}) },
+    };
 }
 export function combineNetworkContacts(rns, snapshot = {}) {
     const links = new Map((snapshot.links || []).map((link) => [link.contact, link.peer]));
@@ -36,6 +40,8 @@ export function useMeshCoreUi(peer = () => null, enabled = () => true, channel =
         channel_banishments: [],
         channel_messages: [],
     });
+    const instance = getCurrentInstance();
+    const radio = () => instance?.proxy?.$route?.query?.meshcoreRadio || null;
     const error = ref("");
     const lifetime = new AbortController();
     const lease = {};
@@ -57,13 +63,25 @@ export function useMeshCoreUi(peer = () => null, enabled = () => true, channel =
         const current = ++generation;
         const key = peer(),
             channelKey = channel(),
-            entry = visit();
+            entry = visit(),
+            radioId = radio();
         try {
             const { data } = await window.api.get(apiPath("/meshcore/ui"), {
                 signal: lifetime.signal,
-                params: { ...(key ? { peer: key } : {}), ...(channelKey ? { channel_id: channelKey } : {}) },
+                params: {
+                    ...(radioId ? { radio: radioId } : {}),
+                    ...(key ? { peer: key } : {}),
+                    ...(channelKey ? { channel_id: channelKey } : {}),
+                },
             });
-            if (!stopped && current === generation && key === peer() && channelKey === channel() && entry === visit()) {
+            if (
+                !stopped &&
+                current === generation &&
+                key === peer() &&
+                channelKey === channel() &&
+                entry === visit() &&
+                radioId === radio()
+            ) {
                 if (!data?.result || !Array.isArray(data.result.contacts)) return;
                 snapshot.value = { ...snapshot.value, active_notification_key: null, ...data.result };
                 error.value = "";
@@ -122,8 +140,20 @@ export function useMeshCoreUi(peer = () => null, enabled = () => true, channel =
         ].includes(name)
             ? { ...body, expected_owner: snapshot.value.owner }
             : body;
-        const result = await window.api.post(apiPath(`/meshcore/${name}`), guarded);
+        const radioId = radio() || snapshot.value.radio_id;
+        const result = radioId
+            ? await window.api.post(apiPath(`/meshcore/${name}`), guarded, { params: { radio: radioId } })
+            : await window.api.post(apiPath(`/meshcore/${name}`), guarded);
+        if (name === "radio-configure" && body.active && radio())
+            await instance.proxy.$router.replace({
+                query: { ...instance.proxy.$route.query, meshcoreRadio: body.active },
+            });
+        if (name === "radio-remove" && body.radio_id === radio())
+            await instance.proxy.$router.replace({
+                query: { ...instance.proxy.$route.query, meshcoreRadio: undefined },
+            });
         await refresh();
+        if (name.startsWith("radio-")) GlobalEmitter.emit("meshcore.radios-changed", lease);
         if (["channel-order", "channel-visibility", "channel-remove"].includes(name))
             GlobalEmitter.emit("meshcore.channels-changed", lease);
         return result.data.result;
@@ -136,6 +166,7 @@ export function useMeshCoreUi(peer = () => null, enabled = () => true, channel =
     onMounted(() => {
         GlobalEmitter.on(EMITTER_EVENTS.IDENTITY_SWITCHED, identityChanged);
         GlobalEmitter.on("meshcore.channels-changed", channelsChanged);
+        GlobalEmitter.on("meshcore.radios-changed", channelsChanged);
         if (enabled()) {
             refresh();
             timer = setInterval(refresh, 4000);
@@ -153,11 +184,12 @@ export function useMeshCoreUi(peer = () => null, enabled = () => true, channel =
         lifetime.abort();
         GlobalEmitter.off(EMITTER_EVENTS.IDENTITY_SWITCHED, identityChanged);
         GlobalEmitter.off("meshcore.channels-changed", channelsChanged);
+        GlobalEmitter.off("meshcore.radios-changed", channelsChanged);
         ++generation;
         clearInterval(timer);
     });
     watch(
-        () => [peer(), channel(), visit()],
+        () => [peer(), channel(), visit(), radio()],
         () => {
             snapshot.value = {
                 ...snapshot.value,
@@ -172,13 +204,17 @@ export function useMeshCoreUi(peer = () => null, enabled = () => true, channel =
     return { snapshot, error, refresh, action };
 }
 
-export function meshcoreChannelRoute(channel) {
+export function meshcoreChannelRoute(channel, radioId = null) {
     if (!/^[0-9a-f]{64}$/i.test(channel || "")) throw new Error("Invalid MeshCore channel");
-    return { name: "meshcore-channels", params: { channelId: channel } };
+    return {
+        name: "meshcore-channels",
+        params: { channelId: channel },
+        ...(radioId ? { query: { meshcoreRadio: radioId } } : {}),
+    };
 }
-export function meshcoreNodeRoute(peer) {
+export function meshcoreNodeRoute(peer, radioId = null) {
     if (!/^[0-9a-f]{64}$/i.test(peer || "")) throw new Error("Invalid MeshCore node");
-    return { name: "meshcore-nodes", params: { peer } };
+    return { name: "meshcore-nodes", params: { peer }, ...(radioId ? { query: { meshcoreRadio: radioId } } : {}) };
 }
 export function meshcoreNavAnchor(items) {
     return (

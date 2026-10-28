@@ -29,3 +29,11 @@ Linux updates use a separate signed feed from Android. The AppImage and Debian p
 - The first Linux release already contains signed update support. Its linux-stable feed is independent of the Android latest-release feed.
 - Back up before upgrades. A rollback application copy is not a backup of your message database.
 - Never apply an Android APK on Linux or replace a Linux AppImage with a package intended for another operating system.
+
+## Multiple MeshCore companions
+
+Add and name companions in **Settings → MeshCore → Add another MeshCore radio**. Use a different MeshCore identity for each radio. Enabled companions receive and retry independently; an absent radio does not stop the others. Bluetooth needs the system service and any required pairing; USB needs a stable device path and serial access.
+
+Choose **Combined inbox with radio labels** or **Separate radio views**. This preference changes the presentation, while enabled radios remain active in both modes. Check **Radio for this conversation** before sending. The sidebar’s selected-radio control also changes the radio used by channels, node tools and settings. A manual Disconnect or Disable stops the affected radio’s retries. Removing a saved radio keeps its message history.
+
+This does not bridge radios or Reticulum. Two radios with the same copied identity are rejected to keep routing and history unambiguous. Hardware and operating-system Bluetooth connection limits still apply.

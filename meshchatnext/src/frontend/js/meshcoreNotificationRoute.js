@@ -5,11 +5,13 @@ export async function meshcoreNotificationRoute(key, api = window.api) {
     const target = data?.result;
     if (!target || !/^[0-9a-f]{64}$/.test(target.target || "") || !/^[0-9a-f]{64}$/.test(target.owner || ""))
         throw new Error("Notification is unavailable for the selected MeshCore identity");
+    const radioQuery = target.radio_id ? { meshcoreRadio: target.radio_id } : {};
     if (target.kind === "tactical") {
         if (target.item && /^alert:[0-9a-f]{8}:[0-9]{1,5}$/.test(target.item)) {
             return {
                 name: "map",
                 query: {
+                    ...radioQuery,
                     meshcoreTeam: target.target,
                     meshcoreItem: target.item,
                     meshcoreOwner: target.owner,
@@ -22,6 +24,7 @@ export async function meshcoreNotificationRoute(key, api = window.api) {
         return {
             name: "map",
             query: {
+                ...radioQuery,
                 meshcoreTeam: target.target,
                 meshcoreFence: target.shape,
                 meshcoreOwner: target.owner,
@@ -29,7 +32,7 @@ export async function meshcoreNotificationRoute(key, api = window.api) {
             },
         };
     }
-    const query = { visit: String(Date.now()) };
+    const query = { ...radioQuery, visit: String(Date.now()) };
     if (target.kind === "channel") return { name: "meshcore-channels", params: { channelId: target.target }, query };
     if (target.kind === "room") return { name: "meshcore-nodes", params: { peer: target.target }, query };
     if (target.kind === "direct") return { name: "messages", query: { ...query, meshcore: target.target } };

@@ -56,7 +56,7 @@
                     class="flex flex-wrap items-center gap-2 border-b border-sem-border"
                 >
                     <RouterLink
-                        :to="meshcoreChannelRoute(channel.channel_id)"
+                        :to="meshcoreChannelRoute(channel.channel_id, snapshot.radio_id)"
                         class="flex flex-1 basis-full sm:basis-auto min-w-0 items-center gap-3 py-3 hover:bg-sem-surface-muted"
                     >
                         <MaterialDesignIcon

@@ -165,7 +165,7 @@
                 <RouterLink
                     v-for="node in snapshot.nodes || []"
                     :key="node.peer"
-                    :to="meshcoreNodeRoute(node.peer)"
+                    :to="meshcoreNodeRoute(node.peer, snapshot.radio_id)"
                     class="flex items-center gap-3 py-3 border-b border-sem-border hover:bg-sem-surface-muted"
                     ><MaterialDesignIcon :icon-name="nodeIcon(node.kind)" class="size-8 text-sem-fg-muted" />
                     <div class="min-w-0">

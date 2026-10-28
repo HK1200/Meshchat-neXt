@@ -415,7 +415,7 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
                     return_value=object(),
                 ),
                 patch(
-                    "meshchatnext.src.backend.meshcore_service.MeshCoreService", Runtime
+                    "meshchatnext.src.backend.meshcore_http.MeshCoreFleet", Runtime
                 ),
             ):
                 async with TestClient(TestServer(app)):

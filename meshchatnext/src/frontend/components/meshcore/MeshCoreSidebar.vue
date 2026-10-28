@@ -43,7 +43,10 @@
                     /><span v-if="row.unread" class="font-bold text-sem-accent">{{ row.unread }}</span>
                 </RouterLink>
                 <RouterLink
-                    :to="{ name: section.route }"
+                    :to="{
+                        name: section.route,
+                        ...(snapshot.radio_id ? { query: { meshcoreRadio: snapshot.radio_id } } : {}),
+                    }"
                     class="block px-2 py-1.5 text-xs text-sem-accent hover:underline"
                     >{{ section.id === "channels" ? "Manage channels" : "View saved nodes" }}</RouterLink
                 >
@@ -69,7 +72,7 @@ const sections = computed(() => [
             .filter((row) => !row.hidden)
             .map((row) => ({
                 key: row.channel_id + ":" + row.slot,
-                to: meshcoreChannelRoute(row.channel_id),
+                to: meshcoreChannelRoute(row.channel_id, snapshot.value.radio_id),
                 name: row.name,
                 icon: row.kind === "private" ? "lock-outline" : "pound",
                 unread: row.unread,
@@ -86,7 +89,7 @@ const sections = computed(() => [
         rows: (snapshot.value.nodes || []).map((row) => ({
             key: row.peer,
             unread: row.unread || 0,
-            to: meshcoreNodeRoute(row.peer),
+            to: meshcoreNodeRoute(row.peer, snapshot.value.radio_id),
             name: row.name || "MeshCore node",
             icon: row.kind === 3 ? "forum-outline" : row.kind === 4 ? "access-point" : "radio-tower",
         })),
@@ -95,7 +98,11 @@ const sections = computed(() => [
 import { useRouter } from "vue-router";
 const router = useRouter();
 function toggle(section) {
-    if (props.collapsed) router.push({ name: section.route });
+    if (props.collapsed)
+        router.push({
+            name: section.route,
+            ...(snapshot.value.radio_id ? { query: { meshcoreRadio: snapshot.value.radio_id } } : {}),
+        });
     else expanded[section.id] = !expanded[section.id];
 }
 </script>
