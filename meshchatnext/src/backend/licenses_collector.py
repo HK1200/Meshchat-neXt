@@ -583,7 +583,24 @@ def write_embedded_license_artifacts(repo_root: Path | None = None) -> dict[str,
         backend_path,
         json.dumps(backend_rows, indent=2, ensure_ascii=False) + "\n",
     )
-    notices_path.write_text(render_third_party_notices(payload), encoding="utf-8")
+    rendered = render_third_party_notices(payload)
+    existing = (
+        notices_path.read_text(encoding="utf-8") if notices_path.is_file() else ""
+    )
+    old_lines = existing.splitlines(keepends=True)
+    new_lines = rendered.splitlines(keepends=True)
+    same_content = (
+        len(old_lines) > 1
+        and len(new_lines) > 1
+        and old_lines[1].startswith("Generated at: ")
+        and new_lines[1].startswith("Generated at: ")
+        and old_lines[:1] + old_lines[2:] == new_lines[:1] + new_lines[2:]
+    )
+    if same_content:
+        # Refresh build freshness without changing signed notice bytes for a new clock time.
+        notices_path.touch()
+    else:
+        notices_path.write_text(rendered, encoding="utf-8")
     return {
         "frontend_path": str(frontend_path),
         "frontend_count": len(frontend_rows),

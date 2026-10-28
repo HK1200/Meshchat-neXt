@@ -220,3 +220,27 @@ def test_collect_backend_licenses_falls_back_to_embedded_when_live_empty():
         mock_sys.frozen = False
         rows = collect_backend_licenses()
     assert rows == embedded
+
+
+def test_notice_refresh_preserves_signed_bytes_until_license_content_changes(tmp_path):
+    payload = {
+        "backend": [
+            {"name": "sample", "version": "1", "license": "MIT", "author": "Author"}
+        ],
+        "frontend": [],
+        "meta": {"generated_at": "2026-01-01T00:00:00Z", "frontend_source": "pnpm"},
+    }
+    with patch(
+        "meshchatnext.src.backend.licenses_collector.build_licenses_payload",
+        return_value=payload,
+    ):
+        write_embedded_license_artifacts(repo_root=tmp_path)
+        notices = tmp_path / "meshchatnext/src/backend/data/THIRD_PARTY_NOTICES.txt"
+        original = notices.read_bytes()
+        payload["meta"]["generated_at"] = "2026-02-01T00:00:00Z"
+        write_embedded_license_artifacts(repo_root=tmp_path)
+        assert notices.read_bytes() == original
+        payload["backend"][0]["license"] = "BSD-3-Clause"
+        write_embedded_license_artifacts(repo_root=tmp_path)
+        assert "BSD-3-Clause" in notices.read_text()
+        assert "2026-02-01T00:00:00Z" in notices.read_text()
