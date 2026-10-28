@@ -27,7 +27,7 @@
             :key="radio.id"
             :data-meshcore-radio="radio.id"
             :open="radio.id === snapshot.radio_id"
-            class="space-y-3 rounded-lg border border-sem-border p-3"
+            class="space-y-3 rounded-lg border-2 border-sem-border p-3"
         >
             <summary
                 class="cursor-pointer list-none space-y-1"
