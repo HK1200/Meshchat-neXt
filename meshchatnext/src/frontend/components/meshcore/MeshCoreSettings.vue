@@ -553,9 +553,11 @@ watch(
     }
 );
 watch(
-    () => [snapshot.value.available, snapshot.value.bluetooth_discovery_supported],
+    [() => snapshot.value.available, () => snapshot.value.bluetooth_discovery_supported],
     ([available]) => {
-        if (available) loadDevices();
+        // A saved companion already supplies the dropdown's selected device.
+        // Repeated discovery competes with BLE reconnect's own device lookup.
+        if (available && !(linuxRadio.value && snapshot.value.connection)) loadDevices();
     },
     { immediate: true }
 );

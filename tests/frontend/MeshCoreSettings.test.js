@@ -82,6 +82,42 @@ describe("MeshCore radio settings", () => {
         expect(wrapper.text()).not.toContain("Pair your radio in Android");
     });
 
+    it("does not restart Bluetooth discovery when polling replaces the snapshot", async () => {
+        setup({
+            snapshot: ref({
+                available: true,
+                connected: false,
+                owner,
+                radio_platform: "linux",
+                bluetooth_discovery_supported: true,
+            }),
+        });
+        await flushPromises();
+        for (let poll = 0; poll < 3; poll++) {
+            state.snapshot.value = { ...state.snapshot.value, profile_name: `Poll ${poll}` };
+            await flushPromises();
+        }
+        expect(window.api.get.mock.calls.filter(([path]) => path.endsWith("/bluetooth-devices"))).toHaveLength(1);
+    });
+
+    it("leaves saved Linux companions to reconnect without an automatic scan, while allowing manual discovery", async () => {
+        setup({
+            snapshot: ref({
+                available: true,
+                connected: false,
+                owner,
+                radio_platform: "linux",
+                bluetooth_discovery_supported: true,
+                connection: { kind: "ble", target: "AA:BB:CC:DD:EE:FF" },
+            }),
+        });
+        await flushPromises();
+        expect(window.api.get.mock.calls.filter(([path]) => path.endsWith("/bluetooth-devices"))).toHaveLength(0);
+        await button("Find nearby radios").trigger("click");
+        await flushPromises();
+        expect(window.api.get.mock.calls.filter(([path]) => path.endsWith("/bluetooth-devices"))).toHaveLength(1);
+    });
+
     it("cancels paired-radio discovery when the settings view is removed", async () => {
         setup({ snapshot: ref({ available: true, connected: false, owner }) });
         const call = window.api.get.mock.calls.find(([path]) => path.endsWith("/bluetooth-devices"));
