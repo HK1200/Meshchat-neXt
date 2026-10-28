@@ -72,3 +72,27 @@ def test_smoke_launches_hk_package_and_retains_overrides():
     )
     result = subprocess.check_output(["bash", "-c", command], env=env, text=True)
     assert result.splitlines() == ["example.app", "example.app/custom.Main"]
+
+
+def test_smoke_default_port_matches_android_server_and_keeps_override():
+    import re
+
+    java = (
+        _REPO / "android/app/src/main/java/com/meshchatnext/MainActivity.java"
+    ).read_text()
+    server_port = re.search(r"SERVER_PORT\s*=\s*(\d+)", java).group(1)
+    assignment = next(
+        line
+        for line in _SCRIPT.read_text().splitlines()
+        if line.startswith("DEVICE_HTTP_PORT=")
+    )
+    command = assignment + '\nprintf "%s" "$DEVICE_HTTP_PORT"'
+    env = {k: v for k, v in os.environ.items() if k != "MESHCHATNEXT_SMOKE_DEVICE_PORT"}
+    assert (
+        subprocess.check_output(["bash", "-c", command], env=env, text=True)
+        == server_port
+    )
+    env["MESHCHATNEXT_SMOKE_DEVICE_PORT"] = "18999"
+    assert (
+        subprocess.check_output(["bash", "-c", command], env=env, text=True) == "18999"
+    )

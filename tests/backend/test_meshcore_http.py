@@ -414,9 +414,7 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
                     "meshchatnext.src.backend.meshcore_http.importlib.util.find_spec",
                     return_value=object(),
                 ),
-                patch(
-                    "meshchatnext.src.backend.meshcore_http.MeshCoreFleet", Runtime
-                ),
+                patch("meshchatnext.src.backend.meshcore_http.MeshCoreFleet", Runtime),
             ):
                 async with TestClient(TestServer(app)):
                     self.assertEqual(events, ["start"])
