@@ -110,7 +110,12 @@ class FleetTests(unittest.IsolatedAsyncioTestCase):
             kind="ble", target="second", label="Manual", auto_reconnect=False
         )
         radio = self.fleet.resolve(row["added_radio_id"])
-        await self.wait(lambda: radio.status()["connected"])
+        # Adding a manual radio schedules exactly one initial attempt. Wait for
+        # that attempt, rather than assuming disk work completes within 1.5s.
+        initial = tuple(self.fleet._initial_tasks)
+        self.assertEqual(len(initial), 1)
+        await asyncio.wait_for(asyncio.gather(*initial), timeout=5)
+        self.assertTrue(radio.status()["connected"], radio.status())
         original = radio.session
         original.is_connected = False
         await asyncio.sleep(0.06)

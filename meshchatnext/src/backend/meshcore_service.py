@@ -583,6 +583,24 @@ class MeshCoreService:
                 play_cached, self.folder, owner, peer, sid, direction
             )
 
+    async def topology_snapshot(self, account):
+        from meshchatnext.src.backend.meshcore_topology import topology_nodes
+
+        owner = (self._selection or {}).get("owner") or self._known_owner
+        if not owner:
+            return {"owner": None, "nodes": [], **self.status()}
+        # No radio commands or connection lock: a reconnect must not block this read.
+        if self._store is None:
+            self._store = await asyncio.to_thread(
+                self._store_factory, self.folder / "history.sqlite"
+            )
+        client = getattr(self.session, "_client", None)
+        cached = dict(getattr(client, "contacts", {}) or {})
+        nodes = await asyncio.to_thread(topology_nodes, self._store, owner, cached)
+        if owner != ((self._selection or {}).get("owner") or self._known_owner):
+            raise ValueError("MeshCore identity changed; refresh visualiser")
+        return {"owner": owner, "nodes": nodes, **self.status()}
+
     async def map_snapshot(self, account):
         # ui() resolves the saved selected owner even when the radio is offline.
         result = await self.ui(account)

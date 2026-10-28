@@ -177,6 +177,7 @@ import { shapeGeometry } from "../../../js/meshcoreShapes";
 import { getAndroidPosition, isAndroidLocationSupported } from "../../../js/androidLocation";
 import { apiPath } from "../../../js/constants";
 import { formatMeshcoreAge } from "../../../js/meshcoreTime";
+import { nodePressIsSuppressed } from "./mapNodeDetails.js";
 const props = defineProps({
     map: { type: Object, default: null },
     active: { type: Boolean, default: true },
@@ -305,11 +306,18 @@ function nodeAge(node) {
 }
 function draw() {
     if (!source) return;
+    const context = {
+        radio_id: radioId.value,
+        team_enabled: Boolean(team.value?.enabled),
+        roles: team.value?.roles,
+        urgencies: team.value?.urgencies,
+    };
     source.clear();
     for (const node of nodes.value) {
         const feature = new Feature({
             geometry: new Point(fromLonLat([node.longitude, node.latitude])),
             meshcore: node,
+            meshcoreMapContext: context,
         });
         const stamp = nodeTime(node),
             now = Date.now() / 1000;
@@ -338,7 +346,7 @@ function draw() {
                 const geometry = shapeGeometry(item);
                 if (!geometry) continue;
                 const color = team.value.colors?.[item.color] || "#00bcd4";
-                const feature = new Feature({ geometry, meshcoreTeam: item });
+                const feature = new Feature({ geometry, meshcoreTeam: item, meshcoreMapContext: context });
                 feature.setStyle(
                     new Style({
                         stroke: new Stroke({
@@ -369,6 +377,7 @@ function draw() {
             const feature = new Feature({
                 geometry: new Point(fromLonLat([item.longitude, item.latitude])),
                 meshcoreTeam: item,
+                meshcoreMapContext: context,
             });
             feature.setStyle(
                 new Style({
@@ -433,6 +442,7 @@ watch(
         layer = new VectorLayer({ source, zIndex: 115, visible: visible.value });
         map.addLayer(layer);
         clickKey = map.on?.("singleclick", (event) => {
+            if (nodePressIsSuppressed(map)) return;
             const feature = map.forEachFeatureAtPixel?.(
                 event.pixel,
                 (f) => (f.get("meshcoreTeam") || f.get("meshcore") ? f : undefined),

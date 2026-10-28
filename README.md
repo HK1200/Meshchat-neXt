@@ -34,6 +34,8 @@ Use it over compatible LoRa radios, local networks or internet connections, depe
 - All-message, mentions-only and muted channel notifications, plus local message blocking.
 - DM acknowledgments, heard-repeat counts and captured-path details where available.
 - Map captured paths or reported client locations when usable location information exists.
+- Explore Reticulum or MeshCore in Network visualiser, with per-radio known nodes and clearly labelled stored routes.
+- Long-press map dots for available node details, with Teams context and a choice between overlapping points.
 
 ### Radios and mesh tools
 

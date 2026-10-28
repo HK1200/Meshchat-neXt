@@ -1,6 +1,6 @@
 # Meshchat neXt · User guide
 
-User guide for Meshchat neXt 0.1.2. Features vary by platform, firmware and peer application.
+User guide for Meshchat neXt 0.1.3. Features vary by platform, firmware and peer application.
 
 ## One app, independent services
 
@@ -11,6 +11,23 @@ MeshCore → separate companion → DMs, channels and TAC; optional Radio2 media
 SIP → separate provider account → IP extension calls.
 
 Contact linking groups addresses; it does not bridge networks.
+
+## Explore Reticulum and MeshCore networks
+
+Network visualiser offers separate Reticulum and MeshCore views. They describe their own networks; switching views does not bridge traffic between them.
+
+### How to
+
+1. Open Network visualiser from the sidebar and choose Reticulum or MeshCore. Only enabled services appear in the selector.
+2. For MeshCore, choose the companion radio you want to inspect. The diagram starts with this device and that companion, then shows the clients, repeaters, room servers and sensors it knows about.
+3. Select a node or search by name/public key to inspect its details. Use Fit to bring the diagram back into view. Refresh reads saved information and the current companion cache; it does not start discovery or transmit a probe.
+4. A solid line indicates the connected companion. Dashed arrows show its latest stored outbound routes. Nodes without a usable stored route remain visible without an invented connection. An offline companion can still show previously stored information.
+
+### Keep in mind
+
+- A saved route is not a live link, a coverage map or a delivery receipt. Its stored/changed time is not the node’s last-heard time. Routes can become stale.
+- MeshCore routes contain short identifiers, not full public keys. Unknown and ambiguous hops are labelled explicitly; even a unique known prefix match is unverified. Missing hops are never joined across a gap.
+- Each companion has its own history and routes. Changing the selected radio clears the previous diagram. Large diagrams are bounded for responsiveness, with a visible limit notice.
 
 ## Install and use neXt on Linux
 
@@ -414,11 +431,12 @@ A map can show overlays while its background is blank. Map tiles are the backgro
 
 ### How to
 
-1. Before going offline, open Map with internet access and inspect the area and zoom levels you need.
-2. The bundled map includes a world overview and a compact PNW/southern British Columbia overview through zoom 9. Open Map, tap Offline maps, then choose Download and use regional detail (104 MB) for road/town context through zoom 12. The app verifies and selects the download automatically. You can also restore the included overview or import your own MBTiles file from the same panel. Coverage is limited; it is not every place at every zoom.
-3. Confirm that the map source and selected MBTiles file match the view. A tile set’s area and zoom range determine what can display.
-4. Test with network access unavailable before leaving. Pan and zoom through the intended operational area rather than checking a single screen.
-5. If one phone works and another does not, compare their downloaded files, selected source, coverage and zoom. Each installation has its own tile storage.
+1. Long-press a node or position dot to read its available details; on a computer you can also right-click it. Reticulum, discovered interfaces, MeshCore nodes, captured-route points and team records retain their own context. If several dots overlap, choose a node in the popup. Close or Back dismisses the details without leaving the map.
+2. Before going offline, open Map with internet access and inspect the area and zoom levels you need.
+3. The bundled map includes a world overview and a compact PNW/southern British Columbia overview through zoom 9. Open Map, tap Offline maps, then choose Download and use regional detail (104 MB) for road/town context through zoom 12. The app verifies and selects the download automatically. You can also restore the included overview or import your own MBTiles file from the same panel. Coverage is limited; it is not every place at every zoom.
+4. Confirm that the map source and selected MBTiles file match the view. A tile set’s area and zoom range determine what can display.
+5. Test with network access unavailable before leaving. Pan and zoom through the intended operational area rather than checking a single screen.
+6. If one phone works and another does not, compare their downloaded files, selected source, coverage and zoom. Each installation has its own tile storage.
 
 ### Keep in mind
 
@@ -857,4 +875,4 @@ No. It is a local reading aid. Checklists save browser progress only; no keys, r
 
 ## Review boundaries
 
-This guide describes Meshchat neXt 0.1.2. Compatibility is specific to the firmware, codec, server and package in use; it does not imply support for every ATAK deployment. A firmware assistant is not included. External projects and firmware change. Check the exact neXt release notes and hardware before flashing.
+This guide describes Meshchat neXt 0.1.3. Compatibility is specific to the firmware, codec, server and package in use; it does not imply support for every ATAK deployment. A firmware assistant is not included. External projects and firmware change. Check the exact neXt release notes and hardware before flashing.

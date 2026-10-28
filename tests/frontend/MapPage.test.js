@@ -395,6 +395,53 @@ describe("MapPage.vue", () => {
         expect(wrapper.text()).toContain("map.tab_discover");
     });
 
+    it("closes node information before map tools on Back without sending or editing", async () => {
+        const wrapper = mountMapPage();
+        await flushPromises();
+        wrapper.vm.isMapToolsOpen = true;
+        const writes = axiosMock.post.mock.calls.length + axiosMock.patch.mock.calls.length;
+        wrapper.vm.openNodeDetails([
+            { title: "Map node", source: "MeshCore", rows: [{ label: "Position", value: "49, -122" }] },
+        ]);
+        await wrapper.vm.$nextTick();
+        expect(wrapper.find("[data-map-node-details]").exists()).toBe(true);
+        wrapper.vm.onMapBack();
+        expect(wrapper.vm.nodeDetails).toBeNull();
+        expect(wrapper.vm.isMapToolsOpen).toBe(true);
+        expect(axiosMock.post.mock.calls.length + axiosMock.patch.mock.calls.length).toBe(writes);
+        wrapper.vm.onMapBack();
+        expect(wrapper.vm.isMapToolsOpen).toBe(false);
+    });
+
+    it("shows node information instead of the drawing menu on right-click", async () => {
+        const wrapper = mountMapPage();
+        await flushPromises();
+        const properties = { meshcore: { name: "Node on map", kind: 1 } };
+        const feature = {
+            get: (key) => properties[key],
+            getProperties: () => properties,
+            getGeometry: () => ({ getType: () => "Point", getCoordinates: () => [0, 0] }),
+        };
+        wrapper.vm.map.forEachFeatureAtPixel.mockImplementation((pixel, callback) => callback(feature));
+        wrapper.vm.onContextMenu({ preventDefault: vi.fn(), clientX: 20, clientY: 20 });
+        expect(wrapper.vm.nodeDetails[0].title).toBe("Node on map");
+        expect(wrapper.vm.showContextMenu).toBe(false);
+    });
+
+    it("pauses drawing interactions while reading details and restores their actual states", async () => {
+        const wrapper = mountMapPage();
+        await flushPromises();
+        const active = { getActive: () => true, setActive: vi.fn() },
+            inactive = { getActive: () => false, setActive: vi.fn() };
+        wrapper.vm.translate = active;
+        wrapper.vm.modify = inactive;
+        wrapper.vm.openNodeDetails([{ title: "Node", source: "Map", rows: [] }]);
+        expect(active.setActive).toHaveBeenLastCalledWith(false);
+        wrapper.vm.closeNodeDetails();
+        expect(active.setActive).toHaveBeenLastCalledWith(true);
+        expect(inactive.setActive).toHaveBeenLastCalledWith(false);
+    });
+
     it("reopens Offline maps after changing tabs and closes that panel with Back", async () => {
         const wrapper = mountMapPage();
         wrapper.vm.openOfflineMaps();

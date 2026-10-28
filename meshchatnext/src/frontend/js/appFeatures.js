@@ -35,6 +35,8 @@ export function featureRouteAllowed(route) {
         return appFeatures.meshcore;
     if (name === "messages" || name === "messages-popout" || path.startsWith("/messages"))
         return route.query?.meshcore ? appFeatures.meshcore : appFeatures.reticulum || appFeatures.meshcore;
+    if (name === "network-visualiser" || path === "/network-visualiser")
+        return appFeatures.reticulum || appFeatures.meshcore;
     if (name === "call" || path === "/call")
         return route.query?.network && FEATURE_NAMES.includes(route.query.network)
             ? appFeatures[route.query.network]
@@ -46,7 +48,6 @@ export function featureRouteAllowed(route) {
             "interfaces",
             "relay-chat",
             "nomadnetwork",
-            "network-visualiser",
             "archives",
             "propagation-nodes",
             "ping",
@@ -75,17 +76,8 @@ export function featureRouteAllowed(route) {
 }
 export function featureNavAllowed(item) {
     const id = item.id;
-    if (
-        [
-            "sync-messages",
-            "relay-chat",
-            "nomadnetwork",
-            "network-visualiser",
-            "interfaces",
-            "archives",
-            "identities",
-        ].includes(id)
-    )
+    if (id === "network-visualiser") return appFeatures.reticulum || appFeatures.meshcore;
+    if (["sync-messages", "relay-chat", "nomadnetwork", "interfaces", "archives", "identities"].includes(id))
         return appFeatures.reticulum;
     if (["call", "contacts"].includes(id)) return appFeatures.reticulum || appFeatures.meshcore || appFeatures.sip;
     if (id === "blocked") return appFeatures.reticulum || appFeatures.meshcore;

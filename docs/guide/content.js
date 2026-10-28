@@ -2,6 +2,24 @@
 window.NEXT_GUIDE = {
     articles: [
         {
+            id: "network-visualiser",
+            related: [],
+            title: "Explore Reticulum and MeshCore networks",
+            group: "Essentials",
+            lead: "Network visualiser offers separate Reticulum and MeshCore views. They describe their own networks; switching views does not bridge traffic between them.",
+            steps: [
+                "Open Network visualiser from the sidebar and choose Reticulum or MeshCore. Only enabled services appear in the selector.",
+                "For MeshCore, choose the companion radio you want to inspect. The diagram starts with this device and that companion, then shows the clients, repeaters, room servers and sensors it knows about.",
+                "Select a node or search by name/public key to inspect its details. Use Fit to bring the diagram back into view. Refresh reads saved information and the current companion cache; it does not start discovery or transmit a probe.",
+                "A solid line indicates the connected companion. Dashed arrows show its latest stored outbound routes. Nodes without a usable stored route remain visible without an invented connection. An offline companion can still show previously stored information.",
+            ],
+            notes: [
+                "A saved route is not a live link, a coverage map or a delivery receipt. Its stored/changed time is not the node’s last-heard time. Routes can become stale.",
+                "MeshCore routes contain short identifiers, not full public keys. Unknown and ambiguous hops are labelled explicitly; even a unique known prefix match is unverified. Missing hops are never joined across a gap.",
+                "Each companion has its own history and routes. Changing the selected radio clears the previous diagram. Large diagrams are bounded for responsiveness, with a visible limit notice.",
+            ],
+        },
+        {
             id: "linux",
             title: "Install and use neXt on Linux",
             group: "Essentials",
@@ -425,6 +443,7 @@ window.NEXT_GUIDE = {
             group: "TAC & maps",
             lead: "A map can show overlays while its background is blank. Map tiles are the background images; they must be available locally for offline use. Wi-Fi being enabled does not prove the map has a network route or downloaded coverage.",
             steps: [
+                "Long-press a node or position dot to read its available details; on a computer you can also right-click it. Reticulum, discovered interfaces, MeshCore nodes, captured-route points and team records retain their own context. If several dots overlap, choose a node in the popup. Close or Back dismisses the details without leaving the map.",
                 "Before going offline, open Map with internet access and inspect the area and zoom levels you need.",
                 "The bundled map includes a world overview and a compact PNW/southern British Columbia overview through zoom 9. Open Map, tap Offline maps, then choose Download and use regional detail (104 MB) for road/town context through zoom 12. The app verifies and selects the download automatically. You can also restore the included overview or import your own MBTiles file from the same panel. Coverage is limited; it is not every place at every zoom.",
                 "Confirm that the map source and selected MBTiles file match the view. A tile set’s area and zoom range determine what can display.",

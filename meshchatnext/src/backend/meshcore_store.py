@@ -74,6 +74,9 @@ class MeshCoreStore:
                     kind INTEGER NOT NULL, advertised INTEGER NOT NULL,
                     heard REAL, path_len INTEGER, path_bytes INTEGER,
                     PRIMARY KEY(owner,peer));
+                CREATE TABLE IF NOT EXISTS topology_routes (
+                    owner TEXT NOT NULL,peer TEXT NOT NULL,route TEXT NOT NULL,
+                    changed REAL NOT NULL,PRIMARY KEY(owner,peer));
                 CREATE TABLE IF NOT EXISTS map_positions (owner TEXT NOT NULL,peer TEXT NOT NULL,latitude REAL NOT NULL,longitude REAL NOT NULL,updated REAL NOT NULL,PRIMARY KEY(owner,peer));
                 CREATE TABLE IF NOT EXISTS region_preferences (owner TEXT PRIMARY KEY,channel_default TEXT);
                 CREATE TABLE IF NOT EXISTS regions (owner TEXT NOT NULL,name TEXT NOT NULL,PRIMARY KEY(owner,name));
@@ -890,6 +893,17 @@ class MeshCoreStore:
                     path_bytes,
                 ),
             )
+            from meshchatnext.src.backend.meshcore_topology import cached_route
+
+            route = cached_route(contact)
+            if route is not None:
+                encoded = _json(route)
+                db.execute(
+                    """INSERT INTO topology_routes VALUES(?,?,?,?)
+                    ON CONFLICT(owner,peer) DO UPDATE SET route=excluded.route,changed=excluded.changed
+                    WHERE topology_routes.route!=excluded.route""",
+                    (owner, peer, encoded, time.time()),
+                )
             lat, lon = contact.get("adv_lat"), contact.get("adv_lon")
             if (
                 type(lat) in (int, float)
@@ -931,6 +945,27 @@ class MeshCoreStore:
                    ON CONFLICT(owner,peer) DO UPDATE SET heard=MAX(COALESCE(announces.heard,0),excluded.heard)""",
                 (owner, peer, heard),
             )
+
+    def save_topology_route(self, owner, peer, route):
+        owner, peer = public_key(owner), public_key(peer)
+        encoded = _json(route)
+        with self._lock, self._connect() as db:
+            db.execute(
+                """INSERT INTO topology_routes VALUES(?,?,?,?)
+                ON CONFLICT(owner,peer) DO UPDATE SET route=excluded.route,changed=excluded.changed
+                WHERE topology_routes.route!=excluded.route""",
+                (owner, peer, encoded, time.time()),
+            )
+
+    def topology_routes(self, owner):
+        with self._lock, self._connect() as db:
+            return {
+                row["peer"]: {**json.loads(row["route"]), "stored_at": row["changed"]}
+                for row in db.execute(
+                    "SELECT peer,route,changed FROM topology_routes WHERE owner=?",
+                    (owner,),
+                )
+            }
 
     def announces(self, owner):
         with self._lock, self._connect() as db:

@@ -2,6 +2,10 @@
 
 ## 0.1.3
 
+- Switch Network visualiser between Reticulum and MeshCore, choose a companion, and inspect known nodes and latest stored outbound routes with explicit unknown/ambiguous hops.
+
+- Long-press map nodes and position dots for read-only details, including Teams context and a choice between overlapping nodes. Desktop right-click also opens details; Back dismisses the popup.
+
 - Connect multiple MeshCore companions, each with its own identity, receiving and automatic reconnect.
 - Choose a combined inbox with radio labels or separate radio views, and select the sending radio in direct conversations.
 - Manage each radio’s connection, identity, radio profiles and backups together in its own expandable card.

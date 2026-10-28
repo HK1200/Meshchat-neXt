@@ -28,6 +28,8 @@ it.each(Array.from({ length: 8 }, (_, bits) => [bits]))(
         Object.assign(appFeatures, { reticulum: !!(bits & 1), meshcore: !!(bits & 2), sip: !!(bits & 4) });
         expect(featureRouteAllowed({ name: "feature-settings" })).toBe(true);
         expect(featureNavAllowed({ id: "settings" })).toBe(true);
+        expect(featureNavAllowed({ id: "network-visualiser" })).toBe(appFeatures.reticulum || appFeatures.meshcore);
+        expect(featureRouteAllowed({ name: "network-visualiser" })).toBe(appFeatures.reticulum || appFeatures.meshcore);
         expect(featureNavAllowed({ id: "relay-chat" })).toBe(appFeatures.reticulum);
         expect(featureRouteAllowed({ name: "meshcore-channels" })).toBe(appFeatures.meshcore);
         expect(featureRouteAllowed({ name: "call", query: { network: "sip" } })).toBe(appFeatures.sip);

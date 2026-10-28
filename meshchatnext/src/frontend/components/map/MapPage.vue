@@ -6,6 +6,7 @@
         :data-app-back-scope="
             isMapToolsOpen ||
             isSettingsOpen ||
+            nodeDetails ||
             selectedMarker ||
             selectedCluster ||
             editingFeature ||
@@ -557,6 +558,8 @@
                     </div>
                 </div>
             </div>
+
+            <MapNodeDetailsPopup v-if="nodeDetails?.length" :items="nodeDetails" @close="closeNodeDetails" />
 
             <MapMarkerPanel
                 v-if="selectedMarker"
@@ -1291,6 +1294,9 @@ import { computeSegmentMetrics, buildBearingOverlayHtml, buildBearingLiveTooltip
 import { isLocalMapServiceUrl } from "../../js/mapLocalUrl.js";
 import * as lxmfApi from "../../js/api/lxmf.js";
 import { useMapPing } from "../../js/map/useMapPing.js";
+import MapNodeDetailsPopup from "./internal/MapNodeDetailsPopup.vue";
+import { pickMapNodeDetails, nodePressIsSuppressed } from "./internal/mapNodeDetails.js";
+import { bindMapNodeLongPress } from "./internal/mapNodeLongPress.js";
 
 const OPENFREEMAP_DEFAULT_STYLE = "https://tiles.openfreemap.org/styles/bright";
 const DEFAULT_OSM_RASTER = DEFAULT_TILE_SERVER_URL;
@@ -1313,6 +1319,7 @@ export default {
         MaterialDesignIcon,
         MapClusterPanel,
         MapMarkerPanel,
+        MapNodeDetailsPopup,
         MapDrawingToolbar,
         MapBearingInstructions,
         MapSearchBar,
@@ -1386,6 +1393,7 @@ export default {
             historySource: null,
             historyLayer: null,
             selectedMarker: null,
+            nodeDetails: null,
             selectedCluster: null,
             isMiniChatOpen: false,
             queryMarker: null,
@@ -1728,6 +1736,10 @@ export default {
             deep: true,
         },
         isActiveTab(active) {
+            if (!active) {
+                this._mapNodePress?.cancel();
+                this.closeNodeDetails();
+            }
             if (active) {
                 this.bootMap().then(() => {
                     if (this._unmounted) return;
@@ -1869,6 +1881,8 @@ export default {
     },
     beforeUnmount() {
         this._unmounted = true;
+        this._mapNodePress?.dispose();
+        this.closeNodeDetails();
         GlobalEmitter.off(EMITTER_EVENTS.WEBSOCKET_RECONNECTED, this.onWebsocketReconnected);
         if (this.map && this.map.getViewport()) {
             this.map.getViewport().removeEventListener("contextmenu", this.onContextMenu);
@@ -2343,6 +2357,8 @@ export default {
                 layers: [this.drawLayer],
                 hitTolerance: MAP_FEATURE_HIT_TOLERANCE,
                 style: null, // Keep original feature style
+                condition: (event) =>
+                    event.type === "singleclick" && !this.nodeDetails && !nodePressIsSuppressed(this.map),
             });
             this.select.on("select", (e) => {
                 const picked = e.selected[0];
@@ -2375,6 +2391,12 @@ export default {
 
             // Right-click context menu
             this.map.getViewport().addEventListener("contextmenu", this.onContextMenu);
+            this._mapNodePress = bindMapNodeLongPress(this.map.getViewport(), {
+                pick: (event) =>
+                    this.isDrawing || this.isMeasuring || this.isBearingMode ? [] : pickMapNodeDetails(this.map, event),
+                open: (items) => this.openNodeDetails(items),
+                finish: () => this.map?.set?.("nodeDetailsPressUntil", Date.now() + 750),
+            });
 
             // setup history layer (trail)
             this.historySource = new VectorSource();
@@ -2481,6 +2503,8 @@ export default {
 
             this.map.on("pointermove", this.handleMapPointerMove);
             this.map.on("click", (evt) => {
+                if (nodePressIsSuppressed(this.map)) return;
+                this.closeNodeDetails();
                 if (this.isClickFromDrawFeatureInfo(evt)) {
                     return;
                 }
@@ -2611,6 +2635,8 @@ export default {
             const feature = new Feature({
                 geometry: new Point(fromLonLat([lon, lat])),
                 originalCoord: fromLonLat([lon, lat]),
+                name: label,
+                type: "Search destination",
             });
             feature.setStyle(
                 this.createMarkerStyle({
@@ -4351,7 +4377,8 @@ export default {
         },
 
         onMapBack() {
-            if (this.isMapToolsOpen) this.isMapToolsOpen = false;
+            if (this.nodeDetails) this.closeNodeDetails();
+            else if (this.isMapToolsOpen) this.isMapToolsOpen = false;
             else if (this.isSettingsOpen) this.isSettingsOpen = false;
             else if (this.isMobileSearchOpen) this.isMobileSearchOpen = false;
             else if (this.editingFeature) this.closeNoteEditor();
@@ -4520,10 +4547,39 @@ export default {
                     return clone;
                 });
         },
+        openNodeDetails(items) {
+            if (!items?.length) return;
+            const held = this._mapNodePress?.consume?.();
+            if (!this.nodeDetails) {
+                this._nodeDetailInteractions = [this.select, this.translate, this.modify, this.draw]
+                    .filter(Boolean)
+                    .map((interaction) => ({ interaction, active: interaction.getActive?.() }));
+                this._nodeDetailInteractions.forEach(({ interaction }) => interaction.setActive?.(false));
+            }
+            this.closeContextMenu();
+            this.selectedMarker = null;
+            this.selectedCluster = null;
+            this.clearDrawFeatureSelection();
+            this.nodeDetails = items;
+            this.map?.set?.("nodeDetailsPressUntil", held ? Infinity : Date.now() + 750);
+        },
+        closeNodeDetails() {
+            this.nodeDetails = null;
+            this._nodeDetailInteractions?.forEach(({ interaction, active }) => {
+                if (typeof active === "boolean") interaction.setActive?.(active);
+            });
+            this._nodeDetailInteractions = null;
+        },
         // Context menu handlers
         onContextMenu(evt) {
             if (!this.map) return;
             evt.preventDefault();
+            const nodes = pickMapNodeDetails(this.map, evt);
+            if (nodes.length) {
+                this.openNodeDetails(nodes);
+                return;
+            }
+            this.closeNodeDetails();
             const pixel = this.map.getEventPixel(evt);
             const feature = this.map.forEachFeatureAtPixel(pixel, (f) => f, {
                 hitTolerance: MAP_FEATURE_HIT_TOLERANCE,

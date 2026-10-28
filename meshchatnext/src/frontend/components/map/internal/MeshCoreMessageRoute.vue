@@ -109,7 +109,11 @@ watch(
             for (let i = 0; i < points.length; i++) {
                 const p = { order: i, ...points[i] },
                     coordinate = fromLonLat([p.longitude, p.latitude]);
-                const marker = new Feature({ geometry: new Point(coordinate) });
+                const marker = new Feature({
+                    geometry: new Point(coordinate),
+                    meshcoreRouteNode: p,
+                    meshcoreMapContext: { radio_id: q.mcRadio, owner: q.mcOwner },
+                });
                 marker.setStyle(
                     new Style({
                         image: new CircleStyle({

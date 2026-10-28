@@ -97,6 +97,10 @@ async def _read(service, owner, request, action):
         result = await service.call(
             "tactical", "cot_status", expected_owner=request.query["owner"]
         )
+    elif action == "topology":
+        result = await service.topology_snapshot(owner.identity.hash.hex())
+        if radio_context is not None:
+            result["radio_id"] = radio_context
     elif action == "map":
         result = await service.map_snapshot(owner.identity.hash.hex())
         if radio_context is not None:
