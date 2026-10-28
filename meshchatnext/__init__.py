@@ -3,7 +3,7 @@
 """Meshchat neXt - A mesh network communications app."""
 
 # Synced from package.json via scripts/sync_version.js (also writes meshchatnext/src/version.py).
-__version__ = "0.1.2"
+__version__ = "0.1.3"
 # LXST vendored pyogg can NameError on import when libopus is present but
 # libogg is not. Apply before any meshchatnext module imports LXST.
 try:

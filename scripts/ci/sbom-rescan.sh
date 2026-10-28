@@ -12,6 +12,9 @@ OUT="${GITHUB_STEP_SUMMARY:-/dev/stdout}"
 REPORT="${SBOM_RESCAN_REPORT:-reports/sbom-rescan.json}"
 mkdir -p "$(dirname "$REPORT")"
 
+SCAN_DIR="$(mktemp -d "${TMPDIR:-/tmp}/meshchatnext-sbom.XXXXXX")"
+trap 'rm -rf "$SCAN_DIR"' EXIT
+
 TAG="$(gh api "repos/${REPO}/releases/latest" -q .tag_name)"
 echo "Re-scanning SBOM from release ${TAG}"
 
@@ -19,16 +22,16 @@ gh release download "${TAG}" \
     -R "${REPO}" \
     -p "sbom.cyclonedx.json" \
     --clobber \
-    --dir /tmp/sbom-rescan
+    --dir "$SCAN_DIR"
 
 VEX_ARGS=()
 if [[ -f security/openvex.json ]]; then
     VEX_ARGS+=(--vex security/openvex.json)
 fi
 
-grype "sbom:/tmp/sbom-rescan/sbom.cyclonedx.json" \
+grype "sbom:${SCAN_DIR}/sbom.cyclonedx.json" \
     "${VEX_ARGS[@]}" \
-    -o json > "${REPORT}" || true
+    -o json > "${REPORT}"
 
 python3 - "${TAG}" "${REPORT}" <<'PY' >> "${OUT}"
 import json, sys
@@ -39,7 +42,7 @@ try:
     data = json.load(open(report, encoding="utf-8"))
 except Exception:
     print(f"## SBOM re-scan ({tag})\n\nReport could not be parsed.")
-    sys.exit(0)
+    sys.exit(1)
 
 matches = data.get("matches") or []
 sev = Counter()

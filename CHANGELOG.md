@@ -1,5 +1,14 @@
 # Meshchat neXt changelog
 
+## 0.1.3
+
+- Connect multiple MeshCore companions, each with its own identity, receiving and automatic reconnect.
+- Choose a combined inbox with radio labels or separate radio views, and select the sending radio in direct conversations.
+- Manage each radio’s connection, identity, radio profiles and backups together in its own expandable card.
+- Improved Bluetooth recovery after delayed channel replies and prevented repeated discovery during normal status refreshes.
+- Linux packages include the Bluetooth D-Bus dependencies required by the frozen application.
+- Release dependency inventories are included for scheduled security re-scanning.
+
 ## 0.1.2
 
 - Verified Android updates open Android’s installer directly, with clear completion and cancellation feedback and a manual file fallback.

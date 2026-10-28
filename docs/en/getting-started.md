@@ -2,7 +2,7 @@
 
 Meshchat neXt is a local-first mesh communications client for Reticulum and MeshCore. It combines direct messaging over LXMF, voice calls over LXST, NomadNet page browsing, relay chat, maps, and a large set of Reticulum utilities in one application you can run on a desktop, a headless server, or a mobile device.
 
-Meshchat neXt is a separate local preview with Reticulum and MeshCore support. No public repository, website, or release feed is configured yet. Community support is available through Meshchat neXt Relay. Use the reviewed local build; see the README for provenance and preview limits.
+Official Android and Linux downloads are available from [Meshchat neXt Releases](https://github.com/HK1200/Meshchat-neXt/releases). Official builds use signed update feeds. Community support is available through Meshchat neXt Relay and GitHub Issues; see the README and release notes for platform requirements and known limits.
 
 For an Android MeshCore companion, open **Settings → MeshCore**. Its USB/Bluetooth connection is independent of the RNode configured under **Interfaces**. See [MeshCore](meshcore.md) for contacts, channels, notifications, backups, and Radio2.
 

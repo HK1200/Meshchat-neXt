@@ -37,7 +37,8 @@ Use it over compatible LoRa radios, local networks or internet connections, depe
 
 ### Radios and mesh tools
 
-- Independent RNode and MeshCore connections.
+- Independent RNode and MeshCore connections. Multiple MeshCore companions retain their own identities, receiving and automatic reconnect.
+- Choose a combined inbox with radio labels or separate radio views; select the sending radio for each direct conversation.
 - MeshCore Bluetooth/USB selection and connection controls.
 - Frequency, bandwidth, spreading factor, coding rate, transmit power and supported 1–3 byte path hashes.
 - Local/flood adverts, node discovery, trace tools, RX logs, noise information and supported region discovery/channel scoping.

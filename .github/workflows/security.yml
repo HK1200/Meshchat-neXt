@@ -139,6 +139,16 @@ jobs:
             - name: Trivy filesystem scan (dependencies)
               run: sh scripts/ci/trivy-fs-scan.sh
 
+            - name: Generate release dependency inventory
+              run: bash scripts/ci/generate-release-sbom.sh
+
+            - name: Upload exact-source release dependency inventory
+              uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+              with:
+                  name: release-sbom
+                  path: reports/sbom.cyclonedx.json
+                  if-no-files-found: error
+
             - name: Trivy Dockerfile misconfiguration
               run: |
                   set -euo pipefail
