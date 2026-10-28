@@ -10,6 +10,14 @@ Read settings from the radio before making changes. Saved values take precedence
 
 USB two-way messaging has been tested. Automatic recovery after USB device re-enumeration remains incomplete; refreshing, selecting, and reconnecting may be necessary. A stable OTG cable and power arrangement matter.
 
+## Multiple companions and reconnecting
+
+Add a companion in **Settings → MeshCore → Add another MeshCore radio**. Give each radio a name and its own MeshCore identity. Open its card to manage its connection, identity, radio profiles, Radio2 and backups. Saved connection selectors remain under **Edit connection** until needed.
+
+Choose **Combined inbox with radio labels** or **Separate radio views**. Enabled radios continue receiving and reconnecting in either view. Check **Radio for this conversation** before sending a direct message; channels and node tools use the selected radio. Disabling or manually disconnecting a radio stops its retries without stopping other enabled companions. Removing a saved radio retains its message history.
+
+A radio already held by another app or phone may not accept a second client connection. Close that competing connection before selecting it here. Operating-system and hardware connection limits apply. Copied identities on multiple companions are rejected; radios are not automatically bridged to each other or to Reticulum.
+
 ## Identity and contacts
 
 The companion owns its MeshCore identity. Its display name and public address appear in MeshCore settings. That identity is separate from the app's Reticulum identity.
