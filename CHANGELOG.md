@@ -2,9 +2,11 @@
 
 ## 0.1.3
 
+- Compact expandable map credits and consistent Close/Android Back dismissal of MeshCore visualiser details.
+
 - Switch Network visualiser between Reticulum and MeshCore, choose a companion, and inspect known nodes and latest stored outbound routes with explicit unknown/ambiguous hops.
 
-- Long-press map nodes and position dots for read-only details, including Teams context and a choice between overlapping nodes. Desktop right-click also opens details; Back dismisses the popup.
+- Tap MeshCore nodes, or long-press map nodes and position dots for read-only details, including Teams context and a choice between overlapping nodes. Desktop right-click also opens details; Back dismisses the popup.
 
 - Connect multiple MeshCore companions, each with its own identity, receiving and automatic reconnect.
 - Choose a combined inbox with radio labels or separate radio views, and select the sending radio in direct conversations.

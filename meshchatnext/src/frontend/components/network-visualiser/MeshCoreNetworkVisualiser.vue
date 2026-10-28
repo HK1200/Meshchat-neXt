@@ -47,7 +47,9 @@
                 v-if="selected"
                 class="absolute bottom-2 left-2 right-2 sm:right-auto sm:w-96 max-h-[70%] overflow-auto rounded-xl border border-sem-border bg-sem-surface p-3 shadow-lg"
                 aria-label="MeshCore node information"
-                data-app-back-scope="true"
+                data-app-back-scope
+                @app-back.stop="selected = null"
+                @keydown.esc.stop.prevent="selected = null"
             >
                 <button
                     class="float-right secondary-chip"

@@ -431,7 +431,7 @@ A map can show overlays while its background is blank. Map tiles are the backgro
 
 ### How to
 
-1. Long-press a node or position dot to read its available details; on a computer you can also right-click it. Reticulum, discovered interfaces, MeshCore nodes, captured-route points and team records retain their own context. If several dots overlap, choose a node in the popup. Close or Back dismisses the details without leaving the map.
+1. Tap a MeshCore node, or long-press any node or position dot, to read its available details; on a computer you can also right-click it. Reticulum, discovered interfaces, MeshCore nodes, captured-route points and team records retain their own context. If several dots overlap, choose a node in the popup. Close or Back dismisses the details without leaving the map. The compact © map-credit button expands to show linked contributor credits.
 2. Before going offline, open Map with internet access and inspect the area and zoom levels you need.
 3. The bundled map includes a world overview and a compact PNW/southern British Columbia overview through zoom 9. Open Map, tap Offline maps, then choose Download and use regional detail (104 MB) for road/town context through zoom 12. The app verifies and selects the download automatically. You can also restore the included overview or import your own MBTiles file from the same panel. Coverage is limited; it is not every place at every zoom.
 4. Confirm that the map source and selected MBTiles file match the view. A tile set’s area and zoom range determine what can display.

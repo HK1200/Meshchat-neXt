@@ -2251,7 +2251,10 @@ export default {
                 }),
                 controls: defaultControls({
                     attributionOptions: {
-                        collapsible: false,
+                        collapsible: true,
+                        collapsed: true,
+                        label: "©",
+                        tipLabel: "Map credits",
                         ...(this.$refs.attributionMount ? { target: this.$refs.attributionMount } : {}),
                     },
                     rotate: false,
@@ -2504,6 +2507,7 @@ export default {
             this.map.on("pointermove", this.handleMapPointerMove);
             this.map.on("click", (evt) => {
                 if (nodePressIsSuppressed(this.map)) return;
+                if (this.openTappedMeshCoreDetails(evt)) return;
                 this.closeNodeDetails();
                 if (this.isClickFromDrawFeatureInfo(evt)) {
                     return;
@@ -4547,6 +4551,13 @@ export default {
                     return clone;
                 });
         },
+        openTappedMeshCoreDetails(event) {
+            if (this.isDrawing || this.isMeasuring || this.isBearingMode) return false;
+            const items = pickMapNodeDetails(this.map, event);
+            if (!items.some((item) => item.source.startsWith("MeshCore"))) return false;
+            this.openNodeDetails(items);
+            return true;
+        },
         openNodeDetails(items) {
             if (!items?.length) return;
             const held = this._mapNodePress?.consume?.();
@@ -6418,8 +6429,8 @@ export default {
 :deep(.ol-attribution button) {
     background: transparent;
     color: var(--mc-text-muted);
-    width: 1.5rem;
-    height: 1.5rem;
+    width: 2rem;
+    height: 2rem;
     margin: 0;
     border-radius: 0.5rem;
 }

@@ -135,7 +135,7 @@ export function mapNodeDetails(feature, pressedCoordinate) {
 
 /** Read all overlapping dots, including children of an aggregate marker. */
 export function pickMapNodeDetails(map, event) {
-    const pixel = map.getEventPixel(event),
+    const pixel = Array.isArray(event.pixel) ? event.pixel : map.getEventPixel(event),
         coordinate = map.getCoordinateFromPixel?.(pixel);
     const features = new Set();
     map.forEachFeatureAtPixel(

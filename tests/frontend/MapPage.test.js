@@ -725,3 +725,20 @@ it("repositions map onboarding when the viewport changes", () => {
     MapPage.methods.checkScreenSize.call(context);
     expect(context.positionOnboardingTooltip).toHaveBeenCalledOnce();
 });
+
+it("normal taps open MeshCore and team dots, without taking drawing gestures", () => {
+    const feature = {
+        getGeometry: () => ({ getType: () => "Point", getCoordinates: () => [0, 0] }),
+        get: (key) => (key === "meshcore" ? { name: "Repeater", kind: 2 } : undefined),
+        getProperties: () => ({}),
+    };
+    const vm = {
+        map: { getEventPixel: vi.fn(), forEachFeatureAtPixel: (_pixel, visit) => visit(feature) },
+        openNodeDetails: vi.fn(),
+    };
+    expect(MapPage.methods.openTappedMeshCoreDetails.call(vm, { pixel: [20, 30] })).toBe(true);
+    expect(vm.openNodeDetails.mock.calls[0][0][0]).toMatchObject({ title: "Repeater", source: "MeshCore" });
+    vm.isDrawing = true;
+    expect(MapPage.methods.openTappedMeshCoreDetails.call(vm, { pixel: [20, 30] })).toBe(false);
+    expect(vm.openNodeDetails).toHaveBeenCalledOnce();
+});
