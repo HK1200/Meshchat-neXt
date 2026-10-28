@@ -138,6 +138,7 @@ else
 fi
 
 if [ "${SKIP_ELECTRON:-0}" != 1 ]; then
+    pnpm run build-linux-native
     if [ -n "$appimage_deb_targets" ]; then
         if has_format appimage; then
             bash scripts/ci/github-warm-appimage-tools.sh

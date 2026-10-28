@@ -43,6 +43,7 @@ echo "Building Flatpak with branch=${branch}"
 
 bash scripts/ensure-flatpak-flathub-remote.sh
 
+pnpm run build-linux-native
 pnpm run electron-postinstall
 pnpm run version:sync
 pnpm run build-backend

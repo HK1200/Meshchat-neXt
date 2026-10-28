@@ -37,6 +37,8 @@ env:
         github.com:443
         api.github.com:443
         codeload.github.com:443
+        downloads.xiph.org:443
+        ftp.osuosl.org:443
         uploads.github.com:443
         *.githubusercontent.com:443
         release-assets.githubusercontent.com:443
@@ -616,6 +618,14 @@ jobs:
 
             - name: Compile backend sources
               run: task compile
+
+            - name: Linux native build prerequisites
+              run: |
+                  sudo apt-get update -y
+                  sudo apt-get install -y --no-install-recommends cmake build-essential pkg-config libpulse-dev
+
+            - name: Build pinned Linux photo codec and SIP engine
+              run: pnpm run build-linux-native
 
             - name: Build backend (cx_Freeze)
               run: pnpm run build-backend

@@ -11,7 +11,7 @@ if [ "$_HOST_ARCH" = "x86_64" ]; then
 fi
 run_priv apt-get update -y
 
-_PKGS=(patchelf libopusfile0 espeak-ng zip rpm elfutils fakeroot file)
+_PKGS=(cmake build-essential pkg-config libpulse-dev patchelf libopusfile0 espeak-ng zip rpm elfutils fakeroot file)
 if [ "$_HOST_ARCH" = "x86_64" ]; then
     _PKGS+=("libc6:i386" "libstdc++6:i386")
 fi

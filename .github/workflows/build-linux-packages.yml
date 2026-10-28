@@ -47,6 +47,8 @@ env:
         github.com:443
         api.github.com:443
         codeload.github.com:443
+        downloads.xiph.org:443
+        ftp.osuosl.org:443
         uploads.github.com:443
         *.githubusercontent.com:443
         release-assets.githubusercontent.com:443
@@ -227,6 +229,7 @@ jobs:
                   sudo apt-get install -y --no-install-recommends \
                       flatpak \
                       flatpak-builder \
+                      cmake build-essential pkg-config libpulse-dev \
                       elfutils \
                       zstd \
                       desktop-file-utils \
