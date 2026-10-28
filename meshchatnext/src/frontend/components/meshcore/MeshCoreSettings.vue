@@ -3,8 +3,8 @@
         v-if="snapshot.available"
         data-settings-section="meshcore"
         eyebrow="MeshCore"
-        title="MeshCore radio"
-        description="Connection and radio settings for your MeshCore companion. RNode is managed separately."
+        :title="props.setupMode ? 'MeshCore radio' : 'MeshCore radios'"
+        description="Each MeshCore radio keeps its own connection, identity and radio profiles. RNode is managed separately."
         body-class="space-y-4"
     >
         <p class="text-sm text-sem-fg-muted" role="status">
@@ -14,285 +14,310 @@
         <p v-if="connectionIssue" role="status" class="text-sm text-sem-fg-muted">{{ connectionIssue }}</p>
         <p v-if="error || problem" role="alert" class="text-sm text-sem-danger">{{ problem || error }}</p>
         <p v-if="notice" role="status" class="text-sm text-sem-accent">{{ notice }}</p>
-        <MeshCoreRadios
-            v-if="!props.setupMode"
+        <component
+            :is="editorContainer"
             :snapshot="snapshot"
             :action="action"
             :disabled="busy || backupBusy || identityBusy || radio2Busy"
             @busy="radioManagerBusy = $event"
-        />
-        <form class="space-y-3" @submit.prevent="connect">
-            <fieldset :disabled="controlsBusy" class="grid gap-3 sm:grid-cols-2">
-                <label
-                    >Connection<select v-model="kind" class="input-field" @change="changeTransport">
-                        <option value="ble">Bluetooth</option>
-                        <option value="usb">USB</option>
-                    </select></label
-                >
-                <label v-if="kind === 'ble'"
-                    >{{ linuxRadio ? "Nearby Bluetooth devices" : "Paired Bluetooth radio" }}
-                    <select
-                        v-model="bluetoothChoice"
-                        class="input-field"
-                        :aria-label="linuxRadio ? 'Nearby Bluetooth devices' : 'Paired Bluetooth radio'"
-                        @change="chooseBluetooth"
-                    >
-                        <option disabled value="">
-                            {{ linuxRadio ? "Choose your MeshCore radio" : "Choose a paired radio" }}
-                        </option>
-                        <option
-                            v-if="
-                                target &&
-                                !devices.some((device) => device.address === target) &&
-                                bluetoothChoice !== 'manual'
-                            "
-                            :value="target"
-                        >
-                            Selected radio · {{ target }}
-                        </option>
-                        <option v-for="device in devices" :key="device.address" :value="device.address">
-                            {{ device.name }} · {{ device.address }}
-                        </option>
-                        <option value="manual">Enter address manually…</option>
-                    </select>
-                </label>
-                <label v-if="kind === 'usb'">
-                    USB radio
-                    <select v-model="target" class="input-field" aria-label="USB radio">
-                        <option disabled value="">Choose an attached radio</option>
-                        <option v-if="target && !usbDevices.some((device) => device.path === target)" :value="target">
-                            Previously selected · {{ target }}
-                        </option>
-                        <option v-for="device in usbDevices" :key="device.path" :value="device.path">
-                            {{ device.name }} · {{ device.path }}
-                        </option>
-                    </select>
-                </label>
-                <label v-if="kind === 'ble' && bluetoothChoice === 'manual'"
-                    >{{ kind === "ble" ? "Bluetooth address" : "USB device path" }}
-                    <input
-                        v-model="target"
-                        class="input-field"
-                        autocomplete="off"
-                        :placeholder="kind === 'ble' ? 'AA:BB:CC:DD:EE:FF' : '/dev/bus/usb/…'"
-                        required
-                    />
-                </label>
-            </fieldset>
-            <div v-if="kind === 'ble'" class="space-y-2">
-                <button
-                    type="button"
-                    class="secondary-chip"
-                    :disabled="loadingDevices || controlsBusy"
-                    @click="loadDevices"
-                >
-                    {{
-                        loadingDevices ? "Loading radios…" : linuxRadio ? "Find nearby radios" : "Refresh paired radios"
-                    }}
-                </button>
-                <p v-if="deviceProblem" role="alert" class="text-xs text-sem-danger">{{ deviceProblem }}</p>
-                <p v-if="linuxRadio" class="text-xs text-sem-fg-muted">
-                    Make your MeshCore companion available over Bluetooth, then find nearby radios. Nearby devices may
-                    include RNodes; select only your MeshCore companion. No radio is connected by discovery.
-                </p>
-                <p v-else class="text-xs text-sem-fg-muted">
-                    Pair your radio in Android Bluetooth settings, then refresh. These are paired Bluetooth devices;
-                    select your MeshCore companion, not your RNode.
-                </p>
-            </div>
-            <div v-if="kind === 'usb'" class="space-y-2">
-                <button
-                    type="button"
-                    class="secondary-chip"
-                    :disabled="loadingUsb || controlsBusy"
-                    @click="loadUsbDevices"
-                >
-                    {{ loadingUsb ? "Loading USB radios…" : "Refresh USB radios" }}
-                </button>
-                <p v-if="usbProblem" role="alert" class="text-xs text-sem-danger">{{ usbProblem }}</p>
-                <p v-if="linuxRadio" class="text-xs text-sem-fg-muted">
-                    Connect a USB MeshCore companion and select its serial device. Your Linux user needs permission to
-                    access that device. Configure your RNode separately under Interfaces.
-                </p>
-                <p v-else class="text-xs text-sem-fg-muted">
-                    Connect through an OTG cable, then select your MeshCore companion. Select your RNode separately
-                    under Interfaces. Android may ask for USB permission when you connect.
-                </p>
-            </div>
-            <div class="flex flex-wrap gap-2">
-                <button class="primary-chip" :disabled="controlsBusy || snapshot.connected || !target.trim()">
-                    Connect MeshCore
-                </button>
-                <button
-                    v-if="snapshot.connected || snapshot.selected"
-                    type="button"
-                    class="secondary-chip"
-                    :disabled="controlsBusy"
-                    @click="disconnect"
-                >
-                    Disconnect MeshCore
-                </button>
-            </div>
-        </form>
-        <RouterLink
-            v-if="!props.setupMode"
-            :to="{ name: 'meshcore-tools', params: { tool: 'regions' } }"
-            class="block text-sm text-sem-accent py-2"
-            >MeshCore regions &amp; channel scoping</RouterLink
         >
-        <MeshCoreRadio2Settings
-            v-if="!props.setupMode"
-            id="meshcore-radio2"
-            :snapshot="snapshot"
-            :disabled="busy || backupBusy || identityBusy"
-            @busy="radio2Busy = $event"
-        />
-        <MeshCoreIdentitySettings
-            v-if="!props.setupMode"
-            :snapshot="snapshot"
-            :disabled="busy || backupBusy || radio2Busy"
-            :refresh-key="identityRefresh"
-            @saved="refresh"
-            @busy="identityBusy = $event"
-        />
-        <details :open="!props.setupMode" class="border-t border-sem-border pt-4 space-y-3">
-            <summary v-if="props.setupMode" class="cursor-pointer font-medium text-sm">
-                Check or change the primary radio profile
-            </summary>
-            <div class="flex flex-wrap items-center justify-between gap-2">
-                <h3 class="font-semibold">Primary radio · MeshCore network</h3>
-                <button
-                    type="button"
-                    class="secondary-chip"
-                    :disabled="controlsBusy || !snapshot.connected"
-                    @click="read"
-                >
-                    Read from radio
-                </button>
-            </div>
-            <p class="text-sm text-sem-fg-muted">
-                Use your local network’s primary profile for messages and announces. Radio2 has its own MediaMesh
-                profile; it does not need to match this primary profile.
-            </p>
-            <p v-if="!baseline" class="text-sm text-sem-fg-muted">
-                {{
-                    snapshot.connected
-                        ? "Read the current settings before making changes."
-                        : "Connect a MeshCore radio to read its settings."
-                }}
-            </p>
-            <form v-else class="space-y-4" @submit.prevent="apply">
-                <div class="rounded-lg border border-sem-border p-3 space-y-2">
-                    <p class="text-sm font-medium">Puget Mesh / USA–Canada preset</p>
-                    <p class="text-xs text-sem-fg-muted">910.525 MHz · 62.5 kHz · SF7 · CR4/5</p>
-                    <p class="text-xs text-sem-fg-muted">
-                        Frequency, bandwidth, and SF must match the network you are joining. Coding rate adds error
-                        correction: a higher value uses more airtime. Follow your community’s recommendation when
-                        choosing it.
-                    </p>
+            <details
+                data-radio-connection-editor
+                :open="props.setupMode || !snapshot.connection"
+                class="space-y-3 border-t border-sem-border pt-3"
+            >
+                <summary class="cursor-pointer font-semibold text-sm">
+                    {{ snapshot.connection ? "Edit connection" : "Set up connection" }}
+                </summary>
+                <form class="space-y-3" @submit.prevent="connect">
+                    <fieldset :disabled="controlsBusy" class="grid gap-3 sm:grid-cols-2">
+                        <label
+                            >Connection<select v-model="kind" class="input-field" @change="changeTransport">
+                                <option value="ble">Bluetooth</option>
+                                <option value="usb">USB</option>
+                            </select></label
+                        >
+                        <label v-if="kind === 'ble'"
+                            >{{ linuxRadio ? "Nearby Bluetooth devices" : "Paired Bluetooth radio" }}
+                            <select
+                                v-model="bluetoothChoice"
+                                class="input-field"
+                                :aria-label="linuxRadio ? 'Nearby Bluetooth devices' : 'Paired Bluetooth radio'"
+                                @change="chooseBluetooth"
+                            >
+                                <option disabled value="">
+                                    {{ linuxRadio ? "Choose your MeshCore radio" : "Choose a paired radio" }}
+                                </option>
+                                <option
+                                    v-if="
+                                        target &&
+                                        !devices.some((device) => device.address === target) &&
+                                        bluetoothChoice !== 'manual'
+                                    "
+                                    :value="target"
+                                >
+                                    Selected radio · {{ target }}
+                                </option>
+                                <option v-for="device in devices" :key="device.address" :value="device.address">
+                                    {{ device.name }} · {{ device.address }}
+                                </option>
+                                <option value="manual">Enter address manually…</option>
+                            </select>
+                        </label>
+                        <label v-if="kind === 'usb'">
+                            USB radio
+                            <select v-model="target" class="input-field" aria-label="USB radio">
+                                <option disabled value="">Choose an attached radio</option>
+                                <option
+                                    v-if="target && !usbDevices.some((device) => device.path === target)"
+                                    :value="target"
+                                >
+                                    Previously selected · {{ target }}
+                                </option>
+                                <option v-for="device in usbDevices" :key="device.path" :value="device.path">
+                                    {{ device.name }} · {{ device.path }}
+                                </option>
+                            </select>
+                        </label>
+                        <label v-if="kind === 'ble' && bluetoothChoice === 'manual'"
+                            >{{ kind === "ble" ? "Bluetooth address" : "USB device path" }}
+                            <input
+                                v-model="target"
+                                class="input-field"
+                                autocomplete="off"
+                                :placeholder="kind === 'ble' ? 'AA:BB:CC:DD:EE:FF' : '/dev/bus/usb/…'"
+                                required
+                            />
+                        </label>
+                    </fieldset>
+                    <div v-if="kind === 'ble'" class="space-y-2">
+                        <button
+                            type="button"
+                            class="secondary-chip"
+                            :disabled="loadingDevices || controlsBusy"
+                            @click="loadDevices"
+                        >
+                            {{
+                                loadingDevices
+                                    ? "Loading radios…"
+                                    : linuxRadio
+                                      ? "Find nearby radios"
+                                      : "Refresh paired radios"
+                            }}
+                        </button>
+                        <p v-if="deviceProblem" role="alert" class="text-xs text-sem-danger">{{ deviceProblem }}</p>
+                        <p v-if="linuxRadio" class="text-xs text-sem-fg-muted">
+                            Make your MeshCore companion available over Bluetooth, then find nearby radios. Nearby
+                            devices may include RNodes; select only your MeshCore companion. No radio is connected by
+                            discovery.
+                        </p>
+                        <p v-else class="text-xs text-sem-fg-muted">
+                            Pair your radio in Android Bluetooth settings, then refresh. These are paired Bluetooth
+                            devices; select your MeshCore companion, not your RNode.
+                        </p>
+                    </div>
+                    <div v-if="kind === 'usb'" class="space-y-2">
+                        <button
+                            type="button"
+                            class="secondary-chip"
+                            :disabled="loadingUsb || controlsBusy"
+                            @click="loadUsbDevices"
+                        >
+                            {{ loadingUsb ? "Loading USB radios…" : "Refresh USB radios" }}
+                        </button>
+                        <p v-if="usbProblem" role="alert" class="text-xs text-sem-danger">{{ usbProblem }}</p>
+                        <p v-if="linuxRadio" class="text-xs text-sem-fg-muted">
+                            Connect a USB MeshCore companion and select its serial device. Your Linux user needs
+                            permission to access that device. Configure your RNode separately under Interfaces.
+                        </p>
+                        <p v-else class="text-xs text-sem-fg-muted">
+                            Connect through an OTG cable, then select your MeshCore companion. Select your RNode
+                            separately under Interfaces. Android may ask for USB permission when you connect.
+                        </p>
+                    </div>
+                    <div class="flex flex-wrap gap-2">
+                        <button class="primary-chip" :disabled="controlsBusy || snapshot.connected || !target.trim()">
+                            Connect MeshCore
+                        </button>
+                        <button
+                            v-if="snapshot.connected || snapshot.selected"
+                            type="button"
+                            class="secondary-chip"
+                            :disabled="controlsBusy"
+                            @click="disconnect"
+                        >
+                            Disconnect MeshCore
+                        </button>
+                    </div>
+                </form>
+            </details>
+            <RouterLink
+                v-if="!props.setupMode"
+                :to="{
+                    name: 'meshcore-tools',
+                    params: { tool: 'regions' },
+                    query: { meshcoreRadio: snapshot.radio_id },
+                }"
+                class="block text-sm text-sem-accent py-2"
+                >MeshCore regions &amp; channel scoping</RouterLink
+            >
+            <MeshCoreRadio2Settings
+                v-if="!props.setupMode"
+                id="meshcore-radio2"
+                :snapshot="snapshot"
+                :disabled="busy || backupBusy || identityBusy"
+                @busy="radio2Busy = $event"
+            />
+            <details v-if="!props.setupMode" class="border-t border-sem-border pt-3">
+                <summary class="cursor-pointer font-semibold text-sm">Identity</summary>
+                <MeshCoreIdentitySettings
+                    :snapshot="snapshot"
+                    :disabled="busy || backupBusy || radio2Busy"
+                    :refresh-key="identityRefresh"
+                    @saved="refresh"
+                    @busy="identityBusy = $event"
+                />
+            </details>
+            <details class="border-t border-sem-border pt-4 space-y-3">
+                <summary class="cursor-pointer font-medium text-sm">Primary radio · MeshCore network</summary>
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                    <h3 class="font-semibold">Primary radio · MeshCore network</h3>
                     <button
                         type="button"
                         class="secondary-chip"
-                        :disabled="controlsBusy || !snapshot.connected || needsRead"
-                        @click="useRegionalPreset"
+                        :disabled="controlsBusy || !snapshot.connected"
+                        @click="read"
                     >
-                        Use Puget Mesh preset
+                        Read from radio
                     </button>
-                    <a
-                        class="ml-2 text-xs text-sem-info underline"
-                        href="https://pugetmesh.org/meshcore/#radio-settings"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        >Published settings</a
-                    >
                 </div>
-                <fieldset
-                    :disabled="controlsBusy || !snapshot.connected || needsRead"
-                    class="grid gap-3 sm:grid-cols-2"
-                >
-                    <label
-                        >Frequency (MHz)<input
-                            v-model="draft.frequency_mhz"
-                            class="input-field"
-                            type="number"
-                            min="150"
-                            max="2500"
-                            step="0.001"
-                            required
-                    /></label>
-                    <label
-                        >Bandwidth (kHz)<input
-                            v-model="draft.bandwidth_khz"
-                            class="input-field"
-                            type="number"
-                            min="7"
-                            max="500"
-                            step="0.001"
-                            required
-                    /></label>
-                    <label
-                        >Spreading factor (SF)<select v-model.number="draft.sf" class="input-field">
-                            <option v-for="sf in 8" :key="sf" :value="sf + 4">SF {{ sf + 4 }}</option>
-                        </select></label
-                    >
-                    <label
-                        >Coding rate (CR)<select v-model.number="draft.cr" class="input-field">
-                            <option v-for="cr in [5, 6, 7, 8]" :key="cr" :value="cr">4/{{ cr }}</option>
-                        </select></label
-                    >
-                    <label
-                        >TX power (dBm)<input
-                            v-model="draft.tx_power_dbm"
-                            class="input-field"
-                            type="number"
-                            min="-9"
-                            :max="baseline.max_tx_power_dbm"
-                            step="1"
-                            required
-                        /><span class="block text-xs text-sem-fg-muted"
-                            >Radio maximum: {{ baseline.max_tx_power_dbm }} dBm</span
-                        ></label
-                    >
-                    <label
-                        >Default path hash size<select
-                            v-model.number="draft.path_hash_bytes"
-                            class="input-field"
-                            :disabled="!baseline.path_hash_supported"
-                        >
-                            <option v-if="!baseline.path_hash_supported" :value="null">
-                                Unsupported by this firmware
-                            </option>
-                            <option v-for="size in [1, 2, 3]" :key="size" :value="size">
-                                {{ size }} {{ size === 1 ? "byte" : "bytes" }}
-                            </option>
-                        </select></label
-                    >
-                </fieldset>
-                <p class="text-xs text-sem-fg-muted">
-                    Use settings appropriate for your radio and local network. Changes are checked against the radio
-                    after saving; firmware may reject unsupported values.
+                <p class="text-sm text-sem-fg-muted">
+                    Use your local network’s primary profile for messages and announces. Radio2 has its own MediaMesh
+                    profile; it does not need to match this primary profile.
                 </p>
-                <div class="flex flex-wrap gap-2">
-                    <button class="primary-chip" :disabled="controlsBusy || !snapshot.connected || needsRead || !dirty">
-                        {{ controlsBusy ? "Working…" : "Apply and verify" }}</button
-                    ><button type="button" class="secondary-chip" :disabled="controlsBusy || !dirty" @click="reset">
-                        Discard changes
-                    </button>
-                </div>
-            </form>
-        </details>
-        <MeshCoreBackups
-            v-if="!props.setupMode"
-            id="meshcore-backups"
-            :snapshot="snapshot"
-            :disabled="busy || identityBusy || radio2Busy"
-            @changed="afterImport"
-            @busy="backupBusy = $event"
-        />
+                <p v-if="!baseline" class="text-sm text-sem-fg-muted">
+                    {{
+                        snapshot.connected
+                            ? "Read the current settings before making changes."
+                            : "Connect a MeshCore radio to read its settings."
+                    }}
+                </p>
+                <form v-else class="space-y-4" @submit.prevent="apply">
+                    <div class="rounded-lg border border-sem-border p-3 space-y-2">
+                        <p class="text-sm font-medium">Puget Mesh / USA–Canada preset</p>
+                        <p class="text-xs text-sem-fg-muted">910.525 MHz · 62.5 kHz · SF7 · CR4/5</p>
+                        <p class="text-xs text-sem-fg-muted">
+                            Frequency, bandwidth, and SF must match the network you are joining. Coding rate adds error
+                            correction: a higher value uses more airtime. Follow your community’s recommendation when
+                            choosing it.
+                        </p>
+                        <button
+                            type="button"
+                            class="secondary-chip"
+                            :disabled="controlsBusy || !snapshot.connected || needsRead"
+                            @click="useRegionalPreset"
+                        >
+                            Use Puget Mesh preset
+                        </button>
+                        <a
+                            class="ml-2 text-xs text-sem-info underline"
+                            href="https://pugetmesh.org/meshcore/#radio-settings"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            >Published settings</a
+                        >
+                    </div>
+                    <fieldset
+                        :disabled="controlsBusy || !snapshot.connected || needsRead"
+                        class="grid gap-3 sm:grid-cols-2"
+                    >
+                        <label
+                            >Frequency (MHz)<input
+                                v-model="draft.frequency_mhz"
+                                class="input-field"
+                                type="number"
+                                min="150"
+                                max="2500"
+                                step="0.001"
+                                required
+                        /></label>
+                        <label
+                            >Bandwidth (kHz)<input
+                                v-model="draft.bandwidth_khz"
+                                class="input-field"
+                                type="number"
+                                min="7"
+                                max="500"
+                                step="0.001"
+                                required
+                        /></label>
+                        <label
+                            >Spreading factor (SF)<select v-model.number="draft.sf" class="input-field">
+                                <option v-for="sf in 8" :key="sf" :value="sf + 4">SF {{ sf + 4 }}</option>
+                            </select></label
+                        >
+                        <label
+                            >Coding rate (CR)<select v-model.number="draft.cr" class="input-field">
+                                <option v-for="cr in [5, 6, 7, 8]" :key="cr" :value="cr">4/{{ cr }}</option>
+                            </select></label
+                        >
+                        <label
+                            >TX power (dBm)<input
+                                v-model="draft.tx_power_dbm"
+                                class="input-field"
+                                type="number"
+                                min="-9"
+                                :max="baseline.max_tx_power_dbm"
+                                step="1"
+                                required
+                            /><span class="block text-xs text-sem-fg-muted"
+                                >Radio maximum: {{ baseline.max_tx_power_dbm }} dBm</span
+                            ></label
+                        >
+                        <label
+                            >Default path hash size<select
+                                v-model.number="draft.path_hash_bytes"
+                                class="input-field"
+                                :disabled="!baseline.path_hash_supported"
+                            >
+                                <option v-if="!baseline.path_hash_supported" :value="null">
+                                    Unsupported by this firmware
+                                </option>
+                                <option v-for="size in [1, 2, 3]" :key="size" :value="size">
+                                    {{ size }} {{ size === 1 ? "byte" : "bytes" }}
+                                </option>
+                            </select></label
+                        >
+                    </fieldset>
+                    <p class="text-xs text-sem-fg-muted">
+                        Use settings appropriate for your radio and local network. Changes are checked against the radio
+                        after saving; firmware may reject unsupported values.
+                    </p>
+                    <div class="flex flex-wrap gap-2">
+                        <button
+                            class="primary-chip"
+                            :disabled="controlsBusy || !snapshot.connected || needsRead || !dirty"
+                        >
+                            {{ controlsBusy ? "Working…" : "Apply and verify" }}</button
+                        ><button type="button" class="secondary-chip" :disabled="controlsBusy || !dirty" @click="reset">
+                            Discard changes
+                        </button>
+                    </div>
+                </form>
+            </details>
+            <MeshCoreBackups
+                v-if="!props.setupMode"
+                id="meshcore-backups"
+                :snapshot="snapshot"
+                :disabled="busy || identityBusy || radio2Busy"
+                @changed="afterImport"
+                @busy="backupBusy = $event"
+            />
+        </component>
     </SettingsSectionBlock>
 </template>
 <script setup>
-import { computed, ref, watch, onBeforeUnmount } from "vue";
+import { computed, ref, watch, onBeforeUnmount, defineComponent } from "vue";
 import MeshCoreRadios from "./MeshCoreRadios.vue";
 import MeshCoreRadio2Settings from "./MeshCoreRadio2Settings.vue";
 import MeshCoreBackups from "./MeshCoreBackups.vue";
@@ -305,6 +330,25 @@ const props = defineProps({ setupMode: Boolean, suggestedConnection: { type: Obj
 const emit = defineEmits(["busy"]);
 const lifetime = new AbortController();
 const { snapshot, error, action, refresh } = useMeshCoreUi();
+const SetupPanels = defineComponent({
+    inheritAttrs: false,
+    setup(_props, { slots }) {
+        return () => slots.default?.();
+    },
+});
+const editorContainer = computed(() =>
+    props.setupMode || !snapshot.value.radios?.length ? SetupPanels : MeshCoreRadios
+);
+watch(
+    () => snapshot.value.radio_id,
+    () => {
+        const connection = snapshot.value.connection;
+        kind.value = connection?.kind || "ble";
+        target.value = connection?.target || "";
+        bluetoothChoice.value = connection?.kind === "ble" ? connection.target : "";
+    }
+);
+
 const linuxRadio = computed(() => snapshot.value.radio_platform === "linux");
 const kind = ref("ble"),
     target = ref(""),

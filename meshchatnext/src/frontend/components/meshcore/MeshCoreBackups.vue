@@ -261,7 +261,7 @@ async function backup() {
         const { data } = await window.api.post(
             apiPath("/meshcore/backup"),
             { password: backupPassword.value, expected_public_key: owner },
-            { timeout: 60000 }
+            { timeout: 60000, ...(props.snapshot.radio_id ? { params: { radio: props.snapshot.radio_id } } : {}) }
         );
         if (disposed || current !== exportRevision || owner !== props.snapshot.owner) return;
         const value = data.result;
@@ -375,7 +375,7 @@ async function review() {
         const { data } = await window.api.post(
             apiPath("/meshcore/config-preview"),
             { text: raw.value, ...(encrypted.value ? { password: importPassword.value } : {}) },
-            { timeout: 120000 }
+            { timeout: 120000, ...(props.snapshot.radio_id ? { params: { radio: props.snapshot.radio_id } } : {}) }
         );
         if (disposed || current !== reviewRevision || owner !== props.snapshot.owner) return;
         preview.value = data.result;
@@ -447,7 +447,7 @@ async function apply() {
             : "Import the selected MeshCore sections? Existing contacts and channels will be kept. Changes are applied in steps and cannot be rolled back automatically."
     );
     if (!confirmed || !preview.value || preview.value.owner !== props.snapshot.owner) return;
-    run.value = { id: crypto.randomUUID(), owner: preview.value.owner };
+    run.value = { id: crypto.randomUUID(), owner: preview.value.owner, radio: props.snapshot.radio_id };
     locked.value = true;
     working.value = true;
     importError.value = "";
@@ -463,7 +463,7 @@ async function apply() {
                 replace_identity: Boolean(replacement),
                 ...(encrypted.value ? { password: importPassword.value } : {}),
             },
-            { timeout: 600000 }
+            { timeout: 600000, ...(run.value.radio ? { params: { radio: run.value.radio } } : {}) }
         );
         if (disposed) return;
         result.value = data.result;
@@ -485,7 +485,11 @@ async function checkResult() {
     try {
         const { data } = await window.api.get(apiPath("/meshcore/config-result"), {
             signal: lifetime.signal,
-            params: { owner: run.value.owner, request_id: run.value.id },
+            params: {
+                owner: run.value.owner,
+                request_id: run.value.id,
+                ...(run.value.radio ? { radio: run.value.radio } : {}),
+            },
         });
         if (!disposed) {
             result.value = data.result;

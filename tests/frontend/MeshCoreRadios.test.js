@@ -67,6 +67,25 @@ describe("multiple MeshCore radios", () => {
             auto_reconnect: true,
         });
     });
+    it("keeps the editor inside only the selected radio card and selects a card before opening it", async () => {
+        const action = vi.fn().mockResolvedValue({});
+        wrapper = mount(MeshCoreRadios, {
+            props: { snapshot: { radios, radio_id: "default", inbox_mode: "combined" }, action },
+            slots: { default: "<div data-editor-check>Identity and Radio2 editor</div>" },
+        });
+        expect(wrapper.findAll("[data-radio-settings]")).toHaveLength(1);
+        expect(wrapper.get('[data-meshcore-radio="default"] [data-editor-check]').exists()).toBe(true);
+        const other = wrapper.get(`[data-meshcore-radio="${"b".repeat(32)}"]`);
+        expect(other.find("[data-editor-check]").exists()).toBe(false);
+        await other.get("summary").trigger("click");
+        await flushPromises();
+        expect(action).toHaveBeenCalledWith("radio-configure", { active: "b".repeat(32) });
+        await wrapper.setProps({ snapshot: { radios, radio_id: "b".repeat(32), inbox_mode: "combined" } });
+        expect(wrapper.findAll("[data-radio-settings]")).toHaveLength(1);
+        expect(other.find("[data-editor-check]").exists()).toBe(true);
+        expect(wrapper.get('[data-meshcore-radio="default"]').find("[data-editor-check]").exists()).toBe(false);
+    });
+
     it("routes a conversation and send explicitly to its chosen radio", async () => {
         const peer = "c3".repeat(32),
             owner = "b2".repeat(32),
@@ -77,11 +96,9 @@ describe("multiple MeshCore radios", () => {
         });
         await router.push(meshcoreRoute(peer, radio));
         window.api = {
-            get: vi
-                .fn()
-                .mockResolvedValue({
-                    data: { result: { available: true, connected: true, owner, contacts: [], radio_id: radio } },
-                }),
+            get: vi.fn().mockResolvedValue({
+                data: { result: { available: true, connected: true, owner, contacts: [], radio_id: radio } },
+            }),
             post: vi.fn().mockResolvedValue({ data: { result: {} } }),
         };
         let ui;

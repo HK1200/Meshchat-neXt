@@ -45,6 +45,55 @@ async function read() {
     await flushPromises();
 }
 describe("MeshCore radio settings", () => {
+    it("hides a saved connection's selectors until Edit connection is opened", async () => {
+        setup({
+            snapshot: ref({
+                available: true,
+                connected: false,
+                owner,
+                radio_id: "default",
+                connection: { kind: "ble", target: "AA:BB:CC:DD:EE:FF" },
+            }),
+        });
+        await flushPromises();
+        const editor = wrapper.get("[data-radio-connection-editor]");
+        expect(editor.attributes("open")).toBeUndefined();
+        expect(editor.get("summary").text()).toBe("Edit connection");
+        editor.element.open = true;
+        expect(editor.element.open).toBe(true);
+        expect(editor.find("select").exists()).toBe(true);
+    });
+
+    it("changes the connection editor to the selected card's saved device", async () => {
+        setup({ snapshot: ref({ available: false, connected: false }) });
+        const radios = [
+            { id: "default", label: "Home", owner },
+            { id: "b2".repeat(16), label: "Field", owner: "b2".repeat(32) },
+        ];
+        state.snapshot.value = {
+            available: true,
+            connected: false,
+            owner,
+            radio_platform: "linux",
+            radio_id: "default",
+            radios,
+            connection: { kind: "ble", target: "AA:BB:CC:DD:EE:FF" },
+        };
+        await flushPromises();
+        expect(wrapper.findAll("[data-radio-settings]")).toHaveLength(1);
+        state.snapshot.value = {
+            ...state.snapshot.value,
+            owner: "b2".repeat(32),
+            radio_id: "b2".repeat(16),
+            connection: { kind: "usb", target: "/dev/serial/by-id/field" },
+        };
+        await flushPromises();
+        const editor = wrapper.get(`[data-meshcore-radio="${"b2".repeat(16)}"] [data-radio-connection-editor]`);
+        expect(editor.find("select").element.value).toBe("usb");
+        expect(editor.get('[aria-label="USB radio"]').element.value).toBe("/dev/serial/by-id/field");
+        expect(wrapper.get('[data-meshcore-radio="default"]').find("[data-radio-settings]").exists()).toBe(false);
+    });
+
     it("stages the regional preset without writing the radio or changing power and path hash", async () => {
         setup();
         await read();

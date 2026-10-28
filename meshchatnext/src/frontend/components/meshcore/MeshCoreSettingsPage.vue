@@ -28,6 +28,9 @@ async function focusSection() {
     await nextTick();
     const element = document.getElementById(`meshcore-${route.query.section}`);
     if (element?.tagName === "DETAILS") element.open = true;
+    for (let parent = element?.parentElement; parent; parent = parent.parentElement) {
+        if (parent.tagName === "DETAILS") parent.open = true;
+    }
     element?.scrollIntoView({ block: "start" });
 }
 onMounted(focusSection);

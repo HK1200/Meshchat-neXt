@@ -1,7 +1,7 @@
 <template>
     <section
         v-if="snapshot.radios"
-        class="space-y-3 rounded-lg border border-sem-border p-3"
+        class="group space-y-3 rounded-lg border border-sem-border p-3"
         aria-label="MeshCore radios"
     >
         <label class="block text-sm"
@@ -22,32 +22,40 @@
             between radios.
         </p>
         <p v-if="snapshot.radios_error" role="alert" class="text-sm text-sem-danger">{{ snapshot.radios_error }}</p>
-        <article v-for="radio in snapshot.radios" :key="radio.id" class="space-y-2 border-t border-sem-border pt-3">
-            <div class="flex flex-wrap gap-2 items-center">
-                <strong class="text-sm">{{ radio.label }}</strong>
-                <span class="text-xs text-sem-fg-muted">{{
-                    radio.connected
-                        ? "Connected"
-                        : radio.state === "identity_changed"
-                          ? "Identity check needs attention"
-                          : radio.auto_reconnect
-                            ? "Reconnecting when available"
-                            : "Disconnected"
-                }}</span>
-                <span v-if="radio.id === snapshot.radio_id" class="text-xs text-sem-accent">Selected</span>
-            </div>
-            <p v-if="radio.connection" class="text-xs text-sem-fg-muted break-all">
-                {{ radio.connection.kind === "ble" ? "Bluetooth LE" : "USB" }} · {{ radio.connection.target }}
-            </p>
+        <details
+            v-for="radio in snapshot.radios"
+            :key="radio.id"
+            :data-meshcore-radio="radio.id"
+            :open="radio.id === snapshot.radio_id"
+            class="space-y-3 rounded-lg border border-sem-border p-3"
+        >
+            <summary
+                class="cursor-pointer list-none space-y-1"
+                :aria-disabled="disabled || busy"
+                @click="chooseRadio($event, radio.id)"
+            >
+                <div class="flex flex-wrap gap-2 items-center">
+                    <span aria-hidden="true" class="inline-block transition-transform group-open:rotate-90">›</span>
+                    <strong class="text-sm">{{ radio.label }}</strong>
+                    <span class="text-xs text-sem-fg-muted">{{
+                        radio.connected
+                            ? "Connected"
+                            : radio.state === "identity_changed"
+                              ? "Identity check needs attention"
+                              : radio.auto_reconnect
+                                ? "Reconnecting when available"
+                                : "Disconnected"
+                    }}</span>
+                    <span v-if="radio.id === snapshot.radio_id" class="text-xs text-sem-accent">Selected</span>
+                </div>
+                <p v-if="radio.connection" class="text-xs text-sem-fg-muted break-all">
+                    {{ radio.connection.kind === "ble" ? "Bluetooth LE" : "USB" }} · {{ radio.connection.target }}
+                </p>
+                <p class="text-xs text-sem-fg-muted">
+                    Identity · {{ radio.owner ? radio.owner.slice(0, 12) + "…" : "Read when connected" }}
+                </p>
+            </summary>
             <div class="flex flex-wrap gap-2">
-                <button
-                    type="button"
-                    class="secondary-chip"
-                    :disabled="disabled || busy || radio.id === snapshot.radio_id"
-                    @click="run('radio-configure', { active: radio.id })"
-                >
-                    Use this radio
-                </button>
                 <button
                     v-if="radio.connection"
                     type="button"
@@ -88,7 +96,15 @@
                     </button>
                 </form>
             </details>
-        </article>
+            <div
+                v-if="radio.id === snapshot.radio_id && $slots.default"
+                data-radio-settings
+                class="space-y-4"
+                :aria-label="`Settings for ${radio.label}`"
+            >
+                <slot :radio="radio" />
+            </div>
+        </details>
         <details class="border-t border-sem-border pt-3">
             <summary class="text-sm font-medium cursor-pointer">Add another MeshCore radio</summary>
             <form data-add-meshcore-radio class="space-y-3 pt-3" @submit.prevent="add">
@@ -103,6 +119,7 @@
                 <label class="block text-sm"
                     >Connection<select
                         v-model="kind"
+                        aria-label="Connection"
                         class="input-field"
                         :disabled="disabled || busy"
                         @change="
@@ -158,6 +175,17 @@ const props = defineProps({
     action: { type: Function, required: true },
     disabled: Boolean,
 });
+function chooseRadio(event, radioId) {
+    if (props.disabled || busy.value) {
+        event.preventDefault();
+        return;
+    }
+    if (radioId !== props.snapshot.radio_id) {
+        event.preventDefault();
+        run("radio-configure", { active: radioId });
+    }
+}
+
 const emit = defineEmits(["busy"]);
 const names = ref({}),
     label = ref(""),

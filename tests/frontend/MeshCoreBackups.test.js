@@ -79,6 +79,20 @@ describe("MeshCore backups", () => {
         expect(wrapper.findAll('input[type="password"]')[0].element.value).toBe("");
         expect(wrapper.text()).toContain("download requested");
     });
+    it("exports from the radio shown in its settings card", async () => {
+        setup();
+        const radio = "b2".repeat(16);
+        await wrapper.setProps({ snapshot: { owner, connected: true, radio_id: radio } });
+        await passwords();
+        await wrapper.find("form").trigger("submit");
+        await flushPromises();
+        expect(window.api.post).toHaveBeenCalledWith(
+            "/api/v1/meshcore/backup",
+            { password, expected_public_key: owner },
+            { timeout: 60000, params: { radio } }
+        );
+    });
+
     it("rejects unexpected plaintext fields and wrong-owner responses", async () => {
         setup();
         await passwords();
@@ -156,21 +170,39 @@ describe("MeshCore backups", () => {
     });
 });
 
-
 describe("first-launch backup import", () => {
     it("reads a backup before connecting, emits only its radio hint and keeps the selection for preview after connection", async () => {
-        window.api={post:vi.fn(async()=>({data:{result:{...review,sections:["contacts"]}}}))};
-        const wrapper=mount(MeshCoreBackups,{props:{importOnly:true,snapshot:{connected:false,owner:null}}});
-        const field=wrapper.get('input[type="file"]');
-        Object.defineProperty(field.element,"files",{configurable:true,value:[{name:"setup.json",size:100,text:async()=>JSON.stringify({bluetooth_address:"AA:BB:CC:DD:EE:FF",private_key:"synthetic-private",contacts:[]})}]});
-        await field.trigger("change");await flushPromises();
-        expect(wrapper.emitted("device-hint")[0][0]).toEqual({kind:"ble",target:"AA:BB:CC:DD:EE:FF"});
+        window.api = { post: vi.fn(async () => ({ data: { result: { ...review, sections: ["contacts"] } } })) };
+        const wrapper = mount(MeshCoreBackups, {
+            props: { importOnly: true, snapshot: { connected: false, owner: null } },
+        });
+        const field = wrapper.get('input[type="file"]');
+        Object.defineProperty(field.element, "files", {
+            configurable: true,
+            value: [
+                {
+                    name: "setup.json",
+                    size: 100,
+                    text: async () =>
+                        JSON.stringify({
+                            bluetooth_address: "AA:BB:CC:DD:EE:FF",
+                            private_key: "synthetic-private",
+                            contacts: [],
+                        }),
+                },
+            ],
+        });
+        await field.trigger("change");
+        await flushPromises();
+        expect(wrapper.emitted("device-hint")[0][0]).toEqual({ kind: "ble", target: "AA:BB:CC:DD:EE:FF" });
         expect(window.api.post).not.toHaveBeenCalled();
-        await wrapper.setProps({snapshot:{connected:true,owner}});await flushPromises();
-        const preview=wrapper.findAll('button').find(button=>button.text()==='Preview import');
-        expect(preview.attributes('disabled')).toBeUndefined();
-        await preview.trigger('click');await flushPromises();
-        expect(window.api.post.mock.calls[0][1].text).toContain('synthetic-private');
+        await wrapper.setProps({ snapshot: { connected: true, owner } });
+        await flushPromises();
+        const preview = wrapper.findAll("button").find((button) => button.text() === "Preview import");
+        expect(preview.attributes("disabled")).toBeUndefined();
+        await preview.trigger("click");
+        await flushPromises();
+        expect(window.api.post.mock.calls[0][1].text).toContain("synthetic-private");
         wrapper.unmount();
     });
 });

@@ -219,8 +219,9 @@ A companion/client node connects your phone to a MeshCore radio network. Repeate
 3. For USB, attach a supported USB companion with a data cable (OTG on Android), refresh USB radios, choose the device and connect. Android asks for USB access; Linux requires your user to have permission for that serial device.
 4. Read the identity and existing radio profile before changing anything. The node’s saved settings take priority.
 5. To use several companions, open Settings → MeshCore → Add another MeshCore radio. Name each one and keep its own identity. Each enabled radio connects and reconnects independently.
-6. Choose Combined inbox with radio labels or Separate radio views. In a direct conversation, check the sending-radio selector before sending. Channels, nodes and settings use the selected radio.
-7. Check Messages → Announces → MeshCore and send a small DM to a known reachable peer.
+6. Open a radio’s card to manage its own identity, connection, primary profile, Radio2 and backups. Saved connection selectors are under Edit connection; they also appear when adding a radio. Opening another card changes the radio you are editing.
+7. Choose Combined inbox with radio labels or Separate radio views. In a direct conversation, check the sending-radio selector before sending. Channels, nodes and settings use the selected radio.
+8. Check Messages → Announces → MeshCore and send a small DM to a known reachable peer.
 
 ### Keep in mind
 
