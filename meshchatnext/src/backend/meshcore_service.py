@@ -601,6 +601,41 @@ class MeshCoreService:
             raise ValueError("MeshCore identity changed; refresh visualiser")
         return {"owner": owner, "nodes": nodes, **self.status()}
 
+    async def map_traffic(self):
+        from meshchatnext.src.backend.meshcore_map_traffic import describe_traffic
+
+        # Read the existing RX buffer, without refreshing history or polling the radio.
+        async with self._lock:
+            owner = self._selection.get("owner") if self._selection else None
+            messages = self.messages
+            if (
+                not owner
+                or not self.status()["connected"]
+                or messages is None
+                or messages.owner != owner
+            ):
+                return {"owner": owner, "connected": False, "packets": []}
+            log = list(messages.rx_log)
+            store = self._store
+        announces, positions = await asyncio.gather(
+            asyncio.to_thread(store.announces, owner),
+            asyncio.to_thread(store.map_nodes, owner),
+        )
+        async with self._lock:
+            selected = self._selection.get("owner") if self._selection else None
+            connected = (
+                selected == owner
+                and self.messages is messages
+                and self.status()["connected"]
+            )
+            return {
+                "owner": selected,
+                "connected": connected,
+                "packets": describe_traffic(log, announces, positions)
+                if connected
+                else [],
+            }
+
     async def map_snapshot(self, account):
         # ui() resolves the saved selected owner even when the radio is offline.
         result = await self.ui(account)

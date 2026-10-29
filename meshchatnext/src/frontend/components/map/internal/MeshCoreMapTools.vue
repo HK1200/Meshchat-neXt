@@ -11,6 +11,13 @@
             MeshCore<span class="hidden sm:inline"> map</span>
         </button>
         <Teleport :to="map?.getTargetElement?.()?.parentElement || 'body'">
+            <div
+                v-if="visible && trafficEnabled && active && connected"
+                class="pointer-events-none absolute bottom-12 left-3 z-20 max-w-[70vw] rounded-lg border border-amber-500/50 bg-sem-surface px-2 py-1 text-xs text-sem-fg"
+                aria-label="MeshCore traffic legend"
+            >
+                <span class="text-amber-500">● ○</span> MeshCore traffic · partial routes · gaps stay disconnected
+            </div>
             <section
                 v-if="open"
                 class="absolute right-3 top-3 z-40 w-80 max-w-[85vw] max-h-[65dvh] overflow-y-auto rounded-xl border border-sem-border bg-sem-surface p-3 shadow-xl space-y-3"
@@ -30,6 +37,15 @@
                 <label class="flex items-center gap-2 text-sm"
                     ><input v-model="visible" type="checkbox" /> Show MeshCore nodes and team</label
                 >
+                <label class="flex items-center gap-2 text-sm">
+                    <input v-model="trafficEnabled" type="checkbox" :disabled="!visible" /> Animate packet traffic
+                </label>
+                <p v-if="trafficEnabled" class="text-xs text-sem-fg-muted" aria-label="MeshCore packet traffic status">
+                    Glowing comets and node pulses show partial observed routes using saved positions, not verified
+                    identities or delivery. Gaps are never connected. Timing is illustrative. Reduced-motion mode uses
+                    static highlights.
+                    {{ trafficStatus }}
+                </p>
                 <p class="text-xs text-sem-fg-muted">
                     Positions reported in MeshCore announces. Reticulum markers stay separate. Viewing this layer does
                     not share your location.
@@ -176,6 +192,7 @@ import { unByKey } from "ol/Observable";
 import { shapeGeometry } from "../../../js/meshcoreShapes";
 import { getAndroidPosition, isAndroidLocationSupported } from "../../../js/androidLocation";
 import { apiPath } from "../../../js/constants";
+import { useMeshCoreMapTraffic } from "../../../js/map/useMeshCoreMapTraffic";
 import { formatMeshcoreAge } from "../../../js/meshcoreTime";
 import { nodePressIsSuppressed } from "./mapNodeDetails.js";
 const props = defineProps({
@@ -204,6 +221,19 @@ const team = ref(null),
 const rangePosition = ref(null),
     locating = ref(false),
     rangeProblem = ref("");
+const trafficEnabled = ref(true);
+const trafficStatus = useMeshCoreMapTraffic(() => ({
+    map: props.map,
+    enabled:
+        trafficEnabled.value &&
+        visible.value &&
+        props.active &&
+        (!router?.currentRoute?.value?.query?.meshcoreRadio ||
+            router.currentRoute.value.query.meshcoreRadio === radioId.value),
+    owner: owner.value,
+    radioId: radioId.value,
+    connected: connected.value,
+}));
 let rangeRequest = 0;
 function clearRange() {
     rangeRequest++;

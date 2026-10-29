@@ -82,7 +82,7 @@ test.describe("Exploratory route crawl", () => {
             }
             const text = msg.text();
             if (!IGNORED_CONSOLE_ERRORS.some((re) => re.test(text))) {
-                errors.push(`console: ${text}`);
+                errors.push(`console: ${text} (${msg.location().url || "unknown resource"})`);
             }
         });
 

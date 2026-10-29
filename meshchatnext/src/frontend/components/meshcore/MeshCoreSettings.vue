@@ -605,9 +605,10 @@ watch(
 watch(
     [() => snapshot.value.available, () => snapshot.value.bluetooth_discovery_supported],
     ([available]) => {
-        // A saved companion already supplies the dropdown's selected device.
-        // Repeated discovery competes with BLE reconnect's own device lookup.
-        if (available && !(desktopRadio.value && snapshot.value.connection)) loadDevices();
+        // Desktop discovery actively scans an adapter and requires user intent.
+        // Opening settings must work without Bluetooth and must not compete with reconnect.
+        // Android only enumerates already paired devices here.
+        if (available && !desktopRadio.value) loadDevices();
     },
     { immediate: true }
 );

@@ -134,23 +134,29 @@ describe("MeshCore radio settings", () => {
         expect(wrapper.text()).toContain("Bluetooth device discovery is unavailable on this backend");
     });
 
-    it("offers Linux radio discovery without Android pairing instructions", async () => {
-        setup({
-            snapshot: ref({
-                available: true,
-                connected: false,
-                owner,
-                bluetooth_discovery_supported: true,
-                radio_platform: "linux",
-            }),
-        });
-        await flushPromises();
-        expect(window.api.get).toHaveBeenCalled();
-        expect(wrapper.text()).toContain("Find nearby radios");
-        expect(wrapper.text()).not.toContain("Pair your radio in Android");
-    });
+    it.each(["linux", "windows"])(
+        "offers explicit %s radio discovery without Android pairing instructions",
+        async (platform) => {
+            setup({
+                snapshot: ref({
+                    available: true,
+                    connected: false,
+                    owner,
+                    bluetooth_discovery_supported: true,
+                    radio_platform: platform,
+                }),
+            });
+            await flushPromises();
+            expect(window.api.get).not.toHaveBeenCalled();
+            expect(wrapper.text()).toContain("Find nearby radios");
+            await button("Find nearby radios").trigger("click");
+            await flushPromises();
+            expect(window.api.get.mock.calls.filter(([path]) => path.endsWith("/bluetooth-devices"))).toHaveLength(1);
+            expect(wrapper.text()).not.toContain("Pair your radio in Android");
+        }
+    );
 
-    it("does not restart Bluetooth discovery when polling replaces the snapshot", async () => {
+    it("does not start desktop Bluetooth discovery when polling replaces the snapshot", async () => {
         setup({
             snapshot: ref({
                 available: true,
@@ -165,7 +171,7 @@ describe("MeshCore radio settings", () => {
             state.snapshot.value = { ...state.snapshot.value, profile_name: `Poll ${poll}` };
             await flushPromises();
         }
-        expect(window.api.get.mock.calls.filter(([path]) => path.endsWith("/bluetooth-devices"))).toHaveLength(1);
+        expect(window.api.get.mock.calls.filter(([path]) => path.endsWith("/bluetooth-devices"))).toHaveLength(0);
     });
 
     it("leaves saved Linux companions to reconnect without an automatic scan, while allowing manual discovery", async () => {

@@ -2,6 +2,8 @@
 
 ## 0.1.4
 
+- MeshCore maps animate newly received flood packets as glowing comets with fading tails and node pulses. Unknown, ambiguous and unlocated hops break the animation; compact expandable badges explain gaps without claiming a node location. Effects are scoped to the selected radio and respect reduced-motion settings.
+
 - SIP registration tries other account-allowed connections after failure and retries unavailable connections periodically. A healthy registered connection stays selected.
 - Phone sidebar destinations come into view automatically. More → Reorder sidebar provides Save/Cancel controls, and Android Back cancels reordering.
 - Fixed Back during first-start setup.

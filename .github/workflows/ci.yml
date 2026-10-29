@@ -360,6 +360,7 @@ jobs:
               uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
               with:
                   persist-credentials: false
+                  fetch-depth: 0
 
             - name: Set up development environment
               uses: ./.github/actions/setup-dev-environment
@@ -382,7 +383,7 @@ jobs:
                   BASE_REF: ${{ github.base_ref }}
               run: |
                   set -euo pipefail
-                  git fetch origin "$BASE_REF" --depth=50
+                  git fetch origin "$BASE_REF"
                   uv run diff-cover coverage.xml \
                       --compare-branch="origin/$BASE_REF" \
                       --fail-under=80 \
