@@ -92,6 +92,7 @@ window.NEXT_GUIDE = {
             ],
             notes: [
                 "On phones, choosing a page from the sidebar makes Back reopen that sidebar first. Back closes dialogs and local panels before leaving a page; closing a reopened sidebar does not trap you in a loop. Android Back and the app Back controls follow the same order.",
+                "Choose More → Reorder sidebar to show the arrows. Save keeps the new order; Cancel or Android Back discards the draft and exits editing. Selecting a normal destination brings its content into view automatically on phones.",
                 "Reticulum and MeshCore do not automatically bridge messages. Linking contacts only groups their addresses in your address book.",
                 "TAC is a map/team workflow carried over MeshCore; it is not another general-purpose radio network. SIP is separate internet telephony.",
                 "Feature visibility switches do not stop an already running service. Disconnect or disable it through its own controls.",
@@ -297,7 +298,7 @@ window.NEXT_GUIDE = {
                 "New public hashtag names are normalized to lowercase for compatible name-based joining. For an older mixed-case channel, exchange the exact key; changing the displayed name alone does not change that key.",
                 "Use the arrow controls to reorder channels. Drag-and-drop is not required. Hide a channel to remove it from the normal list, and show hidden channels in the manager to unhide it.",
                 "Delete a channel from the manager when appropriate, including Public if you do not want it. Review the deletion prompt; hiding is the reversible choice when you only want less clutter.",
-                "Choose All messages, Mentions only or Muted per channel. The sidebar shows per-channel unread counts and a parent total.",
+                "On Your channels, choose All messages, Mentions only or Muted for each channel’s notification alerts. This does not filter messages. Unread counts remain available in the list and sidebar, with a total.",
             ],
             notes: [
                 "Anyone who has a channel key can participate. A public hashtag’s key is not a private invitation.",
@@ -847,7 +848,7 @@ window.NEXT_GUIDE = {
         ],
         [
             "Can SIP fall back from Wi-Fi to mobile data?",
-            "Allow both networks. On Android, a failed or timed-out registration tries another allowed connection. If none works, neXt retries periodically; a successful connection stays selected. Active calls are not interrupted just to retry registration, but losing the connection can still end a call.",
+            "Allow both networks. A failed or timed-out registration tries another account-allowed connection. If none works, neXt retries periodically; a successful connection stays selected. Active calls are not interrupted just to retry registration, but losing the connection can still end a call.",
             "sip",
         ],
         [

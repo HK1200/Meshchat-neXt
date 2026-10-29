@@ -876,3 +876,16 @@ No. It is a local reading aid. Checklists save browser progress only; no keys, r
 ## Review boundaries
 
 This guide describes Meshchat neXt 0.1.3. Compatibility is specific to the firmware, codec, server and package in use; it does not imply support for every ATAK deployment. A firmware assistant is not included. External projects and firmware change. Check the exact neXt release notes and hardware before flashing.
+
+
+### Changes in 0.1.4
+
+On phones, selecting a destination closes the sidebar. Choose **More → Reorder sidebar**, use the arrows, then **Save** to keep the order or **Cancel** to discard it. Android Back also cancels the draft.
+
+On **MeshCore → Your channels**, choose **All messages**, **Mentions only** or **Muted** for each channel’s notification alerts. Messages remain visible and still contribute unread counts.
+
+SIP retries connections allowed by the selected account. To permit mobile fallback, allow both Wi-Fi and mobile data in that account’s network policy. If registration fails, neXt tries another allowed connection; if none succeeds, it retries periodically. Mobile service, roaming restrictions and provider limits can still prevent registration. A working registered connection stays selected.
+
+Nearby repeater discovery may report a Radio2 profile. Node, map and network details label this as reported information with observation context. Legacy replies remain **Unknown**, and unavailable/unsupported/off responses cannot establish a remote client’s media capability. A positive compatible-repeater hardware check is still outstanding.
+
+Windows source is under development; public Windows binaries are held for signing and final verification.

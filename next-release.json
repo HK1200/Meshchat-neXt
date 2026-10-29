@@ -1,9 +1,9 @@
 {
     "upstreamVersion": "4.10.7",
-    "nextVersion": "0.1.3",
-    "displayVersion": "0.1.3",
-    "pythonVersion": "0.1.3",
-    "androidVersionCode": 5,
+    "nextVersion": "0.1.4",
+    "displayVersion": "0.1.4",
+    "pythonVersion": "0.1.4",
+    "androidVersionCode": 6,
     "buildChannel": "stable",
     "githubRepository": "hk1200/Meshchat-neXt"
 }

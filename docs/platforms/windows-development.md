@@ -44,7 +44,7 @@ Build only the helper first: `uv run --frozen python scripts/build-windows-sip.p
 
 Run `uv run --frozen python scripts/windows/check-platform.py --credential-self-test --scan-bluetooth --sip-ipc-test`. Then `uv run --frozen python -m pytest tests/backend/test_meshcore_windows.py tests/backend/test_sip_windows.py tests/backend/test_sip_desktop_engine.py --basetemp=temp-tests/windows-native -q -rs`. Native SIP tests use only loopback test accounts/registrars; no call to either phone. Do not count missing-helper skips as passes.
 
-The source export still carries the base release integrity manifest, which does not attest these local edits. First run the standalone helper and transport/credential probes. Do not launch/package the app as a verified release, remove the warning, or bypass integrity checks. After native compilation fixes and owner source review, prepare the normal signed local candidate before the full app tests. Signing keys stay in Linux storage and are not part of this handoff. No release/upload is authorized.
+Verify the current pinned source signature before full app tests. Rebuild the frontend, frozen backend and package from that exact source; source integrity does not substitute for Windows Authenticode signing. Keep private signing keys on Linux. Windows binary publication remains held for signing and final native package/runtime checks.
 
 
 ## Local x64 native results — 2026-10-28
@@ -93,3 +93,8 @@ Keep signing private keys and live app profiles out of source and build handoffs
 Forced AppContainer runtime, signed installer/update preservation and Windows
 ARM64 remain separate unverified gates. The existing Android/Linux releases and
 update feeds are unchanged by this source update.
+
+
+## Release preparation — 0.1.4
+
+Android and Linux 0.1.4 are being prepared with the shared usability changes. Windows source remains part of the repository, while public Windows binaries remain withheld pending SignPath signing and final verification. CI build artifacts are test candidates, not signed public Windows releases.

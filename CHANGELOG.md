@@ -1,5 +1,14 @@
 # Meshchat neXt changelog
 
+## 0.1.4
+
+- SIP registration tries other account-allowed connections after failure and retries unavailable connections periodically. A healthy registered connection stays selected.
+- Phone sidebar destinations come into view automatically. More → Reorder sidebar provides Save/Cancel controls, and Android Back cancels reordering.
+- Fixed Back during first-start setup.
+- MeshCore Your channels includes per-channel All messages, Mentions only and Muted notification controls, with unread totals. These controls change alerts, not the messages displayed.
+- Nearby discovery can display a repeater’s reported Radio2 profile in node, map and network details. Legacy replies remain Unknown; no response is not proof of absent support. Positive detection with compatible hardware remains unverified.
+- Windows source support includes native SIP/audio, USB/Bluetooth transports and protected credential storage. Windows downloads remain withheld pending signing and final package verification.
+
 ## 0.1.3
 
 - Compact expandable map credits and consistent Close/Android Back dismissal of MeshCore visualiser details.

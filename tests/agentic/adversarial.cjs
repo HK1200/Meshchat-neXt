@@ -90,13 +90,40 @@ async function main() {
     const browser = await chromium.launch();
     const page = await (await browser.newContext({ baseURL: BASE_URL })).newPage();
     const errors = [];
+    const resourceErrors = [];
+    const validationReplies = new Map();
+    const pendingReplies = [];
     page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
     page.on("console", (m) => {
         if (m.type() === "error") {
-            errors.push(`console: ${m.text().slice(0, 200)}`);
+            const text = m.text();
+            const url = m.location().url;
+            if (
+                /^Failed to load resource: the server responded with a status of 400 \(Bad Request\)$/.test(text) &&
+                new URL(url, BASE_URL).pathname === "/api/v1/config"
+            ) {
+                resourceErrors.push({ url, text });
+            } else {
+                errors.push(`console: ${text.slice(0, 200)}`);
+            }
         }
     });
     page.on("response", (r) => {
+        if (r.status() === 400 && r.request().method() === "PATCH" && new URL(r.url()).pathname === "/api/v1/config") {
+            pendingReplies.push(
+                (async () => {
+                    try {
+                        const body = await r.json();
+                        const detail = body.error || body.message;
+                        if (typeof detail === "string" && detail.trim())
+                            validationReplies.set(r.url(), (validationReplies.get(r.url()) || 0) + 1);
+                        else errors.push(`http 400 without validation detail: ${r.url()}`);
+                    } catch {
+                        errors.push(`http 400 without JSON validation: ${r.url()}`);
+                    }
+                })()
+            );
+        }
         if (r.status() >= 500) {
             errors.push(`http ${r.status()}: ${r.url()}`);
         }
@@ -134,6 +161,13 @@ async function main() {
                 }
             }
         }
+        await Promise.all(pendingReplies);
+        for (const entry of resourceErrors) {
+            const remaining = validationReplies.get(entry.url) || 0;
+            if (remaining > 0) validationReplies.set(entry.url, remaining - 1);
+            else errors.push(`console: ${entry.text} ${entry.url}`);
+        }
+        resourceErrors.length = 0;
         const found = errors.slice(before);
         if (found.length) {
             findings.push({ route, errors: found });
