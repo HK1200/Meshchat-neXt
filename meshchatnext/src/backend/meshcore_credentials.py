@@ -20,6 +20,12 @@ class NodePasswords:
                     )
 
                     self._provider = DesktopNodePasswords()
+                elif transport_platform() == "windows":
+                    from meshchatnext.src.backend.meshcore_windows_credentials import (
+                        WindowsNodePasswords,
+                    )
+
+                    self._provider = WindowsNodePasswords()
                 elif transport_platform() == "android":
                     from java import jclass
                     from usb4a.usb import get_context

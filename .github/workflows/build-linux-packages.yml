@@ -58,6 +58,7 @@ env:
         ghcr.io:443
         azure.archive.ubuntu.com:80
         archive.ubuntu.com:80
+        ports.ubuntu.com:80
         *.ubuntu.com:443
         packages.microsoft.com:443
         pypi.org:443
@@ -196,7 +197,7 @@ jobs:
             - name: Upload Linux build-test artifact (${{ matrix.arch }})
               uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
               with:
-                  name: meshchatnext-linux-build-test-${{ matrix.arch }}-${{ github.ref_name }}-${{ github.run_id }}
+                  name: meshchatnext-linux-build-test-${{ matrix.arch }}-${{ github.sha }}-${{ github.run_id }}
                   path: release-assets/
                   if-no-files-found: warn
                   retention-days: 1
@@ -270,7 +271,7 @@ jobs:
             - name: Upload flatpak artifact
               uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
               with:
-                  name: meshchatnext-linux-flatpak-${{ github.ref_name }}-${{ github.run_id }}
+                  name: meshchatnext-linux-flatpak-${{ github.sha }}-${{ github.run_id }}
                   path: dist/*.flatpak
                   if-no-files-found: error
                   retention-days: 7

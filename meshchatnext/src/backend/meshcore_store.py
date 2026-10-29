@@ -82,6 +82,9 @@ class MeshCoreStore:
                 CREATE TABLE IF NOT EXISTS regions (owner TEXT NOT NULL,name TEXT NOT NULL,PRIMARY KEY(owner,name));
                 CREATE TABLE IF NOT EXISTS hidden_channels (owner TEXT NOT NULL,channel_id TEXT NOT NULL,PRIMARY KEY(owner,channel_id));
                 CREATE TABLE IF NOT EXISTS channel_scopes (owner TEXT NOT NULL,channel_id TEXT NOT NULL,scope TEXT,PRIMARY KEY(owner,channel_id));
+                CREATE TABLE IF NOT EXISTS peer_radio2 (
+                    owner TEXT NOT NULL,peer TEXT NOT NULL,report TEXT NOT NULL,
+                    observed REAL NOT NULL,PRIMARY KEY(owner,peer));
                 CREATE TABLE IF NOT EXISTS saved_nodes (
                     owner TEXT NOT NULL,peer TEXT NOT NULL,PRIMARY KEY(owner,peer));
                 CREATE TABLE IF NOT EXISTS channel_preferences (
@@ -925,17 +928,21 @@ class MeshCoreStore:
     def map_nodes(self, owner):
         owner = public_key(owner)
         with self._lock, self._connect() as db:
-            return [
-                dict(row)
-                for row in db.execute(
-                    """SELECT p.peer,p.latitude,p.longitude,p.updated,a.heard,a.advertised,a.name,a.kind,
+            return self._peer_radio2_rows(
+                db,
+                owner,
+                [
+                    dict(row)
+                    for row in db.execute(
+                        """SELECT p.peer,p.latitude,p.longitude,p.updated,a.heard,a.advertised,a.name,a.kind,
                 EXISTS(SELECT 1 FROM contacts c WHERE c.owner=p.owner AND c.peer=p.peer AND c.active=1) AS saved
                 FROM map_positions p JOIN announces a ON a.owner=p.owner AND a.peer=p.peer
                 WHERE p.owner=? ORDER BY COALESCE(a.heard,
                 CASE WHEN p.updated<=? THEN p.updated ELSE 0 END) DESC,p.peer LIMIT 1000""",
-                    (owner, time.time() + 60),
-                )
-            ]
+                        (owner, time.time() + 60),
+                    )
+                ],
+            )
 
     def touch_announce(self, owner, peer, heard):
         peer = public_key(peer)
@@ -969,16 +976,20 @@ class MeshCoreStore:
 
     def announces(self, owner):
         with self._lock, self._connect() as db:
-            return [
-                dict(row)
-                for row in db.execute(
-                    """SELECT peer,name,kind,advertised,heard,path_len,path_bytes,
+            return self._peer_radio2_rows(
+                db,
+                owner,
+                [
+                    dict(row)
+                    for row in db.execute(
+                        """SELECT peer,name,kind,advertised,heard,path_len,path_bytes,
                    EXISTS(SELECT 1 FROM contacts c WHERE c.owner=a.owner AND c.peer=a.peer AND c.active=1) AS saved
                    FROM announces a WHERE owner=?
                    ORDER BY COALESCE(heard,CASE WHEN advertised<=? THEN advertised ELSE 0 END) DESC,peer""",
-                    (owner, time.time() + 60),
-                )
-            ]
+                        (owner, time.time() + 60),
+                    )
+                ],
+            )
 
     def channel_visibility(self, owner, channel, hidden):
         owner, channel = public_key(owner), public_key(channel)
@@ -1187,6 +1198,36 @@ class MeshCoreStore:
             )
         return None
 
+    def record_peer_radio2(self, owner, peer, report, observed):
+        owner, peer = public_key(owner), public_key(peer)
+        if not isinstance(report, dict) or report.get("state") not in (
+            "unknown",
+            "unavailable",
+            "enabled",
+        ):
+            raise ValueError("Invalid Radio2 observation")
+        if not math.isfinite(observed) or observed <= 0:
+            raise ValueError("Invalid observation time")
+        with self._lock, self._connect() as db:
+            db.execute(
+                """INSERT INTO peer_radio2 VALUES(?,?,?,?)
+                ON CONFLICT(owner,peer) DO UPDATE SET report=excluded.report,observed=excluded.observed
+                WHERE excluded.observed>=peer_radio2.observed""",
+                (owner, peer, _json(report), observed),
+            )
+
+    def _peer_radio2_rows(self, db, owner, rows):
+        reports = {
+            row["peer"]: {**json.loads(row["report"]), "observed": row["observed"]}
+            for row in db.execute(
+                "SELECT peer,report,observed FROM peer_radio2 WHERE owner=?", (owner,)
+            )
+        }
+        return [
+            {**row, "radio2": reports.get(row["peer"], {"state": "unknown"})}
+            for row in rows
+        ]
+
     def record_node_discovery(self, owner, peer, kind, heard):
         peer = public_key(peer)
         if type(kind) is not int or kind not in (2, 3, 4):
@@ -1228,17 +1269,21 @@ class MeshCoreStore:
 
     def nodes(self, owner):
         with self._lock, self._connect() as db:
-            return [
-                dict(row)
-                for row in db.execute(
-                    """SELECT a.peer,a.name,a.kind,a.advertised,a.heard,a.path_len,a.path_bytes,
+            return self._peer_radio2_rows(
+                db,
+                owner,
+                [
+                    dict(row)
+                    for row in db.execute(
+                        """SELECT a.peer,a.name,a.kind,a.advertised,a.heard,a.path_len,a.path_bytes,
                    (SELECT count(*) FROM messages m WHERE m.owner=a.owner AND m.peer=a.peer AND m.direction='in'
                    AND m.created>COALESCE((SELECT seen FROM read_markers r WHERE r.owner=a.owner AND r.peer=a.peer),0)) AS unread
                    FROM saved_nodes s JOIN announces a ON a.owner=s.owner AND a.peer=s.peer
                    WHERE s.owner=? ORDER BY a.name,a.peer""",
-                    (owner,),
-                )
-            ]
+                        (owner,),
+                    )
+                ],
+            )
 
     def banish_channel_sender(self, owner, channel, message):
         channel = public_key(channel)

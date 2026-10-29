@@ -179,5 +179,9 @@ fi
 # Persist for later workflow steps. Linux runners usually already have
 # /usr/local/bin. Windows Git Bash does not keep the install-step PATH.
 if [ -n "${GITHUB_PATH:-}" ]; then
-    echo "${UV_INSTALL_DIR}" >> "${GITHUB_PATH}"
+    if [ "${EXT}" = "zip" ] && command -v cygpath >/dev/null 2>&1; then
+        cygpath -w "${UV_INSTALL_DIR}" >> "${GITHUB_PATH}"
+    else
+        echo "${UV_INSTALL_DIR}" >> "${GITHUB_PATH}"
+    fi
 fi

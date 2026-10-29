@@ -10,6 +10,30 @@
         >
             MeshCore<span class="hidden sm:inline"> map</span>
         </button>
+        <details
+            v-if="trafficGaps.length"
+            :key="`${owner}:${radioId}`"
+            class="relative inline-block align-middle ml-1"
+            aria-label="Unknown route gaps"
+        >
+            <summary class="secondary-chip text-xs !px-2 cursor-pointer list-none">
+                ? {{ trafficGaps.length }} {{ trafficGaps.length === 1 ? "gap" : "gaps" }}
+            </summary>
+            <div
+                class="absolute right-0 top-full mt-2 z-40 w-64 max-w-[80vw] rounded-lg border border-sem-border bg-sem-surface p-3 shadow-xl text-xs text-sem-fg space-y-2"
+            >
+                <p>
+                    Unknown, ambiguous or unlocated hops interrupt these observed routes. Comets stop at each gap; no
+                    unknown node position is implied.
+                </p>
+                <ul class="max-h-32 overflow-y-auto space-y-1">
+                    <li v-for="(gap, index) in trafficGaps.slice(0, 8)" :key="gap.key">
+                        Gap {{ index + 1 }}: {{ gap.count }} unknown {{ gap.count === 1 ? "hop" : "hops" }}
+                    </li>
+                    <li v-if="trafficGaps.length > 8">And {{ trafficGaps.length - 8 }} more gaps</li>
+                </ul>
+            </div>
+        </details>
         <Teleport :to="map?.getTargetElement?.()?.parentElement || 'body'">
             <section
                 v-if="open"
@@ -30,6 +54,15 @@
                 <label class="flex items-center gap-2 text-sm"
                     ><input v-model="visible" type="checkbox" /> Show MeshCore nodes and team</label
                 >
+                <label class="flex items-center gap-2 text-sm">
+                    <input v-model="trafficEnabled" type="checkbox" :disabled="!visible" /> Animate packet traffic
+                </label>
+                <p v-if="trafficEnabled" class="text-xs text-sem-fg-muted" aria-label="MeshCore packet traffic status">
+                    Glowing comets and node pulses show partial observed routes using saved positions, not verified
+                    identities or delivery. Gaps are never connected. Timing is illustrative. Reduced-motion mode uses
+                    static highlights.
+                    {{ trafficStatus }}
+                </p>
                 <p class="text-xs text-sem-fg-muted">
                     Positions reported in MeshCore announces. Reticulum markers stay separate. Viewing this layer does
                     not share your location.
@@ -176,6 +209,7 @@ import { unByKey } from "ol/Observable";
 import { shapeGeometry } from "../../../js/meshcoreShapes";
 import { getAndroidPosition, isAndroidLocationSupported } from "../../../js/androidLocation";
 import { apiPath } from "../../../js/constants";
+import { useMeshCoreMapTraffic } from "../../../js/map/useMeshCoreMapTraffic";
 import { formatMeshcoreAge } from "../../../js/meshcoreTime";
 import { nodePressIsSuppressed } from "./mapNodeDetails.js";
 const props = defineProps({
@@ -204,6 +238,23 @@ const team = ref(null),
 const rangePosition = ref(null),
     locating = ref(false),
     rangeProblem = ref("");
+const trafficEnabled = ref(true);
+const trafficGaps = ref([]);
+const trafficStatus = useMeshCoreMapTraffic(
+    () => ({
+        map: props.map,
+        enabled:
+            trafficEnabled.value &&
+            visible.value &&
+            props.active &&
+            (!router?.currentRoute?.value?.query?.meshcoreRadio ||
+                router.currentRoute.value.query.meshcoreRadio === radioId.value),
+        owner: owner.value,
+        radioId: radioId.value,
+        connected: connected.value,
+    }),
+    trafficGaps
+);
 let rangeRequest = 0;
 function clearRange() {
     rangeRequest++;

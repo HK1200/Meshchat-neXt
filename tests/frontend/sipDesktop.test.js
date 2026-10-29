@@ -14,7 +14,15 @@ afterEach(async () => {
 });
 it("deduplicates desktop status polling while keeping the synchronous state contract", async () => {
     let resolve;
-    window.api = { get: vi.fn(() => new Promise((r) => { resolve = r; })), post: vi.fn() };
+    window.api = {
+        get: vi.fn(
+            () =>
+                new Promise((r) => {
+                    resolve = r;
+                })
+        ),
+        post: vi.fn(),
+    };
     expect(sip.refreshSip()).toBe(sip.sipState);
     sip.refreshSip();
     expect(window.api.get).toHaveBeenCalledTimes(1);
@@ -24,7 +32,9 @@ it("deduplicates desktop status polling while keeping the synchronous state cont
     expect(window.api.post).not.toHaveBeenCalled();
 });
 it("uses the authenticated API client for Linux account actions", async () => {
-    window.api = { post: vi.fn().mockResolvedValue({ data: { available: true, platform: "linux", selected: "account-one" } }) };
+    window.api = {
+        post: vi.fn().mockResolvedValue({ data: { available: true, platform: "linux", selected: "account-one" } }),
+    };
     await sip.sipCommand("connect", { id: "account-one" });
     expect(window.api.post).toHaveBeenCalledWith("/api/v1/sip/command", { op: "connect", id: "account-one" });
     expect(sip.sipState.selected).toBe("account-one");
@@ -48,4 +58,23 @@ it("retains the Android native bridge without calling desktop endpoints", async 
     expect(window.api.get).not.toHaveBeenCalled();
     expect(window.api.post).not.toHaveBeenCalled();
     expect(window.MeshchatNextAndroid.sipCommand).toHaveBeenCalledOnce();
+});
+
+it("routes Windows SIP state and feature controls through the desktop API", async () => {
+    window.api = {
+        get: vi.fn().mockResolvedValue({
+            data: { available: true, platform: "windows", feature_enabled: true, registered: false },
+        }),
+        post: vi.fn().mockResolvedValue({ data: { platform: "windows", feature_enabled: false } }),
+    };
+    sip.refreshSip();
+    await flushPromises();
+    expect(sip.sipState.platform).toBe("windows");
+    const { setAppFeature } = await import("../../meshchatnext/src/frontend/js/appFeatures.js");
+    setAppFeature("sip", true);
+    await flushPromises();
+    window.api.post.mockClear();
+    setAppFeature("sip", false);
+    await flushPromises();
+    expect(window.api.post).toHaveBeenCalledWith("/api/v1/sip/command", { op: "feature", enabled: false });
 });

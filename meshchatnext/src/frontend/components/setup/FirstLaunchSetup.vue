@@ -11,7 +11,11 @@
         panel-class="bg-sem-canvas text-sem-fg h-full! max-h-full! min-h-0"
         class="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
     >
-        <div class="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-sem-canvas text-sem-fg">
+        <div
+            data-app-back-scope
+            class="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-sem-canvas text-sem-fg"
+            @app-back.stop="previous()"
+        >
             <div
                 ref="setupScroll"
                 data-testid="setup-scroll"

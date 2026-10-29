@@ -62,7 +62,7 @@ class TestBackendIntegrity(unittest.TestCase):
 
         self.assertEqual(len(manifest["files"]), 2)
         self.assertIn("MeshchatNext", manifest["files"])
-        self.assertIn("lib/some_lib.so", manifest["files"])
+        self.assertIn(os.path.join("lib", "some_lib.so"), manifest["files"])
         self.assertIn("_metadata", manifest)
 
     def test_tampering_detection_logic(self):

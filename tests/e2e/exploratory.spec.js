@@ -37,6 +37,13 @@ const ROUTES = [
     "/documentation",
     "/profile/icon",
     "/settings",
+    "/settings/sip",
+    "/settings/features",
+    "/tools/meshcore",
+    "/settings/meshcore",
+    "/meshcore/channels",
+    "/meshcore/nodes",
+    "/traffic",
     "/identities",
     "/blocked",
     "/tools",
@@ -75,7 +82,7 @@ test.describe("Exploratory route crawl", () => {
             }
             const text = msg.text();
             if (!IGNORED_CONSOLE_ERRORS.some((re) => re.test(text))) {
-                errors.push(`console: ${text}`);
+                errors.push(`console: ${text} (${msg.location().url || "unknown resource"})`);
             }
         });
 

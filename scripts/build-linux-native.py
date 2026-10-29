@@ -79,7 +79,7 @@ def main():
     urls = {
         "re-4.12.0.tar.gz": "https://codeload.github.com/baresip/re/tar.gz/refs/tags/v4.12.0",
         "baresip-4.12.0.tar.gz": "https://codeload.github.com/baresip/baresip/tar.gz/refs/tags/v4.12.0",
-        "opus-1.5.2.tar.gz": "https://downloads.xiph.org/releases/opus/opus-1.5.2.tar.gz",
+        "opus-1.5.2.tar.gz": "https://github.com/xiph/opus/releases/download/v1.5.2/opus-1.5.2.tar.gz",
         "mbedtls-3.6.7.tar.bz2": "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-3.6.7/mbedtls-3.6.7.tar.bz2",
     }
     for name, digest in builder.SOURCES.items():

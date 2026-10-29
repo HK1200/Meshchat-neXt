@@ -16,6 +16,11 @@ const IGNORED_CLI_ARGUMENTS = new Set([
 // Desktop launchers and test tools add Electron switches with values. These
 // belong to Chromium/Node, not the Python backend's strict argument parser.
 const ELECTRON_VALUE_FLAGS = new Set([
+    "--user-data-dir",
+    "--use-angle",
+    "--use-gl",
+    "--disable-features",
+    "--enable-features",
     "--inspect",
     "--inspect-brk",
     "--remote-debugging-port",

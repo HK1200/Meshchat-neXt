@@ -51,6 +51,7 @@ Use it over compatible LoRa radios, local networks or internet connections, depe
 - Optional MediaMesh/Radio2 photos and recorded voice clips in MeshCore DMs and channels.
 - Preview before sending, explicit downloads/retries and cached viewing/playback.
 - Offline maps with supported tile storage/import, plus tactical positions, reports, drawings and routes.
+- Optional MeshCore packet comets and node pulses from observed traffic, with one expandable gap badge and compact map credits. Unknown hops remain disconnected.
 - Optional team alerts, geofence monitoring and time-limited background position sharing.
 - Supported TAK package import/export and optional TAK-server connections.
 

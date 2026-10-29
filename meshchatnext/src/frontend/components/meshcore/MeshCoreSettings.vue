@@ -38,15 +38,15 @@
                             </select></label
                         >
                         <label v-if="kind === 'ble'"
-                            >{{ linuxRadio ? "Nearby Bluetooth devices" : "Paired Bluetooth radio" }}
+                            >{{ desktopRadio ? "Nearby Bluetooth devices" : "Paired Bluetooth radio" }}
                             <select
                                 v-model="bluetoothChoice"
                                 class="input-field"
-                                :aria-label="linuxRadio ? 'Nearby Bluetooth devices' : 'Paired Bluetooth radio'"
+                                :aria-label="desktopRadio ? 'Nearby Bluetooth devices' : 'Paired Bluetooth radio'"
                                 @change="chooseBluetooth"
                             >
                                 <option disabled value="">
-                                    {{ linuxRadio ? "Choose your MeshCore radio" : "Choose a paired radio" }}
+                                    {{ desktopRadio ? "Choose your MeshCore radio" : "Choose a paired radio" }}
                                 </option>
                                 <option
                                     v-if="
@@ -100,13 +100,13 @@
                             {{
                                 loadingDevices
                                     ? "Loading radios…"
-                                    : linuxRadio
+                                    : desktopRadio
                                       ? "Find nearby radios"
                                       : "Refresh paired radios"
                             }}
                         </button>
                         <p v-if="deviceProblem" role="alert" class="text-xs text-sem-danger">{{ deviceProblem }}</p>
-                        <p v-if="linuxRadio" class="text-xs text-sem-fg-muted">
+                        <p v-if="desktopRadio" class="text-xs text-sem-fg-muted">
                             Make your MeshCore companion available over Bluetooth, then find nearby radios. Nearby
                             devices may include RNodes; select only your MeshCore companion. No radio is connected by
                             discovery.
@@ -126,9 +126,14 @@
                             {{ loadingUsb ? "Loading USB radios…" : "Refresh USB radios" }}
                         </button>
                         <p v-if="usbProblem" role="alert" class="text-xs text-sem-danger">{{ usbProblem }}</p>
-                        <p v-if="linuxRadio" class="text-xs text-sem-fg-muted">
-                            Connect a USB MeshCore companion and select its serial device. Your Linux user needs
-                            permission to access that device. Configure your RNode separately under Interfaces.
+                        <p v-if="desktopRadio" class="text-xs text-sem-fg-muted">
+                            Connect a USB MeshCore companion and select its
+                            {{
+                                windowsRadio
+                                    ? "COM port. If it is missing, check the cable and the device’s Windows driver."
+                                    : "serial device. Your Linux user needs permission to access that device."
+                            }}
+                            Configure your RNode separately under Interfaces.
                         </p>
                         <p v-else class="text-xs text-sem-fg-muted">
                             Connect through an OTG cable, then select your MeshCore companion. Select your RNode
@@ -349,7 +354,8 @@ watch(
     }
 );
 
-const linuxRadio = computed(() => snapshot.value.radio_platform === "linux");
+const windowsRadio = computed(() => snapshot.value.radio_platform === "windows");
+const desktopRadio = computed(() => ["linux", "windows"].includes(snapshot.value.radio_platform));
 const kind = ref("ble"),
     target = ref(""),
     busy = ref(false),
@@ -402,14 +408,14 @@ async function loadUsbDevices() {
         if (!stopped) {
             usbDevices.value = Array.isArray(data.result) ? data.result : [];
             if (!usbDevices.value.length)
-                usbProblem.value = linuxRadio.value
+                usbProblem.value = desktopRadio.value
                     ? "No serial radios found. Attach your USB MeshCore companion and refresh."
                     : "No USB serial radios found. Attach your MeshCore radio through an OTG cable and refresh.";
         }
     } catch {
         if (!stopped)
-            usbProblem.value = linuxRadio.value
-                ? "Could not list serial devices. Check the USB cable and Linux device access."
+            usbProblem.value = desktopRadio.value
+                ? "Could not list serial devices. Check the USB cable and device access."
                 : "Could not list USB radios. Check the OTG connection and refresh.";
     } finally {
         loadingUsb.value = false;
@@ -436,14 +442,14 @@ async function loadDevices() {
         if (!stopped) {
             devices.value = Array.isArray(data.result) ? data.result : [];
             if (!devices.value.length)
-                deviceProblem.value = linuxRadio.value
+                deviceProblem.value = desktopRadio.value
                     ? "No candidate radios found. Check that your MeshCore companion is advertising, or enter its address manually."
                     : "No paired BLE radios found. Pair a radio in Android settings or enter its address manually.";
         }
     } catch {
         if (!stopped)
-            deviceProblem.value = linuxRadio.value
-                ? "Could not find radios. Check your Linux Bluetooth adapter and permissions, or enter the address manually."
+            deviceProblem.value = desktopRadio.value
+                ? "Could not find radios. Check your Bluetooth adapter and permissions, or enter the address manually."
                 : "Could not list paired radios. Check Bluetooth permission, or enter the address manually.";
     } finally {
         loadingDevices.value = false;
@@ -599,9 +605,10 @@ watch(
 watch(
     [() => snapshot.value.available, () => snapshot.value.bluetooth_discovery_supported],
     ([available]) => {
-        // A saved companion already supplies the dropdown's selected device.
-        // Repeated discovery competes with BLE reconnect's own device lookup.
-        if (available && !(linuxRadio.value && snapshot.value.connection)) loadDevices();
+        // Desktop discovery actively scans an adapter and requires user intent.
+        // Opening settings must work without Bluetooth and must not compete with reconnect.
+        // Android only enumerates already paired devices here.
+        if (available && !desktopRadio.value) loadDevices();
     },
     { immediate: true }
 );

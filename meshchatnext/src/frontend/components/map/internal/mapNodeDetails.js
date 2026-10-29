@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: 0BSD
+import { peerRadio2Rows } from "../../../js/meshcorePeerRadio2";
 import { toLonLat } from "ol/proj";
 
 const NODE_KINDS = { 1: "Client", 2: "Repeater", 3: "Room server", 4: "Sensor" };
@@ -98,6 +99,7 @@ export function mapNodeDetails(feature, pressedCoordinate) {
               : null;
     if (date && Number.isFinite(date.getTime())) add(data.heard ? "Last heard" : "Reported", date.toLocaleString());
     add("Radio", context.radio_label || context.radio_id);
+    if (isMeshcore) rows.push(...peerRadio2Rows(data.radio2));
     if (context.team_enabled) add("View", "Teams");
     if (isTeam) {
         add("Callsign", team.callsign);

@@ -1,14 +1,19 @@
 # SPDX-License-Identifier: MIT
 import asyncio
+import sys
 from pathlib import Path
 
 import pytest
 
 from meshchatnext.src.backend.sip_desktop_engine import DesktopSipEngine
 
-BINARY = Path(".local/linux-sip/meshchatnext-sip")
+BINARY = Path(
+    ".local/windows-sip/meshchatnext-sip.exe"
+    if sys.platform == "win32"
+    else ".local/linux-sip/meshchatnext-sip"
+)
 pytestmark = pytest.mark.skipif(
-    not BINARY.is_file(), reason="Local native Linux SIP build required"
+    not BINARY.is_file(), reason="Local native SIP build required"
 )
 
 

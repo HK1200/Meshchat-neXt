@@ -3,6 +3,7 @@
 
 import ipaddress
 import socket
+import sys
 from pathlib import Path
 
 import psutil
@@ -48,6 +49,17 @@ def default_routes(text):
 def available_networks(
     *, route_text=None, addresses=None, stats=None, sysfs=Path("/sys/class/net")
 ):
+    if (
+        sys.platform == "win32"
+        and route_text is None
+        and addresses is None
+        and stats is None
+    ):
+        from meshchatnext.src.backend.sip_windows_network import (
+            available_networks as windows_networks,
+        )
+
+        return windows_networks()
     try:
         if route_text is None:
             route_text = Path("/proc/net/route").read_text()

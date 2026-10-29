@@ -80,7 +80,7 @@ def test_import_hook_loader_injects_aliases(tmp_path: Path):
     assert module.PYOGG_OGG_AVAIL is False
 
 
-def test_finder_returns_spec_only_when_unpatched(tmp_path: Path, monkeypatch):
+def test_finder_also_repairs_alias_marked_bindings(tmp_path: Path, monkeypatch):
     ogg = tmp_path / "ogg.py"
     ogg.write_text(_ogg_source(), encoding="utf-8")
     monkeypatch.setattr(compat, "find_ogg_py", lambda: ogg)
@@ -91,7 +91,7 @@ def test_finder_returns_spec_only_when_unpatched(tmp_path: Path, monkeypatch):
     assert isinstance(spec.loader, compat._OggCompatLoader)
 
     ogg.write_text(_ogg_source(with_marker=True), encoding="utf-8")
-    assert finder.find_spec(compat._OGG_MODULE, None) is None
+    assert finder.find_spec(compat._OGG_MODULE, None) is not None
 
 
 def test_ensure_prefers_disk_patch(tmp_path: Path, monkeypatch):

@@ -20,6 +20,14 @@ HEADERS = {"Cache-Control": "no-store", "Pragma": "no-cache"}
 
 
 def native_executable():
+    if sys.platform == "win32":
+        path = (
+            (Path(sys.executable).parent / "bin/meshchatnext-sip.exe")
+            if getattr(sys, "frozen", False)
+            else Path(__file__).resolve().parents[3]
+            / ".local/windows-sip/meshchatnext-sip.exe"
+        )
+        return path if path.is_file() else None
     if not sys.platform.startswith("linux"):
         return None
     path = (
@@ -31,6 +39,8 @@ def native_executable():
 
 
 def native_support_error():
+    if sys.platform == "win32":
+        return None  # The packaged native helper uses Windows WASAPI.
     try:
         ctypes.CDLL("libpulse.so.0")
     except OSError:

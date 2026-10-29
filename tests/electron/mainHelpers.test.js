@@ -287,3 +287,20 @@ describe("electron/mainHelpers resolvePortableStorageRoots (portable mode)", () 
         expect(roots.storageDir).toBe(path.resolve("/mnt/tails/persist", "storage"));
     });
 });
+
+describe("Chromium launch options stay out of backend argv", () => {
+    it.each(
+        [
+            ["--user-data-dir=D:/test cache"],
+            ["--user-data-dir", "D:/test cache"],
+            ["--use-angle=d3d11", "--disable-features=Vulkan,SkiaGraphite"],
+            ["--use-angle", "d3d11", "--disable-features", "Vulkan,SkiaGraphite"],
+            ["--use-gl=angle", "--enable-features=ExampleFeature"],
+        ].map((flags) => [flags])
+    )("filters %j", (flags) => {
+        expect(getUserProvidedArguments(["app.exe", ...flags, "--data-dir", "E:/profile"])).toEqual([
+            "--data-dir",
+            "E:/profile",
+        ]);
+    });
+});

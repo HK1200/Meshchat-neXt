@@ -13,7 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 VERSION = "0.12"
 SOURCE_SHA256 = "118d8601c12dd6a44f52423e68ca9083cc9f2bfe72da7a8c1acb22a80ae3550b"
-SOURCE_URL = f"https://downloads.xiph.org/releases/opus/opusfile-{VERSION}.tar.gz"
+SOURCE_URL = f"https://github.com/xiph/opusfile/releases/download/v{VERSION}/opusfile-{VERSION}.tar.gz"
 NDK_VERSION = "27.3.13750724"
 _spec = importlib.util.spec_from_file_location(
     "android_native_helpers", Path(__file__).with_name("provision-opus.py")

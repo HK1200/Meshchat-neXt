@@ -80,12 +80,18 @@
                     Hop matches use short prefixes and remain unverified. Lines describe a stored route, not a live
                     connection.
                 </p>
+                <MeshCorePeerRadio2
+                    v-if="selected.peer && selected.type !== 'Companion'"
+                    :report="selected.radio2"
+                    class="mt-2"
+                />
                 <p v-if="selected.note" class="text-sm mt-2">{{ selected.note }}</p>
             </aside>
         </div>
     </section>
 </template>
 <script setup>
+import MeshCorePeerRadio2 from "../meshcore/MeshCorePeerRadio2.vue";
 import { ref, shallowRef, computed, onMounted, onBeforeUnmount } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { Network } from "vis-network";

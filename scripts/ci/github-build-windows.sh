@@ -23,12 +23,24 @@ else
     pnpm run dist:windows
 fi
 
+# Windows SIP must not silently disappear when its native build was omitted.
+backend_arch="${ARCH:-$(node -p process.arch)}"
+backend_root="build/exe/win32-${backend_arch}"
+if [[ ! -f "$backend_root/bin/meshchatnext-sip.exe" ]]; then
+    echo "Native Windows SIP helper is missing from the frozen backend." >&2
+    exit 1
+fi
+
 # Catch extraResources dropping manifest-hashed files before the unpacked
 # staging tree is pruned. A missing file surfaces at runtime as an integrity
 # warning that blocks onboarding.
 for unpacked in dist/win-unpacked dist/win-*-unpacked; do
     if [[ -d "$unpacked" ]]; then
         node scripts/ci/github-verify-backend-manifest.mjs "$unpacked"
+        if [[ ! -f "$unpacked/resources/backend/bin/meshchatnext-sip.exe" ]]; then
+            echo "Native Windows SIP helper is missing from $unpacked." >&2
+            exit 1
+        fi
     fi
 done
 
@@ -36,12 +48,12 @@ bash scripts/ci/github-prune-electron-dist-staging.sh
 bash scripts/ci/github-verify-electron-dist.sh win
 
 # Ensure AppContainer/Landlock/Seccomp modules shipped in the frozen backend.
-if [[ -d build/exe ]]; then
-    bash scripts/ci/github-verify-frozen-sandbox.sh build/exe
-    bash scripts/ci/github-verify-frozen-runtime.sh build/exe
-    bash scripts/ci/github-verify-frozen-codec2.sh build/exe
-    bash scripts/ci/github-verify-frozen-umsgpack.sh build/exe
-    bash scripts/ci/github-verify-frozen-bleak.sh build/exe
+if [[ -d "$backend_root" ]]; then
+    bash scripts/ci/github-verify-frozen-sandbox.sh "$backend_root"
+    bash scripts/ci/github-verify-frozen-runtime.sh "$backend_root"
+    bash scripts/ci/github-verify-frozen-codec2.sh "$backend_root"
+    bash scripts/ci/github-verify-frozen-umsgpack.sh "$backend_root"
+    bash scripts/ci/github-verify-frozen-bleak.sh "$backend_root"
 fi
 
 # Optional packaged smoke (manual / future CI job on a Windows runner):

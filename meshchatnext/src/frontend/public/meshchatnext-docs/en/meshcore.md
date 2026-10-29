@@ -55,3 +55,23 @@ Expand **Radio2 · MediaMesh** only when using compatible firmware. Read its exi
 One transceiver alternates between profiles; Radio2 is not a second physical transmitter. Power is shared with the primary profile. Applying the preset disables cross-profile forwarding and requires media to use Radio2. Primary radio settings are checked for unintended changes.
 
 Compatible firmware enables MediaMesh photos and recorded voice clips in MeshCore DMs, channels and tactical attachments. See the interactive guide for setup, interoperability and the important unencrypted-radio-media limitation.
+
+### Map packet animations
+
+In the map's **MeshCore map** panel, enable **Show MeshCore nodes and team**.
+**Animate packet traffic** adds moving comets with fading tails and
+node pulses for new received flood packets. Turn it off to pause the effects.
+The map reads the companion's existing receive log; it does not send radio
+traffic or request your location.
+
+These are partial observed routes, using the latest saved node positions and
+illustrative timing. Unknown nodes, ambiguous short hashes and nodes without
+positions break the trail; no line or moving packet crosses those gaps. The
+receive log does not establish the sender and destination, and direct-routing
+paths are not displayed as observed travel. A pulse is not proof of delivery.
+Reduced-motion settings show static highlights. Effects stop when the map or
+layer is hidden, and existing history is not replayed when resuming.
+
+The regional map name and source credits are available in the map’s expandable © control, keeping the map view clear.
+
+Unknown route gaps appear in one compact **? gaps** badge beside the MeshCore map button. Expand it for hop counts and details; no boxes cover the map or imply unknown node locations.

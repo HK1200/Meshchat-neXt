@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Explicit Linux companion connections. No radio is opened by importing this module."""
+"""Explicit Linux and Windows companion connections. No radio is opened by importing this module."""
 
 from __future__ import annotations
 
@@ -9,13 +9,17 @@ import math
 import os
 import re
 import stat
+import sys
 
 UART_SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
 
 
 def _factory(kind, target, *, baud, dtr, rts):
     if kind == "usb":
-        if not stat.S_ISCHR(os.stat(target).st_mode):
+        if sys.platform == "win32":
+            if target not in {row["path"] for row in attached_devices()}:
+                raise ValueError("Selected serial device is no longer attached")
+        elif not stat.S_ISCHR(os.stat(target).st_mode):
             raise ValueError("Select a serial device")
         from meshcore.serial_cx import SerialConnection
 
@@ -51,10 +55,16 @@ class DesktopConnection:
         ):
             raise ValueError("Select an explicit serial device or Bluetooth address")
         target = target.strip()
-        if kind == "usb" and (
-            not target.startswith("/dev/") or not os.path.isabs(target)
-        ):
-            raise ValueError("Select a Linux serial device under /dev")
+        if kind == "usb":
+            if sys.platform == "win32":
+                if (
+                    not re.fullmatch(r"COM[1-9][0-9]{0,4}", target, re.IGNORECASE)
+                    or int(target[3:]) > 65535
+                ):
+                    raise ValueError("Select a Windows COM serial device")
+                target = target.upper()
+            elif not target.startswith("/dev/") or not os.path.isabs(target):
+                raise ValueError("Select a Linux serial device under /dev")
         if kind == "ble" and not re.fullmatch(
             r"(?:[0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}", target
         ):
@@ -183,7 +193,8 @@ def attached_devices():
             "name": p.description or "USB serial radio",
             "vendor_id": p.vid,
             "product_id": p.pid,
-            "permission": os.access(p.device, os.R_OK | os.W_OK),
+            "permission": sys.platform == "win32"
+            or os.access(p.device, os.R_OK | os.W_OK),
         }
         for p in sorted(comports(), key=lambda p: p.device)
     ]
@@ -192,7 +203,7 @@ def attached_devices():
 def permit_device(path):
     if path not in {p["path"] for p in attached_devices()}:
         raise ValueError("Selected serial device is no longer attached")
-    if not os.access(path, os.R_OK | os.W_OK):
+    if sys.platform != "win32" and not os.access(path, os.R_OK | os.W_OK):
         raise ConnectionError(
             "Serial access denied; grant your Linux user access to this device and sign in again"
         )
@@ -212,7 +223,7 @@ async def discover_devices(duration=5.0, scanner=None):
             found = await scanner.discover(timeout=duration, return_adv=True)
     except Exception:
         raise ConnectionError(
-            "Bluetooth discovery is unavailable; check the Linux adapter and permissions"
+            "Bluetooth discovery is unavailable; check the Bluetooth adapter and permissions"
         ) from None
     return [
         {

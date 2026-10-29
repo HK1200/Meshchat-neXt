@@ -423,6 +423,12 @@ def check_appcontainer_launch() -> dict[str, str]:
             "reason": "disabled by MESHCHAT_APPCONTAINER",
         }
 
+    if not ac.appcontainer_requested():
+        return {
+            "status": "skipped",
+            "reason": "AppContainer is not requested; opt in to run its launch probe",
+        }
+
     exe = sys.executable
     if not _is_frozen_executable():
         # In a venv, sys.executable is the redirector shim. Inside the

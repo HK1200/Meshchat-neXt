@@ -65,6 +65,13 @@ if sys.platform.startswith("linux") and linux_sip.is_file():
     if native_licenses.is_dir():
         include_files.append((str(native_licenses), "licenses/linux-sip"))
 
+windows_sip = ROOT / ".local/windows-sip/meshchatnext-sip.exe"
+if sys.platform == "win32" and windows_sip.is_file():
+    include_files.append((str(windows_sip), "bin/meshchatnext-sip.exe"))
+    native_licenses = windows_sip.parent / "licenses"
+    if native_licenses.is_dir():
+        include_files.append((str(native_licenses), "licenses/windows-sip"))
+
 linux_av1 = ROOT / ".local/av1/libvox_av1.so"
 if not linux_av1.is_file():
     linux_av1 = ROOT / "temp-tests/av1-build/libvox_av1.so"

@@ -35,6 +35,7 @@ def setup(tmp_path):
         engine = type("Engine", (), {})()
         engine.running = False
         engine.interface = fields["interface"]
+        engine.options = dict(fields)
 
         async def launch():
             engine.running = True
@@ -159,4 +160,87 @@ async def test_resume_reconnects_once_without_reenabling_disabled_or_denied_acco
     await service.command("disconnect")
     await service.command("resume")
     assert not service.store.enabled and service.engine is None
+    await service.close()
+
+
+@pytest.mark.asyncio
+async def test_windows_engine_receives_selected_adapter_and_local_address(
+    tmp_path, monkeypatch
+):
+    from meshchatnext.src.backend import sip_desktop_service as module
+
+    service, row, network, made = setup(tmp_path)
+    network[0]["interface"] = "7"
+    monkeypatch.setattr(module.sys, "platform", "win32")
+    await service.command("connect", id=row["id"])
+    try:
+        assert made[0].options == {"interface": "7", "local_address": "10.0.0.2"}
+        assert service.status()["platform"] == "windows"
+        network[:] = [
+            {"interface": "8", "kind": "ethernet", "address": "10.2.0.2", "metric": 1}
+        ]
+        await service.reconcile()
+        assert not made[0].running
+        assert service.status()["state"] == "waiting_network"
+    finally:
+        await service.close()
+
+
+@pytest.mark.asyncio
+async def test_registration_failure_rotates_allowed_network_and_keeps_success(
+    tmp_path, monkeypatch
+):
+    from meshchatnext.src.backend import sip_desktop_service as module
+
+    now = [100.0]
+    monkeypatch.setattr(module.time, "monotonic", lambda: now[0])
+    service, row, network, made = setup(tmp_path)
+    network.append(
+        {"interface": "wwan0", "kind": "mobile", "address": "10.1.0.2", "metric": 20}
+    )
+    await service.command("connect", id=row["id"])
+    made[0].on_event({"state": "registration_failed", "code": 408})
+    await service.reconcile()
+    assert len(made) == 2 and made[-1].interface == "wwan0"
+    assert not made[0].running
+    now[0] += 120
+    await service.reconcile()
+    assert len(made) == 2  # available preferred Wi-Fi does not disturb healthy mobile
+    await service.close()
+
+
+@pytest.mark.asyncio
+async def test_registration_timeout_and_all_failed_cooldown_retry(
+    tmp_path, monkeypatch
+):
+    from meshchatnext.src.backend import sip_desktop_service as module
+
+    now = [100.0]
+    monkeypatch.setattr(module.time, "monotonic", lambda: now[0])
+    service, row, _network, made = setup(tmp_path)
+    await service.command("connect", id=row["id"])
+    service.state = "registering"
+    now[0] += 46
+    await service.reconcile()
+    assert service.engine is None and len(made) == 1
+    now[0] += 59
+    await service.reconcile()
+    assert len(made) == 1
+    now[0] += 1
+    await service.reconcile()
+    assert len(made) == 2 and service.state == "registered"
+    await service.close()
+
+
+@pytest.mark.asyncio
+async def test_registration_failure_does_not_terminate_active_audio(tmp_path):
+    service, row, _network, made = setup(tmp_path)
+    await service.command("connect", id=row["id"])
+    made[0].on_event({"state": "connected", "peer": "test"})
+    made[0].on_event({"state": "registration_failed", "code": 408})
+    await service.reconcile()
+    assert made[0].running and service.call_state == "connected"
+    made[0].on_event({"state": "ended"})
+    await service.reconcile()
+    assert service.engine is None
     await service.close()

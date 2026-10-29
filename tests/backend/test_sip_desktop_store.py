@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: MIT
+import os
 import stat
 
 import pytest
@@ -28,7 +29,9 @@ def test_saved_password_never_appears_in_metadata_or_public_account(tmp_path):
     )
     assert store.password(row["id"]) == "test-secret"
     assert "test-secret" not in store.path.read_text() and "password" not in row
-    assert stat.S_IMODE(store.path.stat().st_mode) == 0o600
+    # Windows exposes compatibility mode bits, not POSIX access permissions.
+    if os.name == "posix":
+        assert stat.S_IMODE(store.path.stat().st_mode) == 0o600
     restored = SipAccounts(store.path, vault)
     assert (
         restored.selected == row["id"] and restored.password(row["id"]) == "test-secret"

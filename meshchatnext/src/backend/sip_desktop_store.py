@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import re
+import sys
 import tempfile
 import uuid
 from contextlib import closing
@@ -15,6 +16,7 @@ class SipPasswords:
     def __init__(self, profile, service=None):
         self.profile = hashlib.sha256(str(Path(profile).resolve()).encode()).hexdigest()
         self.service = service
+        self._windows = None
 
     def _call(self, account_id, action, *, interactive=True):
         account_id = str(uuid.UUID(account_id))
@@ -45,7 +47,35 @@ class SipPasswords:
                 "Secure SIP password storage could not complete this request"
             ) from None
 
+    def _windows_call(self, action):
+        try:
+            return action()
+        except Exception:
+            raise ValueError(
+                "Secure SIP password storage could not complete this request"
+            ) from None
+
+    def _windows_slot(self, account_id):
+        from meshchatnext.src.backend.meshcore_windows_credentials import (
+            _CredentialManager,
+        )
+
+        if self._windows is None:
+            self._windows = _CredentialManager()
+        return f"org.meshchatnext.sip/v1/{self.profile}/{uuid.UUID(account_id)!s}"
+
     def save(self, account_id, password):
+        if sys.platform == "win32" and self.service is None:
+            target = self._windows_slot(account_id)
+            if (
+                not isinstance(password, str)
+                or "\0" in password
+                or len(password.encode()) > 256
+            ):
+                raise ValueError("Invalid SIP password")
+            return self._windows_call(
+                lambda: self._windows.write(target, password.encode())
+            )
         return self._call(
             account_id,
             lambda c, a: c.create_item(
@@ -54,6 +84,12 @@ class SipPasswords:
         )
 
     def load(self, account_id, *, interactive=True):
+        if sys.platform == "win32" and self.service is None:
+            target = self._windows_slot(account_id)
+            return self._windows_call(
+                lambda: self._windows.read(target, max_size=256).decode()
+            )
+
         def read(collection, attrs):
             items = list(collection.search_items(attrs))
             if len(items) != 1:
@@ -63,6 +99,10 @@ class SipPasswords:
         return self._call(account_id, read, interactive=interactive)
 
     def remove(self, account_id):
+        if sys.platform == "win32" and self.service is None:
+            target = self._windows_slot(account_id)
+            return self._windows_call(lambda: self._windows.delete(target))
+
         def remove(collection, attrs):
             for item in collection.search_items(attrs):
                 item.delete()

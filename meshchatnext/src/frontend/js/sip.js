@@ -31,7 +31,7 @@ async function desktopCommand(op, fields = {}) {
 watch(
     () => appFeatures.sip,
     (enabled) => {
-        if (sipState.platform === "linux")
+        if (["linux", "windows"].includes(sipState.platform))
             desktopCommand("feature", { enabled }).catch(() => {
                 sipState.error = "Could not update SIP feature settings";
             });
@@ -46,11 +46,12 @@ export function refreshSip() {
                 .get(apiPath("/sip/status"))
                 .then(async ({ data }) => {
                     Object.assign(sipState, data);
-                    if (data.platform === "linux" && data.feature_enabled !== appFeatures.sip)
+                    if (["linux", "windows"].includes(data.platform) && data.feature_enabled !== appFeatures.sip)
                         await desktopCommand("feature", { enabled: appFeatures.sip });
                 })
                 .catch(() => {
-                    if (sipState.platform === "linux") sipState.error = "Could not read desktop SIP status";
+                    if (["linux", "windows"].includes(sipState.platform))
+                        sipState.error = "Could not read desktop SIP status";
                 })
                 .finally(() => {
                     desktopRefresh = null;

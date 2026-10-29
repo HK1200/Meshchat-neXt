@@ -129,7 +129,8 @@ def test_collect_read_roots_includes_meshchatnext_package_dir():
 
 
 def test_collect_read_roots_includes_interpreter_prefix():
-    roots = ll._collect_read_roots()
+    # Landlock resolves symlinked virtualenv paths when opening its roots.
+    roots = [os.path.realpath(root) for root in ll._collect_read_roots()]
     exe = os.path.realpath(sys.executable)
     prefix = os.path.realpath(getattr(sys, "base_prefix", None) or sys.prefix)
     assert any(

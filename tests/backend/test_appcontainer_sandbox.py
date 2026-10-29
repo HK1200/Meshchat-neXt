@@ -275,6 +275,7 @@ def test_launch_backend_forced_no_fallback(monkeypatch, tmp_path):
 
     monkeypatch.setattr(ac, "ensure_appcontainer_profile", lambda: object())
     monkeypatch.setattr(ac, "grant_path_access", lambda *a, **k: None)
+    monkeypatch.setattr(ac, "grant_execute_access", lambda *a, **k: None)
     monkeypatch.setattr(ac, "revoke_path_access", lambda *a, **k: None)
     monkeypatch.setattr(
         ac,
@@ -306,6 +307,7 @@ def test_launch_backend_auto_fallback(monkeypatch, tmp_path):
     monkeypatch.setattr(ac, "appcontainer_supported", lambda: True)
     monkeypatch.setattr(ac, "ensure_appcontainer_profile", lambda: sid)
     monkeypatch.setattr(ac, "grant_path_access", lambda *a, **k: None)
+    monkeypatch.setattr(ac, "grant_execute_access", lambda *a, **k: None)
     monkeypatch.setattr(ac, "revoke_path_access", lambda *a, **k: None)
     monkeypatch.setattr(
         ac,
@@ -344,6 +346,7 @@ def _stub_grants(monkeypatch, sid):
     monkeypatch.setattr(ac, "appcontainer_supported", lambda: True)
     monkeypatch.setattr(ac, "ensure_appcontainer_profile", lambda: sid)
     monkeypatch.setattr(ac, "grant_path_access", lambda *a, **k: None)
+    monkeypatch.setattr(ac, "grant_execute_access", lambda *a, **k: None)
     monkeypatch.setattr(ac, "grant_execute_access", lambda *a, **k: None)
     monkeypatch.setattr(ac, "grant_winstation_desktop_access", lambda *a, **k: None)
     monkeypatch.setattr(ac, "revoke_path_access", lambda *a, **k: None)

@@ -9,10 +9,10 @@ _HOST_ARCH="$(uname -m)"
 if [ "$_HOST_ARCH" = "x86_64" ]; then
     run_priv dpkg --add-architecture i386 || true
 fi
-run_priv apt-get update -y
+run_priv apt-get -o Acquire::ForceIPv4=true update -y
 
 _PKGS=(cmake build-essential pkg-config libpulse-dev patchelf libopusfile0 espeak-ng zip rpm elfutils fakeroot file)
 if [ "$_HOST_ARCH" = "x86_64" ]; then
     _PKGS+=("libc6:i386" "libstdc++6:i386")
 fi
-run_priv apt-get install -y --no-install-recommends "${_PKGS[@]}"
+run_priv apt-get -o Acquire::ForceIPv4=true install -y --no-install-recommends "${_PKGS[@]}"

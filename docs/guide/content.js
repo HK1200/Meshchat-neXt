@@ -92,9 +92,11 @@ window.NEXT_GUIDE = {
             ],
             notes: [
                 "On phones, choosing a page from the sidebar makes Back reopen that sidebar first. Back closes dialogs and local panels before leaving a page; closing a reopened sidebar does not trap you in a loop. Android Back and the app Back controls follow the same order.",
+                "Choose More → Reorder sidebar to show the arrows. Save keeps the new order; Cancel or Android Back discards the draft and exits editing. Selecting a normal destination brings its content into view automatically on phones.",
                 "Reticulum and MeshCore do not automatically bridge messages. Linking contacts only groups their addresses in your address book.",
                 "TAC is a map/team workflow carried over MeshCore; it is not another general-purpose radio network. SIP is separate internet telephony.",
                 "Feature visibility switches do not stop an already running service. Disconnect or disable it through its own controls.",
+                "Windows source is under development; public Windows packages require signing and final native package verification before release.",
             ],
             related: ["choose", "identity", "first-message"],
         },
@@ -297,7 +299,7 @@ window.NEXT_GUIDE = {
                 "New public hashtag names are normalized to lowercase for compatible name-based joining. For an older mixed-case channel, exchange the exact key; changing the displayed name alone does not change that key.",
                 "Use the arrow controls to reorder channels. Drag-and-drop is not required. Hide a channel to remove it from the normal list, and show hidden channels in the manager to unhide it.",
                 "Delete a channel from the manager when appropriate, including Public if you do not want it. Review the deletion prompt; hiding is the reversible choice when you only want less clutter.",
-                "Choose All messages, Mentions only or Muted per channel. The sidebar shows per-channel unread counts and a parent total.",
+                "On Your channels, choose All messages, Mentions only or Muted for each channel’s notification alerts. This does not filter messages. Unread counts remain available in the list and sidebar, with a total.",
             ],
             notes: [
                 "Anyone who has a channel key can participate. A public hashtag’s key is not a private invitation.",
@@ -394,6 +396,7 @@ window.NEXT_GUIDE = {
             ],
             notes: [
                 "MediaMesh media payloads are unencrypted over radio, even when announced in an encrypted DM. Use it only for content you are willing to transmit that way.",
+                "Node, map and network details may show a Radio2 profile reported by compatible discovery replies with observation context. Unknown, legacy replies or silence do not prove that Radio2 is absent; an unsupported or off response does not establish a remote client’s media capability. Positive detection with compatible repeater hardware remains unverified for this release.",
                 "Radio2 does not add live MeshCore phone calls. Use recorded voice clips; live calls belong to LXST or SIP.",
                 "Saved profiles take precedence; do not silently copy primary settings onto the media profile.",
             ],
@@ -443,7 +446,8 @@ window.NEXT_GUIDE = {
             group: "TAC & maps",
             lead: "A map can show overlays while its background is blank. Map tiles are the background images; they must be available locally for offline use. Wi-Fi being enabled does not prove the map has a network route or downloaded coverage.",
             steps: [
-                "Tap a MeshCore node, or long-press any node or position dot, to read its available details; on a computer you can also right-click it. Reticulum, discovered interfaces, MeshCore nodes, captured-route points and team records retain their own context. If several dots overlap, choose a node in the popup. Close or Back dismisses the details without leaving the map. The compact © map-credit button expands to show linked contributor credits.",
+                "Tap a MeshCore node, or long-press any node or position dot, to read its available details; on a computer you can also right-click it. Reticulum, discovered interfaces, MeshCore nodes, captured-route points and team records retain their own context. If several dots overlap, choose a node in the popup. Close or Back dismisses the details without leaving the map. The compact © map-credit button expands to show the regional map name and linked contributor credits.",
+                "In MeshCore map, enable Show MeshCore nodes and team, then Animate packet traffic for comets and node pulses from newly received flood packets. The compact ? gaps badge beside the MeshCore map button expands to explain unknown-hop counts; tap it again to collapse it.",
                 "Before going offline, open Map with internet access and inspect the area and zoom levels you need.",
                 "The bundled map includes a world overview and a compact PNW/southern British Columbia overview through zoom 9. Open Map, tap Offline maps, then choose Download and use regional detail (104 MB) for road/town context through zoom 12. The app verifies and selects the download automatically. You can also restore the included overview or import your own MBTiles file from the same panel. Coverage is limited; it is not every place at every zoom.",
                 "Confirm that the map source and selected MBTiles file match the view. A tile set’s area and zoom range determine what can display.",
@@ -451,6 +455,7 @@ window.NEXT_GUIDE = {
                 "If one phone works and another does not, compare their downloaded files, selected source, coverage and zoom. Each installation has its own tile storage.",
             ],
             notes: [
+                "Packet animations use saved positions and illustrative timing, not verified identities or delivery receipts. Unknown, ambiguous or unlocated hops stop the comet; direct routes are not shown as proven travel. Reduced-motion settings use static highlights. Viewing traffic does not transmit radio packets.",
                 "Opening an area online or having tiles on another device does not guarantee offline coverage on this device.",
                 "Position overlays can still exist over a blank background. Missing tiles do not necessarily indicate a radio problem.",
                 "Import maps from sources you are entitled to use; background-map coverage and freshness vary.",
@@ -510,6 +515,7 @@ window.NEXT_GUIDE = {
             notes: [
                 "HOIP calls other extensions; it does not provide ordinary mobile/PSTN calling here. There is no need to replace your Android carrier dialer.",
                 "Provider connection limits can cause rejection when stale registrations fill the allowed slots. Avoid repeatedly toggling or adding duplicate accounts while diagnosing.",
+                "Allow both Wi-Fi and mobile data to permit fallback. If registration fails, neXt tries another account-allowed connection and periodically retries when none works. Mobile service, roaming restrictions and provider limits can still prevent registration. A working registered connection stays selected.",
                 "Registration success is necessary but not sufficient: test an incoming background call and two-way speech.",
             ],
             related: ["sip-calls", "troubleshoot"],
@@ -847,7 +853,7 @@ window.NEXT_GUIDE = {
         ],
         [
             "Can SIP fall back from Wi-Fi to mobile data?",
-            "Allow both networks. It reconnects using an available permitted route; an active call can still end during handover.",
+            "Allow both networks. A failed or timed-out registration tries another account-allowed connection. If none works, neXt retries periodically; a successful connection stays selected. Active calls are not interrupted just to retry registration, but losing the connection can still end a call.",
             "sip",
         ],
         [
