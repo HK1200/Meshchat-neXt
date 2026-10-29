@@ -11,13 +11,6 @@
             MeshCore<span class="hidden sm:inline"> map</span>
         </button>
         <Teleport :to="map?.getTargetElement?.()?.parentElement || 'body'">
-            <div
-                v-if="visible && trafficEnabled && active && connected"
-                class="pointer-events-none absolute bottom-12 left-3 z-20 max-w-[70vw] rounded-lg border border-amber-500/50 bg-sem-surface px-2 py-1 text-xs text-sem-fg"
-                aria-label="MeshCore traffic legend"
-            >
-                <span class="text-amber-500">● ○</span> MeshCore traffic · partial routes · gaps stay disconnected
-            </div>
             <section
                 v-if="open"
                 class="absolute right-3 top-3 z-40 w-80 max-w-[85vw] max-h-[65dvh] overflow-y-auto rounded-xl border border-sem-border bg-sem-surface p-3 shadow-xl space-y-3"
