@@ -230,6 +230,7 @@ also_copy = [
     "meshchatnext/src/version.py",
     "meshchatnext/src/frontend/components/",
     "meshchatnext/src/frontend/js/",
+    "meshchatnext/src/frontend/locales/",
 ]
 pytest_add_cli_args = [
     "-m",

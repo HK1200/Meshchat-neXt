@@ -759,3 +759,67 @@ async def test_route_staging_permission_error_does_not_expire_login(
     assert response.status == 503
     assert "storage access" in response.text
     assert "private storage path" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_download_network_failure_cleans_partial_file(tmp_path, monkeypatch):
+    import tempfile
+    import urllib.error
+
+    mgr = _mgr(tmp_path)
+    manifest = _manifest()
+    paths = []
+    original = tempfile.mkstemp
+
+    def create_temp(**kwargs):
+        fd, name = original(**kwargs, dir=tmp_path)
+        paths.append(Path(name))
+        return fd, name
+
+    def unreachable(*args, **kwargs):
+        raise urllib.error.URLError("private network details")
+
+    monkeypatch.setattr("tempfile.mkstemp", create_temp)
+    monkeypatch.setattr("urllib.request.urlopen", unreachable)
+    with pytest.raises(
+        UpdateError, match="update download endpoint unreachable"
+    ) as error:
+        await mgr.download(manifest, manifest["artifacts"][0])
+    assert "private network details" not in str(error.value)
+    assert paths and all(not path.exists() for path in paths)
+    assert mgr.pending() is None
+
+
+@pytest.mark.asyncio
+async def test_route_manual_upload_storage_error_preserves_auth(
+    mock_app, tmp_path, monkeypatch
+):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    mgr = _mgr(tmp_path)
+    mock_app.update_manager = mgr
+    field = SimpleNamespace(
+        name="file", read_chunk=AsyncMock(side_effect=[b"verified upload", b""])
+    )
+    reader = SimpleNamespace(next=AsyncMock(return_value=field))
+    request = SimpleNamespace(
+        content_type="multipart/form-data; boundary=test",
+        multipart=AsyncMock(return_value=reader),
+    )
+    entry = _manifest()["artifacts"][0]
+    monkeypatch.setattr(
+        mgr,
+        "verify_local_file",
+        AsyncMock(return_value={"entry": entry, "manifest": _manifest()}),
+    )
+
+    def denied(*args):
+        raise PermissionError("private filesystem path")
+
+    monkeypatch.setattr(mgr, "stage", denied)
+    response = await _route(mock_app, "POST", "/api/v1/update/apply-file")(request)
+    assert response.status == 503
+    assert "storage access" in response.text
+    assert "private filesystem path" not in response.text
+    assert mgr.pending() is None
