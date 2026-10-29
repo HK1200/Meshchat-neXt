@@ -122,6 +122,7 @@ async function main() {
 
     const over = report.filter((r) => r.delta !== null && r.delta > GROWTH_BUDGET_BYTES);
     if (jsonOut) {
+        require("fs").mkdirSync(require("path").dirname(jsonOut), { recursive: true });
         require("fs").writeFileSync(
             jsonOut,
             JSON.stringify({ generatedAt: new Date().toISOString(), report }, null, 2)
