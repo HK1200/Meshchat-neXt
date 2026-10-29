@@ -25,6 +25,7 @@
                         : 'ring-1 ring-sem-border/80 hover:ring-sem-accent/50'
                 "
                 :title="$t(preset.labelKey)"
+                :aria-label="$t(preset.labelKey)"
                 :aria-selected="preset.id === normalizedValue ? 'true' : 'false'"
                 @click="selectPreset(preset.id)"
                 @mouseenter="previewPreset(preset.id)"
@@ -33,7 +34,7 @@
             >
                 <ThemePresetSwatch :colors="previewColorsForPreset(preset.id)" size="lg" round />
                 <span
-                    class="pointer-events-none absolute -bottom-7 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-md bg-sem-surface-raised px-2 py-0.5 text-[10px] font-medium text-sem-fg opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 z-10"
+                    class="pointer-events-none absolute -bottom-7 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-md bg-sem-surface-raised px-2 py-0.5 text-[10px] font-medium text-sem-fg hidden shadow-lg group-hover:block group-focus-visible:block z-10"
                 >
                     {{ $t(preset.labelKey) }}
                 </span>

@@ -388,6 +388,7 @@ def _try_pnpm_licenses(repo_root: Path) -> list[dict[str, Any]] | None:
             cwd=repo_root,
             capture_output=True,
             text=True,
+            encoding="utf-8",
             timeout=120,
             check=False,
             stdin=subprocess.DEVNULL,
