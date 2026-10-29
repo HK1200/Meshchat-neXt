@@ -376,6 +376,14 @@ class UpdateManager:
                                 raise UpdateError("artifact exceeds size cap")
                 self._verify_file(tmp_path, entry)
                 return tmp_path
+            except urllib.error.HTTPError as e:
+                tmp_path.unlink(missing_ok=True)
+                # A publisher/CDN refusal is not an expired local login session.
+                # Never forward its 401/403 as our API's authentication status.
+                raise UpdateError(f"update download failed: HTTP {e.code}") from e
+            except urllib.error.URLError as e:
+                tmp_path.unlink(missing_ok=True)
+                raise UpdateUnavailable("update download endpoint unreachable") from e
             except Exception:
                 tmp_path.unlink(missing_ok=True)
                 raise
