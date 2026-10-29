@@ -1,4 +1,4 @@
-import { defineComponent, h, reactive } from "vue";
+import { defineComponent, h, reactive, ref } from "vue";
 import { mount, flushPromises } from "@vue/test-utils";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
@@ -121,7 +121,7 @@ it("marks internal gaps without claiming positions for unknown endpoints", () =>
     expect(trafficGaps({ route: "flood", points: [null, [1, 2], null] })).toEqual([]);
 });
 
-it("scopes traffic reads to the selected radio and removes expandable badges on exit", async () => {
+it("scopes and deduplicates the gap summary without creating map overlays, then clears it on radio change", async () => {
     vi.useFakeTimers();
     const map = {
         addLayer: vi.fn(),
@@ -131,25 +131,29 @@ it("scopes traffic reads to the selected radio and removes expandable badges on 
         removeOverlay: vi.fn(),
     };
     const options = reactive({ map, enabled: true, owner: "owner", radioId: "radio-a", connected: true });
+    const gaps = ref([]);
     let count = 0;
     window.api = {
-        get: vi
-            .fn()
-            .mockImplementation(async () => ({
-                data: {
-                    result: {
-                        owner: "owner",
-                        radio_id: "radio-a",
-                        connected: true,
-                        packets: count++ ? [{ ...packet, received: Date.now() / 1000 }] : [],
-                    },
+        get: vi.fn().mockImplementation(async () => ({
+            data: {
+                result: {
+                    owner: "owner",
+                    radio_id: "radio-a",
+                    connected: true,
+                    packets: count++
+                        ? [packet, { ...packet, id: "duplicate-path" }].map((p) => ({
+                              ...p,
+                              received: Date.now() / 1000,
+                          }))
+                        : [],
                 },
-            })),
+            },
+        })),
     };
     const wrapper = mount(
         defineComponent({
             setup() {
-                useMeshCoreMapTraffic(() => ({ ...options }));
+                useMeshCoreMapTraffic(() => ({ ...options }), gaps);
                 return () => h("div");
             },
         })
@@ -158,16 +162,11 @@ it("scopes traffic reads to the selected radio and removes expandable badges on 
         await flushPromises();
         expect(window.api.get.mock.calls[0][1].params).toEqual({ radio: "radio-a", owner: "owner" });
         await vi.advanceTimersByTimeAsync(2000);
-        expect(map.addOverlay).toHaveBeenCalledTimes(1);
-        const overlay = map.addOverlay.mock.calls[0][0];
-        const badge = overlay.getElement();
-        expect(badge.tagName).toBe("DETAILS");
-        expect(badge.open).toBe(false);
-        badge.querySelector("summary").click();
-        expect(badge.open).toBe(true);
+        expect(gaps.value).toEqual([{ key: expect.any(String), count: 1 }]);
+        expect(map.addOverlay).not.toHaveBeenCalled();
         options.radioId = "radio-b";
         await flushPromises();
-        expect(map.removeOverlay).toHaveBeenCalledWith(overlay);
+        expect(gaps.value).toEqual([]);
         expect(window.api.get.mock.calls.at(-1)[1].params.radio).toBe("radio-b");
     } finally {
         wrapper.unmount();

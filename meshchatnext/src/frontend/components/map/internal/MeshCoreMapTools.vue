@@ -10,6 +10,30 @@
         >
             MeshCore<span class="hidden sm:inline"> map</span>
         </button>
+        <details
+            v-if="trafficGaps.length"
+            :key="`${owner}:${radioId}`"
+            class="relative inline-block align-middle ml-1"
+            aria-label="Unknown route gaps"
+        >
+            <summary class="secondary-chip text-xs !px-2 cursor-pointer list-none">
+                ? {{ trafficGaps.length }} {{ trafficGaps.length === 1 ? "gap" : "gaps" }}
+            </summary>
+            <div
+                class="absolute right-0 top-full mt-2 z-40 w-64 max-w-[80vw] rounded-lg border border-sem-border bg-sem-surface p-3 shadow-xl text-xs text-sem-fg space-y-2"
+            >
+                <p>
+                    Unknown, ambiguous or unlocated hops interrupt these observed routes. Comets stop at each gap; no
+                    unknown node position is implied.
+                </p>
+                <ul class="max-h-32 overflow-y-auto space-y-1">
+                    <li v-for="(gap, index) in trafficGaps.slice(0, 8)" :key="gap.key">
+                        Gap {{ index + 1 }}: {{ gap.count }} unknown {{ gap.count === 1 ? "hop" : "hops" }}
+                    </li>
+                    <li v-if="trafficGaps.length > 8">And {{ trafficGaps.length - 8 }} more gaps</li>
+                </ul>
+            </div>
+        </details>
         <Teleport :to="map?.getTargetElement?.()?.parentElement || 'body'">
             <section
                 v-if="open"
@@ -215,18 +239,22 @@ const rangePosition = ref(null),
     locating = ref(false),
     rangeProblem = ref("");
 const trafficEnabled = ref(true);
-const trafficStatus = useMeshCoreMapTraffic(() => ({
-    map: props.map,
-    enabled:
-        trafficEnabled.value &&
-        visible.value &&
-        props.active &&
-        (!router?.currentRoute?.value?.query?.meshcoreRadio ||
-            router.currentRoute.value.query.meshcoreRadio === radioId.value),
-    owner: owner.value,
-    radioId: radioId.value,
-    connected: connected.value,
-}));
+const trafficGaps = ref([]);
+const trafficStatus = useMeshCoreMapTraffic(
+    () => ({
+        map: props.map,
+        enabled:
+            trafficEnabled.value &&
+            visible.value &&
+            props.active &&
+            (!router?.currentRoute?.value?.query?.meshcoreRadio ||
+                router.currentRoute.value.query.meshcoreRadio === radioId.value),
+        owner: owner.value,
+        radioId: radioId.value,
+        connected: connected.value,
+    }),
+    trafficGaps
+);
 let rangeRequest = 0;
 function clearRange() {
     rangeRequest++;

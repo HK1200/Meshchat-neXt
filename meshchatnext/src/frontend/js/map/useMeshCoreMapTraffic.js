@@ -1,7 +1,6 @@
 import { ref, watch, onBeforeUnmount } from "vue";
 import VectorLayer from "ol/layer/Vector";
 import VectorSource from "ol/source/Vector";
-import Overlay from "ol/Overlay";
 import Point from "ol/geom/Point";
 import LineString from "ol/geom/LineString";
 import { fromLonLat } from "ol/proj";
@@ -79,7 +78,7 @@ export function trafficGaps(packet) {
     return gaps;
 }
 
-export function useMeshCoreMapTraffic(options) {
+export function useMeshCoreMapTraffic(options, gapDetails = ref([])) {
     const status = ref("");
     let stop = () => {};
     const unwatch = watch(
@@ -87,6 +86,7 @@ export function useMeshCoreMapTraffic(options) {
         ({ map, enabled, owner, radioId, connected }) => {
             stop();
             status.value = "";
+            gapDetails.value = [];
             if (!map || !enabled || !owner || !connected) return;
             const source = new VectorSource({ wrapX: false });
             const layer = new VectorLayer({ source, zIndex: 116 });
@@ -100,40 +100,10 @@ export function useMeshCoreMapTraffic(options) {
             let lastFrame = 0,
                 epoch = 0;
             const request = new AbortController();
-            const badges = new Map();
             function syncGaps() {
-                if (!map.addOverlay || !map.removeOverlay) return;
                 const gaps = new Map(packets.flatMap(trafficGaps).map((gap) => [gap.key, gap]));
-                for (const [key, overlay] of badges) {
-                    if (!gaps.has(key)) {
-                        map.removeOverlay(overlay);
-                        badges.delete(key);
-                    }
-                }
-                for (const [key, gap] of [...gaps].slice(0, 8)) {
-                    if (badges.has(key)) continue;
-                    const element = document.createElement("details");
-                    element.style.cssText =
-                        "max-width:220px;border:1px solid #f59e0b;border-radius:12px;background:#142333f5;color:#fef3c7;box-shadow:0 4px 16px #0004;font:12px sans-serif";
-                    const summary = document.createElement("summary");
-                    summary.textContent = gap.count === 1 ? "Unknown hop" : `${gap.count} unknown hops`;
-                    summary.setAttribute("aria-label", "Unknown hop details");
-                    summary.style.cssText = "cursor:pointer;padding:7px 10px;white-space:nowrap";
-                    const description = document.createElement("p");
-                    description.textContent =
-                        "Unknown, ambiguous or unlocated hops interrupt this observed route. Gap annotation only; no node location is claimed.";
-                    description.style.cssText = "margin:0;padding:0 10px 10px;line-height:1.5;color:#d5e2eb";
-                    element.append(summary, description);
-                    const overlay = new Overlay({
-                        element,
-                        position: gap.position,
-                        positioning: "center-center",
-                        offset: [0, 35],
-                        stopEvent: true,
-                    });
-                    badges.set(key, overlay);
-                    map.addOverlay(overlay);
-                }
+                // One control summary, never geographically placed unknown-node overlays.
+                gapDetails.value = [...gaps.values()].map(({ key, count }) => ({ key, count }));
             }
             const clear = () => {
                 packets = [];

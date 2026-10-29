@@ -73,3 +73,5 @@ Reduced-motion settings show static highlights. Effects stop when the map or
 layer is hidden, and existing history is not replayed when resuming.
 
 The regional map name and source credits are available in the map’s expandable © control, keeping the map view clear.
+
+Unknown route gaps appear in one compact **? gaps** badge beside the MeshCore map button. Expand it for hop counts and details; no boxes cover the map or imply unknown node locations.
