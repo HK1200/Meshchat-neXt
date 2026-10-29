@@ -138,14 +138,18 @@ async function main() {
             .locator(
                 "input[type=text]:visible, input:not([type]):visible, textarea:visible, input[type=url]:visible, input[type=number]:visible"
             )
-            .all();
+            .elementHandles();
+        // Snapshot concrete nodes: reactive forms can remove fields after a payload.
+        // A live nth locator would then wait for, or target, a different field.
         for (const input of inputs.slice(0, MAX_FIELDS)) {
             const meta = await input.evaluate((el) => ({
+                connected: el.isConnected,
                 placeholder: el.placeholder || "",
                 name: el.name || el.id || "",
                 type: el.type || "",
                 label: el.labels && el.labels[0] ? el.labels[0].textContent.trim() : "",
             }));
+            if (!meta.connected) continue;
             let payloads = payloadsFor(meta);
             if (useLlm) {
                 const extra = await llmPayloads(JSON.stringify(meta));
