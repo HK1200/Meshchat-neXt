@@ -2,7 +2,7 @@
 
 ## 0.1.4
 
-- Update download failures from the publisher stay on the Updates page instead of being mistaken for an expired app login. Failed partial downloads are removed.
+- Update download and storage failures stay on the Updates page instead of being mistaken for an expired app login. Android update staging avoids unsupported file-metadata copies on shared storage. Failed partial downloads are removed.
 - Updated translation HTML sanitization to address GHSA-83rm-6c8r-g728.
 
 - MeshCore maps animate newly received flood packets as glowing comets with fading tails and node pulses. Unknown, ambiguous and unlocated hops break the animation; one compact expandable badge explains gaps without claiming a node location. Effects are scoped to the selected radio and respect reduced-motion settings.

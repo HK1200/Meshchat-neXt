@@ -698,3 +698,64 @@ async def test_route_cdn_auth_refusal_is_service_error(
     assert response.status == 503
     assert "private-token" not in response.text
     assert mgr.pending() is None
+
+
+def test_stage_cross_storage_does_not_copy_metadata(tmp_path, monkeypatch):
+    import errno
+    import shutil
+
+    mgr = _mgr(tmp_path / "managed")
+    source = tmp_path / "download.apk"
+    payload = b"verified APK content"
+    source.write_bytes(payload)
+    entry = {
+        "file": "fixture.apk",
+        "sha256": hashlib.sha256(payload).hexdigest(),
+        "size": len(payload),
+        "kind": "apk",
+        "platform": "android",
+        "arch": "aarch64",
+    }
+
+    def deny_rename(*args, **kwargs):
+        raise PermissionError(errno.EACCES, "Android storage rename denied")
+
+    def deny_metadata(*args, **kwargs):
+        raise AssertionError("Android staging must not copy filesystem metadata")
+
+    monkeypatch.setattr("os.rename", deny_rename)
+    monkeypatch.setattr(shutil, "copystat", deny_metadata)
+    marker = mgr.stage(source, entry, {"version": "0.1.4", "tag": "test"})
+    assert Path(marker["path"]).read_bytes() == payload
+    assert not source.exists()
+    assert mgr.pending_payload_path() == Path(marker["path"])
+
+
+@pytest.mark.asyncio
+async def test_route_staging_permission_error_does_not_expire_login(
+    mock_app, tmp_path, monkeypatch
+):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    mgr = _mgr(tmp_path)
+    manifest = _manifest()
+    entry = manifest["artifacts"][0]
+    mock_app.update_manager = mgr
+    monkeypatch.setattr(mgr, "fetch_manifest", AsyncMock(return_value=manifest))
+    monkeypatch.setattr(mgr, "matching_artifacts", lambda value: [entry])
+    monkeypatch.setattr(
+        mgr, "download", AsyncMock(return_value=tmp_path / "verified.apk")
+    )
+
+    def denied(*args):
+        raise PermissionError("private storage path")
+
+    monkeypatch.setattr(mgr, "stage", denied)
+    request = SimpleNamespace(
+        content=None, json=AsyncMock(return_value={"file": entry["file"]})
+    )
+    response = await _route(mock_app, "POST", "/api/v1/update/download")(request)
+    assert response.status == 503
+    assert "storage access" in response.text
+    assert "private storage path" not in response.text

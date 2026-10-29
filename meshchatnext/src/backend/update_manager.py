@@ -435,7 +435,9 @@ class UpdateManager:
         self._verify_file(source, entry)
         self.pending_dir.mkdir(parents=True, exist_ok=True)
         dest = self.pending_dir / Path(entry["file"]).name
-        shutil.move(str(source), dest)
+        # APK/update payloads need bytes, not the source filesystem's xattrs.
+        # Android shared storage can copy data but rejects copystat/_copyxattr.
+        shutil.move(str(source), dest, copy_function=shutil.copyfile)
         marker = {
             "file": dest.name,
             "path": str(dest),
