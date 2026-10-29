@@ -71,3 +71,5 @@ receive log does not establish the sender and destination, and direct-routing
 paths are not displayed as observed travel. A pulse is not proof of delivery.
 Reduced-motion settings show static highlights. Effects stop when the map or
 layer is hidden, and existing history is not replayed when resuming.
+
+The regional map name and source credits are available in the map’s expandable © control, keeping the map view clear.

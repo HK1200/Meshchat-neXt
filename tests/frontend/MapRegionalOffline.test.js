@@ -56,3 +56,16 @@ it("opens offline map management rather than general map settings", () => {
     expect(ctx.mapToolsTab).toBe("offline");
     expect(ctx.isSettingsOpen).toBe(false);
 });
+
+it("includes the regional map title in the collapsible credits without accepting title markup", () => {
+    const attribution = MapPage.methods.offlineAttribution.call({
+        metadata: {
+            name: "Meshchat neXt PNW / southern BC roads & trails<img src=x onerror=alert(1)>",
+            path: "regional.mbtiles",
+            attribution: '<a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>',
+        },
+    });
+    expect(attribution).toContain("Meshchat neXt PNW / southern BC roads &amp; trails");
+    expect(attribution).toContain('href="https://www.openstreetmap.org/copyright"');
+    expect(attribution).not.toMatch(/onerror|<img/);
+});

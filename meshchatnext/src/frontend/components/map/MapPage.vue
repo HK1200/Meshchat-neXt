@@ -696,22 +696,6 @@
                         <MaterialDesignIcon icon-name="navigation" class="size-5 text-sem-accent -mb-0.5" />
                     </div>
                 </div>
-                <div
-                    v-if="showMetadataBadge"
-                    class="bg-sem-surface dark:bg-sem-surface backdrop-blur-sm border border-sem-border p-2 rounded-lg text-xs text-sem-fg-muted pointer-events-auto shadow-xs"
-                >
-                    <div class="font-semibold text-sem-fg mb-1">
-                        {{ metadata.name }}
-                    </div>
-                    <div
-                        v-if="metadata.attribution"
-                        class="max-w-xs overflow-hidden text-ellipsis whitespace-nowrap"
-                        :title="metadata.attribution"
-                    >
-                        {{ metadata.attribution }}
-                    </div>
-                </div>
-
                 <!-- Coordinate readout -->
                 <div
                     class="bg-sem-surface dark:bg-sem-surface backdrop-blur-sm border border-sem-border p-2 rounded-lg text-xs text-sem-fg-muted pointer-events-auto shadow-xs flex flex-col space-y-0.5 min-w-[11rem]"
@@ -1545,16 +1529,6 @@ export default {
             return this.discoveredMarkers.filter(
                 (f) => (f.get("discovered")?.type || "") === this.discoveredTypeFilter
             );
-        },
-        showMetadataBadge() {
-            if (!this.metadata || !this.metadata.name) {
-                return false;
-            }
-            if (this.metadata.name.startsWith("Map Export")) {
-                return false;
-            }
-            const path = String(this.metadata.path || "");
-            return !path.endsWith("starter_world.mbtiles");
         },
         mapStateKey() {
             const identityHash = this.config?.identity_hash || useConfigStore().config?.identity_hash || null;
@@ -3017,10 +2991,17 @@ export default {
             return false;
         },
         offlineAttribution() {
-            return DOMPurify.sanitize(String(this.metadata?.attribution || ""), {
+            const name = String(this.metadata?.name || "");
+            const path = String(this.metadata?.path || "");
+            const title =
+                name && !name.startsWith("Map Export") && !path.endsWith("starter_world.mbtiles")
+                    ? DOMPurify.sanitize(name, { ALLOWED_TAGS: [], ALLOWED_ATTR: [] })
+                    : "";
+            const attribution = DOMPurify.sanitize(String(this.metadata?.attribution || ""), {
                 ALLOWED_TAGS: ["a"],
                 ALLOWED_ATTR: ["href", "target", "rel"],
             });
+            return [title, attribution].filter(Boolean).join(" · ");
         },
         getOfflineRasterCacheOnlySource(aboveOverview = false) {
             const zoom = this.offlineMbtilesZoomRange();
