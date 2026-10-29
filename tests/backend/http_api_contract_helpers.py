@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 from pathlib import Path
@@ -50,6 +51,18 @@ def extract_meshchat_http_routes(meshchat_py: Path) -> list[dict[str, str]]:
     seen: set[tuple[str, str]] = set()
     for path in http_route_source_paths(repo_root):
         text = path.read_text(encoding="utf-8")
+        # mutmut retains the real decorated function and appends dormant copies
+        # for every candidate. Those copies are not additional HTTP routes.
+        if "from mutmut.mutation.trampoline import" in text:
+            lines = text.splitlines(keepends=True)
+            for node in ast.walk(ast.parse(text)):
+                if isinstance(
+                    node, (ast.FunctionDef, ast.AsyncFunctionDef)
+                ) and re.fullmatch(r"x_.*__mutmut_(?:orig|[0-9]+)", node.name):
+                    start = min([node.lineno, *[d.lineno for d in node.decorator_list]])
+                    for index in range(start - 1, node.end_lineno):
+                        lines[index] = "\n"
+            text = "".join(lines)
         for m in _ROUTE_DECORATOR.finditer(text):
             literal, prefixed, fstring = m.group(2), m.group(3), m.group(4)
             if literal is not None:
