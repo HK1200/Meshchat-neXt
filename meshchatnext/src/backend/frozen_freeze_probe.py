@@ -72,6 +72,28 @@ def main() -> None:
                 "frozen-freeze-probe: codec2 ctypes binding returned no samples"
             )
 
+    if sys.platform == "win32":
+        import numpy as np
+        import pycodec2
+        from bleak.backends.winrt.scanner import BleakScannerWinRT  # noqa: F401
+        from meshcore.ble_cx import BLEConnection
+        from meshcore.serial_cx import SerialConnection
+
+        from meshchatnext.src.backend.meshcore_windows_credentials import (
+            WindowsNodePasswords,  # noqa: F401
+        )
+
+        # Exercise the bundled codec without microphones, speakers or radios.
+        codec = pycodec2.Codec2(1200)
+        count = codec.samples_per_frame()
+        decoded = codec.decode(codec.encode(np.zeros(count, dtype=np.int16)))
+        if len(decoded) != count or not np.isfinite(decoded).all():
+            raise SystemExit("frozen-freeze-probe: Windows Codec2 roundtrip failed")
+        if getattr(sys, "frozen", False):
+            helper = Path(sys.executable).resolve().parent / "bin/meshchatnext-sip.exe"
+            if not helper.is_file():
+                raise SystemExit("frozen-freeze-probe: Windows SIP helper missing")
+
     if sys.platform.startswith("linux"):
         # Compiled D-Bus serializers import private modules dynamically. A plain
         # Bleak import does not exercise them; serialize without opening any bus

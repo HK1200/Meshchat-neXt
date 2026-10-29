@@ -17,6 +17,7 @@ from meshchatnext.src.backend.meshcore_service import (
     validate_selection,
 )
 from meshchatnext.src.backend.meshcore_store import MeshCoreStore, notification_key
+from meshchatnext.src.backend.meshcore_transport import transport_platform
 
 
 class MeshCoreFleet:
@@ -223,6 +224,8 @@ class MeshCoreFleet:
     def _endpoint(kind, target):
         if not isinstance(target, str):
             raise ValueError("Select a radio device")
+        if kind == "usb" and transport_platform() == "windows":
+            return kind, target.strip().casefold()
         return kind, target.strip().casefold() if kind == "ble" else os.path.realpath(
             target.strip()
         )

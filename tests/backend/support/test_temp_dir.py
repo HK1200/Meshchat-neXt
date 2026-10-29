@@ -34,6 +34,11 @@ def _marker_path() -> Path:
 
 
 def _pid_alive(pid: int) -> bool:
+    if os.name == "nt":
+        # os.kill(pid, 0) terminates processes on Windows; query instead.
+        import psutil
+
+        return pid > 0 and psutil.pid_exists(pid)
     try:
         os.kill(pid, 0)
     except ProcessLookupError:

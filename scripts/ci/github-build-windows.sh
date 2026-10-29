@@ -23,6 +23,12 @@ else
     pnpm run dist:windows
 fi
 
+# Windows SIP must not silently disappear when its native build was omitted.
+if [[ ! -f build/exe/bin/meshchatnext-sip.exe ]]; then
+    echo "Native Windows SIP helper is missing from the frozen backend." >&2
+    exit 1
+fi
+
 # Catch extraResources dropping manifest-hashed files before the unpacked
 # staging tree is pruned. A missing file surfaces at runtime as an integrity
 # warning that blocks onboarding.

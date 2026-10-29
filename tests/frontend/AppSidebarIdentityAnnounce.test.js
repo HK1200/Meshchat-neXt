@@ -525,6 +525,34 @@ describe("App.vue sidebar identity label and announce control", () => {
         expect(wrapper.find("[data-testid=sidebar-nav-layout-save]").exists()).toBe(false);
     });
 
+    it("labels Save and Cancel and discards a draft with Cancel or Android Back", async () => {
+        registerCoreContributions();
+        wrapper = makeMountedApp();
+        await readyShell(wrapper.vm.$router);
+        const original = wrapper.vm.primaryNavGroups
+            .find((group) => group.id === "communicate")
+            .items.map((item) => item.id);
+        wrapper.vm.enterSidebarNavEdit();
+        await flushPromises();
+        expect(wrapper.get("[data-testid=sidebar-nav-layout-save]").text()).toContain("Save");
+        wrapper.vm.onSidebarNavReorder({ kind: "item-offset", itemId: "contacts", delta: -1 });
+        await wrapper.get("[data-testid=sidebar-nav-layout-cancel]").trigger("click");
+        expect(wrapper.vm.isSidebarNavEditing).toBe(false);
+        expect(
+            wrapper.vm.primaryNavGroups.find((group) => group.id === "communicate").items.map((item) => item.id)
+        ).toEqual(original);
+        wrapper.vm.enterSidebarNavEdit();
+        await flushPromises();
+        wrapper.vm.onSidebarNavReorder({ kind: "item-offset", itemId: "contacts", delta: -1 });
+        const scope = wrapper.get("[data-testid=sidebar-nav-layout-cancel]").element.closest("[data-app-back-scope]");
+        scope.dispatchEvent(new CustomEvent("app-back"));
+        await flushPromises();
+        expect(wrapper.vm.isSidebarNavEditing).toBe(false);
+        expect(
+            wrapper.vm.primaryNavGroups.find((group) => group.id === "communicate").items.map((item) => item.id)
+        ).toEqual(original);
+    });
+
     it("saves sidebar order from the collapse-row save button", async () => {
         registerCoreContributions();
         wrapper = makeMountedApp();

@@ -258,7 +258,13 @@ def encode_pcm_to_ogg_opus(
     """
     import numpy as np
     from LXST.Codecs import Opus
-    from LXST.Codecs.libs.pyogg import OggOpusWriter, OpusBufferedEncoder
+    from LXST.Codecs.libs.pyogg import OggOpusWriter, OpusBufferedEncoder, ogg
+
+    from meshchatnext.src.backend.lxst_pyogg_ctypes_compat import (
+        repair_ogg_stream_state,
+    )
+
+    repair_ogg_stream_state(ogg)
 
     if profile is None:
         profile = _opus_voice_profile()

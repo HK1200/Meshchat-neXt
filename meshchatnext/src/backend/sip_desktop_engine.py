@@ -4,6 +4,7 @@
 import asyncio
 import contextlib
 import json
+import sys
 import uuid
 from pathlib import Path
 
@@ -12,11 +13,19 @@ from meshchatnext.src.backend.sip_desktop_audio import DesktopSipAudio
 
 class DesktopSipEngine:
     def __init__(
-        self, executable, *, test_audio=False, timeout=5, on_event=None, interface=None
+        self,
+        executable,
+        *,
+        test_audio=False,
+        timeout=5,
+        on_event=None,
+        interface=None,
+        local_address=None,
     ):
         self.executable = Path(executable)
         self.test_audio = test_audio
         self.interface = interface
+        self.local_address = local_address
         self.timeout = timeout
         self.on_event = on_event
         self._process = None
@@ -44,6 +53,10 @@ class DesktopSipEngine:
                     args.append("--test-audio")
                 if self.interface:
                     args.extend(["--interface", self.interface])
+                    if sys.platform == "win32":
+                        if not self.local_address:
+                            raise ValueError("Select a Windows SIP interface address")
+                        args.extend(["--local-address", self.local_address])
                 self._process = await asyncio.create_subprocess_exec(
                     *args,
                     stdin=asyncio.subprocess.PIPE,

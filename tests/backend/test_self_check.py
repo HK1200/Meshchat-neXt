@@ -339,3 +339,17 @@ async def test_probe_rns_link_api_rejects_unexpected_failure():
     )
     result = await self_check._probe_rns_link_api(ws, timeout=1)
     assert result["status"] == "failed"
+
+
+def test_default_appcontainer_probe_does_not_grant_permissions():
+    from unittest.mock import patch
+
+    from meshchatnext.src.backend import appcontainer_sandbox as ac
+
+    with (
+        patch.object(ac, "appcontainer_requested", return_value=False),
+        patch.object(ac, "launch_backend_sandboxed") as launch,
+    ):
+        result = self_check.check_appcontainer_launch()
+        assert result["status"] == "skipped"
+        launch.assert_not_called()

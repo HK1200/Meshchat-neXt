@@ -51,6 +51,7 @@ def topology_nodes(store, owner, cached):
             "advertised": row.get("advertised"),
             "saved": bool(row.get("saved", row.get("active"))),
             "route": routes.get(peer),
+            "radio2": row.get("radio2", {"state": "unknown"}),
         }
         for peer, row in records.items()
         if peer != owner

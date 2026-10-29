@@ -7,6 +7,8 @@ import asyncio
 import math
 import secrets
 import time
+from collections.abc import Awaitable, Callable
+from typing import Any, cast
 
 from meshchatnext.src.backend.meshcore_store import public_key
 
@@ -44,6 +46,33 @@ class MeshCoreNodes:
         tag = secrets.randbits(32) or 1
         expected = tag.to_bytes(4, "little").hex()
         found = {}
+        owner = self.messages.owner
+        raw_kind = getattr(self.messages._types, "CONTROL_DATA", None)
+        raw_command = getattr(client.commands, "send_control_data", None)
+        extended = raw_kind is not None and callable(raw_command)
+
+        def receive_raw(event):
+            from meshchatnext.src.backend.meshcore_peer_radio2 import (
+                decode_discovery_radio2,
+            )
+
+            body = event.payload
+            if not isinstance(body, dict) or body.get("path_len") != 0:
+                return
+            packet = body.get("payload")
+            # Full-key responses only. Prefixes must never select a cached peer.
+            if not isinstance(packet, bytes) or len(packet) not in (38, 40, 50):
+                return
+            if packet[0] != 0x92 or packet[2:6].hex() != expected:
+                return
+            peer = packet[6:38].hex()
+            if peer == owner or (len(found) >= 512 and peer not in found):
+                return
+            found[peer] = {
+                "peer": peer,
+                "kind": 2,
+                "radio2": decode_discovery_radio2(packet[38:]),
+            }
 
         def receive(event):
             payload = event.payload
@@ -58,19 +87,29 @@ class MeshCoreNodes:
                 return
             if peer == self.messages.owner or (len(found) >= 512 and peer not in found):
                 return
-            found[peer] = {"peer": peer, "kind": node_type}
+            found.setdefault(peer, {"peer": peer, "kind": node_type})
 
         subscription = client.subscribe(kind, receive)
+        raw_subscription = None
         try:
+            if extended:
+                raw_subscription = client.subscribe(raw_kind, receive_raw)
             async with self.session._lock:
                 self.messages._check()
                 self._last_discovery = time.monotonic()
-                self.session._payload(
-                    await command(filter=0x1C, prefix_only=False, tag=tag)
-                )
+                if extended:
+                    self.session._payload(
+                        await cast(Callable[[int, bytes], Awaitable[Any]], raw_command)(
+                            0x82, bytes([0x1C]) + tag.to_bytes(4, "little")
+                        )
+                    )
+                else:
+                    self.session._payload(
+                        await command(filter=0x1C, prefix_only=False, tag=tag)
+                    )
             await asyncio.sleep(self.DISCOVERY_WINDOW)
             self.messages._check()
-            if self.session._client is not client:
+            if self.session._client is not client or self.messages.owner != owner:
                 raise ConnectionError("MeshCore connection changed during discovery")
             heard = time.time()
             results = []
@@ -83,6 +122,14 @@ class MeshCoreNodes:
                     heard,
                 )
                 if recorded:
+                    if "radio2" in row:
+                        await asyncio.to_thread(
+                            self.messages.store.record_peer_radio2,
+                            owner,
+                            row["peer"],
+                            row["radio2"],
+                            heard,
+                        )
                     results.append(row)
             return {
                 "nodes": results,
@@ -92,6 +139,8 @@ class MeshCoreNodes:
             }
         finally:
             subscription.unsubscribe()
+            if raw_subscription is not None:
+                raw_subscription.unsubscribe()
 
     def snapshot(self):
         now = time.monotonic()

@@ -53,6 +53,7 @@
                         </dd>
                     </div>
                 </dl>
+                <MeshCorePeerRadio2 :report="selected.radio2" />
                 <p v-if="selected.kind === 4" class="text-sm text-sem-fg-muted">
                     Sensor saved. Sensor telemetry controls are not available yet.
                 </p>
@@ -93,8 +94,9 @@
                         {{ showDiscoveries ? "Hide discoveries" : "View heard nodes" }}
                     </button>
                     <p class="text-xs text-sem-fg-muted">
-                        Search nearby repeaters, room servers and sensors. One request listens for 12 seconds; nodes
-                        beyond direct radio range may only appear through announces.
+                        Search nearby repeaters, room servers and sensors, including Radio2 profiles reported by
+                        compatible nearby repeaters. One request listens for 12 seconds; nodes beyond direct radio range
+                        may only appear through announces.
                     </p>
                     <p v-if="discoveryStatus" role="status" class="text-sm text-sem-fg-muted">{{ discoveryStatus }}</p>
                     <div
@@ -182,6 +184,7 @@
     </section>
 </template>
 <script setup>
+import MeshCorePeerRadio2 from "./MeshCorePeerRadio2.vue";
 import { navigateAppUp } from "../../js/androidBackNavigation";
 import { computed, ref, watch } from "vue";
 import { useMeshCoreNotificationContext } from "../../js/meshcoreNotifications";

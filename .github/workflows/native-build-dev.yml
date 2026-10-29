@@ -179,6 +179,11 @@ jobs:
               with:
                   artifact-name: ${{ env.FRONTEND_ARTIFACT_NAME }}
 
+            - name: Build and test native Windows SIP helper
+              if: matrix.label == 'windows'
+              shell: pwsh
+              run: ./scripts/ci/github-build-windows-sip.ps1
+
             - name: Build distributables
               run: bash "${{ matrix.build_script }}"
 

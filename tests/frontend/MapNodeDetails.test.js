@@ -56,6 +56,7 @@ describe("information for every visible map dot", () => {
         expect(rows(result)).toMatchObject({ Type: "Repeater", Radio: "radio-one" });
         expect(rows(result)["Last heard"]).toBeTruthy();
         expect(rows(result)).not.toHaveProperty("Battery");
+        expect(rows(result).Radio2).toBe("Unknown");
     });
     it("adds team callsign, role and report context only for team records", () => {
         const context = { team_enabled: true, roles: ["Medic"], urgencies: ["Routine"] };

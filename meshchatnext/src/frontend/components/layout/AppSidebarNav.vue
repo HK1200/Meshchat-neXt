@@ -154,11 +154,7 @@
             </ul>
         </template>
 
-        <div
-            v-if="moreNavItems.length > 0 || isEditing"
-            class="mt-1 border-t border-sem-border"
-            :class="dragOverKey === 'more' ? 'bg-sem-surface-muted' : ''"
-        >
+        <div class="mt-1 border-t border-sem-border" :class="dragOverKey === 'more' ? 'bg-sem-surface-muted' : ''">
             <button
                 type="button"
                 class="flex w-full items-center gap-3 py-2.5 text-sm font-semibold text-sem-fg hover:bg-sem-surface-muted text-sem-fg dark:hover:bg-sem-surface transition-colors"
@@ -183,6 +179,17 @@
                 />
             </button>
             <ul v-if="isShowingMoreNav && !isCollapsed" class="py-1 pr-2 space-y-1">
+                <li v-if="!isEditing">
+                    <button
+                        type="button"
+                        class="sidebar-nav-link sidebar-nav-link--hover rounded-r-full mr-2"
+                        data-testid="sidebar-reorder"
+                        @click="$emit('edit-start')"
+                    >
+                        <MaterialDesignIcon icon-name="swap-vertical" class="size-6 shrink-0" />
+                        <span>{{ $t("app.nav_reorder_sidebar") }}</span>
+                    </button>
+                </li>
                 <template v-for="item in moreNavItems" :key="item.id"
                     ><li
                         class="flex items-center"

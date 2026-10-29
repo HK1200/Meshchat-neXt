@@ -54,7 +54,7 @@
                     >
                         {{ state.muted ? "Unmute" : "Mute" }}</button
                     ><button
-                        v-if="state.platform !== 'linux'"
+                        v-if="!['linux', 'windows'].includes(state.platform)"
                         class="secondary-chip"
                         type="button"
                         :aria-pressed="state.speaker"
@@ -337,7 +337,7 @@ function edit(a) {
               ...HOIP_DEFAULTS,
               allowed_networks: [
                   ...HOIP_DEFAULTS.allowed_networks,
-                  ...(state.platform === "linux" ? ["ethernet"] : []),
+                  ...(["linux", "windows"].includes(state.platform) ? ["ethernet"] : []),
               ],
               label: "HOIP",
               extension: "",

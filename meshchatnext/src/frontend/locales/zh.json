@@ -763,7 +763,8 @@
         "ui_font_inter": "Inter",
         "ui_font_jetbrains_mono": "JetBrains Mono",
         "ui_font_ibm_plex_sans": "IBM Plex Sans",
-        "ui_font_space_grotesk": "Space Grotesk"
+        "ui_font_space_grotesk": "Space Grotesk",
+        "nav_reorder_sidebar": "重新排列侧边栏"
     },
     "helptips": {
         "title_send_failed": "可尝试的方法",

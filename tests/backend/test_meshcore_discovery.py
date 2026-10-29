@@ -112,6 +112,78 @@ class DiscoveryTests(unittest.IsolatedAsyncioTestCase):
         self.store.record_node_discovery.return_value = False
         self.assertEqual((await self.nodes.discover())["nodes"], [])
 
+    async def test_extended_discovery_correlates_raw_full_key_and_saves_profile(self):
+        import struct
+
+        callbacks = {}
+
+        def subscribe(kind, callback):
+            callbacks[kind] = callback
+            return SimpleNamespace(unsubscribe=Mock())
+
+        self.client.subscribe = subscribe
+        self.messages._types.CONTROL_DATA = "raw"
+        self.store.record_peer_radio2 = Mock()
+
+        async def send(control, data):
+            self.assertEqual(control, 0x82)
+            self.assertEqual(data[0], 0x1C)
+            header = bytes([0x92, 0]) + data[1:5] + bytes.fromhex(PEER)
+            trailer = bytes([1, 5]) + struct.pack("<IIBB", 911150, 250000, 7, 5)
+            for packet, hops in (
+                (header + trailer, 1),
+                (header[:2] + bytes(4) + header[6:] + trailer, 0),
+                (header[:14] + trailer, 0),
+            ):
+                callbacks["raw"](
+                    SimpleNamespace(payload={"payload": packet, "path_len": hops})
+                )
+            self.assertEqual(self.store.record_peer_radio2.call_count, 0)
+            callbacks["raw"](
+                SimpleNamespace(payload={"payload": header + trailer, "path_len": 0})
+            )
+            callbacks["discover"](
+                SimpleNamespace(
+                    payload={"tag": data[1:5].hex(), "pubkey": PEER, "node_type": 2}
+                )
+            )
+            return SimpleNamespace(payload={}, is_error=lambda: False)
+
+        self.commands.send_control_data = AsyncMock(side_effect=send)
+        result = await self.nodes.discover()
+        self.assertEqual(len(result["nodes"]), 1)
+        self.assertEqual(result["nodes"][0]["radio2"]["state"], "enabled")
+        self.commands.send_node_discover_req.assert_not_awaited()
+        self.store.record_peer_radio2.assert_called_once()
+        self.assertEqual(
+            self.store.record_peer_radio2.call_args.args[:2], (OWNER, PEER)
+        )
+
+    async def test_extended_owner_switch_discards_results_and_unsubscribes_both(self):
+        subscriptions = []
+
+        def subscribe(kind, callback):
+            unsub = Mock()
+            subscriptions.append(unsub)
+            return SimpleNamespace(unsubscribe=unsub)
+
+        self.client.subscribe = subscribe
+        self.messages._types.CONTROL_DATA = "raw"
+        self.store.record_peer_radio2 = Mock()
+
+        async def send(*args):
+            self.messages.owner = "c3" * 32
+            return SimpleNamespace(payload={}, is_error=lambda: False)
+
+        self.commands.send_control_data = AsyncMock(side_effect=send)
+        with self.assertRaisesRegex(ConnectionError, "changed"):
+            await self.nodes.discover()
+        self.store.record_node_discovery.assert_not_called()
+        self.store.record_peer_radio2.assert_not_called()
+        self.assertEqual(len(subscriptions), 2)
+        for unsub in subscriptions:
+            unsub.assert_called_once()
+
     async def test_missing_firmware_command_never_sends(self):
         del self.commands.send_node_discover_req
         with self.assertRaisesRegex(ValueError, "does not support"):

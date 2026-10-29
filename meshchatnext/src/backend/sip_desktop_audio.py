@@ -4,6 +4,7 @@
 import asyncio
 import contextlib
 import os
+import sys
 import uuid
 
 
@@ -35,6 +36,9 @@ class DesktopSipAudio:
     async def open(self):
         await self.close()
         env = dict(os.environ)
+        if sys.platform == "win32":
+            # WASAPI owns Windows audio. Never invoke Linux pactl or change defaults.
+            return env
         # Honor explicitly selected devices instead of overriding another audio setup.
         if env.get("PULSE_SOURCE") or env.get("PULSE_SINK"):
             return env

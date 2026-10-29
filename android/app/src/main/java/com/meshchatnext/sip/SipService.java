@@ -98,6 +98,23 @@ public final class SipService extends Service {
     private boolean desired = false, speaker = false, muted = false;
     private volatile boolean registered = false;
     private Network bound;
+    private final SipNetworkRetry<Network> networkRetry = new SipNetworkRetry<>();
+    private long registrationStarted;
+    private boolean destroyed;
+    private final Runnable retryTick = new Runnable() {
+        @Override public void run() {
+            if (destroyed) return;
+            work.execute(() -> {
+                if (!desired || !"idle".equals(callState)) return;
+                if (!registered && bound != null && SystemClock.elapsedRealtime() - registrationStarted >= 45000L) {
+                    networkRetry.failed(bound, SystemClock.elapsedRealtime());
+                    stopEngine();
+                }
+                reconcile();
+            });
+            main.postDelayed(this, 15000L);
+        }
+    };
     private boolean cellularRequested = false;
     private final ConnectivityManager.NetworkCallback cellular =
         new ConnectivityManager.NetworkCallback() {
@@ -303,6 +320,7 @@ public final class SipService extends Service {
                 .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
                 .build(),
             callback);
+        main.postDelayed(retryTick, 15000L);
     }
     @Override
     public IBinder onBind(Intent intent) {
@@ -541,6 +559,7 @@ public final class SipService extends Service {
                     throw new IllegalArgumentException("End the current SIP call first");
                 desired = false;
                 stopEngine();
+                networkRetry.clear();
                 selected = req.getString("id");
                 active = find(selected);
                 persist();
@@ -650,7 +669,7 @@ public final class SipService extends Service {
         if (active == null)
             return null;
         String mode = active.optString("network", "wifi");
-        Network mobile = null;
+        List<Network> wifi = new ArrayList<>(), mobile = new ArrayList<>();
         for (Network n : connectivity.getAllNetworks()) {
             NetworkCapabilities c = connectivity.getNetworkCapabilities(n);
             if (c == null || !c.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
@@ -659,11 +678,12 @@ public final class SipService extends Service {
             if (c.hasTransport(NetworkCapabilities.TRANSPORT_VPN))
                 continue;
             if (!"mobile".equals(mode) && c.hasTransport(NetworkCapabilities.TRANSPORT_WIFI))
-                return n;
+                wifi.add(n);
             if (!"wifi".equals(mode) && c.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR))
-                mobile = n;
+                mobile.add(n);
         }
-        return mobile;
+        wifi.addAll(mobile);
+        return networkRetry.choose(wifi, bound, registered, SystemClock.elapsedRealtime());
     }
     private void reconcile() {
         if (!desired)
@@ -680,6 +700,7 @@ public final class SipService extends Service {
             return;
         }
         if (!connectivity.bindProcessToNetwork(n)) {
+            networkRetry.failed(n, SystemClock.elapsedRealtime());
             state = "network_failed";
             error = "Could not bind SIP to the selected network";
             publish();
@@ -705,6 +726,7 @@ public final class SipService extends Service {
                     settings.append("dns_server ").append(dns.getHostAddress()).append(":53\n");
             String networkConfig = settings.toString();
             state = "registering";
+            registrationStarted = SystemClock.elapsedRealtime();
             foreground(false);
             stopping = false;
             long started = generation;
@@ -722,6 +744,7 @@ public final class SipService extends Service {
                     registered = false;
                     releaseConnectionLocks();
                     if (desired) {
+                        networkRetry.failed(bound, SystemClock.elapsedRealtime());
                         state = "reconnecting";
                         if (code != 0)
                             error = "SIP engine stopped (" + code + "); retrying";
@@ -740,6 +763,8 @@ public final class SipService extends Service {
             engine.start();
             holdConnectionLocks();
         } catch (Exception e) {
+            networkRetry.failed(bound, SystemClock.elapsedRealtime());
+            stopEngine();
             state = "engine_failed";
             error = "SIP account could not start";
         }
@@ -869,6 +894,11 @@ public final class SipService extends Service {
                     error = "SIP registration rejected (" + code
                         + " ); check account settings or server connection limits";
                     foreground(audioFocusHeld);
+                    networkRetry.failed(bound, SystemClock.elapsedRealtime());
+                    if ("idle".equals(callState)) {
+                        stopEngine();
+                        reconcile();
+                    }
                     break;
                 case "incoming":
                 case "calling":
@@ -988,6 +1018,8 @@ public final class SipService extends Service {
     @Override
     public void onDestroy() {
         desired = false;
+        destroyed = true;
+        main.removeCallbacks(retryTick);
         releaseCellular();
         connectivity.unregisterNetworkCallback(callback);
         work.execute(() -> {

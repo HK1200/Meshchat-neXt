@@ -60,6 +60,37 @@ async function router() {
     return value;
 }
 describe("MeshCore navigation and channel boundaries", () => {
+    it("changes alerts for the chosen list channel without marking messages read", async () => {
+        const data = snapshot();
+        const other = "e5".repeat(32);
+        data.channels.push({
+            slot: 2,
+            channel_id: other,
+            name: "#local",
+            kind: "public",
+            unread: 3,
+            mentions_only: true,
+        });
+        window.api = {
+            get: vi.fn(async () => ({ data: { result: structuredClone(data) } })),
+            post: vi.fn(async () => ({ data: { result: {} } })),
+        };
+        const navigation = await router();
+        wrapper = mount(MeshCoreChannelsPage, { global: { plugins: [navigation] } });
+        await flushPromises();
+        expect(wrapper.text()).toContain("5 unread");
+        expect(wrapper.get('[aria-label="Notifications for #local"]').element.value).toBe("mentions");
+        await wrapper.get('[aria-label="Notifications for #local"]').setValue("muted");
+        await flushPromises();
+        expect(window.api.post).toHaveBeenCalledWith("/api/v1/meshcore/channel-mute", {
+            channel: other,
+            muted: true,
+            mentions_only: false,
+            expected_owner: owner,
+        });
+        expect(window.api.post.mock.calls.some(([path]) => path.endsWith("/channel-read"))).toBe(false);
+        expect(wrapper.text()).toContain("5 unread");
+    });
     it("keeps message details open across equivalent snapshot refreshes and closes on identity change", async () => {
         const data = snapshot();
         window.api = {

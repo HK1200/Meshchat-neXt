@@ -73,6 +73,56 @@ def find_ogg_py() -> Path | None:
     return None
 
 
+def repair_ogg_stream_state(ogg_module) -> bool:
+    """Match Xiph's pointer fields before any Ogg stream is instantiated.
+
+    The legacy binding uses scalar fields for lacing_vals and granule_vals.
+    Windows LLP64 then allocates eight bytes less than libogg writes. Replace
+    the type and every native argument referencing it; never resize an instance.
+    """
+    from ctypes import Structure
+
+    old = getattr(ogg_module, "ogg_stream_state", None)
+    library = getattr(ogg_module, "libogg", None)
+    if old is None or library is None:
+        return False
+    expected = {
+        "lacing_vals": POINTER(c_int),
+        "granule_vals": POINTER(ogg_module.ogg_int64_t),
+    }
+    fields = dict(old._fields_)
+    if all(fields.get(name) is kind for name, kind in expected.items()):
+        return False
+    if (
+        fields.get("lacing_vals") is not c_int
+        or fields.get("granule_vals") is not ogg_module.ogg_int64_t
+    ):
+        raise RuntimeError("Unsupported libogg stream-state binding layout")
+    old_pointer = ogg_module.os_p
+    fixed = type(
+        "ogg_stream_state",
+        (Structure,),
+        {
+            "__module__": ogg_module.__name__,
+            "_fields_": [
+                (name, expected.get(name, kind)) for name, kind in old._fields_
+            ],
+        },
+    )
+    new_pointer = POINTER(fixed)
+    for function in vars(library).values():
+        arguments = getattr(function, "argtypes", None)
+        if isinstance(arguments, (list, tuple)) and any(
+            arg is old_pointer for arg in arguments
+        ):
+            function.argtypes = [
+                new_pointer if arg is old_pointer else arg for arg in arguments
+            ]
+    ogg_module.ogg_stream_state = fixed
+    ogg_module.os_p = new_pointer
+    return True
+
+
 def inject_ctypes_aliases(ogg_module) -> list[str]:
     """Set missing ctypes aliases on a loaded ogg module. Returns names set."""
     added: list[str] = []
@@ -80,6 +130,7 @@ def inject_ctypes_aliases(ogg_module) -> list[str]:
         if not hasattr(ogg_module, name):
             setattr(ogg_module, name, value)
             added.append(name)
+    repair_ogg_stream_state(ogg_module)
     return added
 
 
@@ -155,10 +206,8 @@ class _OggCompatFinder(importlib.abc.MetaPathFinder):
                     return spec
             return None
         try:
-            text = ogg.read_text(encoding="utf-8")
+            ogg.read_text(encoding="utf-8")
         except OSError:
-            return None
-        if _MARKER in text:
             return None
         loader = _OggCompatLoader(ogg)
         return importlib.util.spec_from_file_location(

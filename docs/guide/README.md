@@ -787,7 +787,7 @@ The server refused the request. Credentials, policy or registration limits can c
 
 ### Can SIP fall back from Wi-Fi to mobile data?
 
-Allow both networks. It reconnects using an available permitted route; an active call can still end during handover.
+Allow both networks. On Android, a failed or timed-out registration tries another allowed connection. If none works, neXt retries periodically; a successful connection stays selected. Active calls are not interrupted just to retry registration, but losing the connection can still end a call.
 
 ### Why is I2P not listed?
 

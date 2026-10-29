@@ -226,3 +226,15 @@ describe("AppSidebarNav edit hold", () => {
         wrapper.unmount();
     });
 });
+
+describe("visible sidebar reorder entry", () => {
+    it("opens the existing arrow editor even when More has no destinations", async () => {
+        const wrapper = mountGrouped({ moreNavItems: [] });
+        await wrapper.get('[data-testid="sidebar-reorder"]').trigger("click");
+        expect(wrapper.emitted("edit-start")).toHaveLength(1);
+        await wrapper.setProps({ isEditing: true });
+        expect(wrapper.find('[data-testid="sidebar-reorder"]').exists()).toBe(false);
+        expect(wrapper.find('button[aria-label="Move up"]').exists()).toBe(true);
+        wrapper.unmount();
+    });
+});

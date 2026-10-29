@@ -202,7 +202,7 @@ class MeshCoreService:
         return {
             "available": True,
             "bluetooth_discovery_supported": transport_platform()
-            in ("android", "linux"),
+            in ("android", "linux", "windows"),
             "radio_platform": transport_platform(),
             "state": ("connection_lost" if self._state == "connected" else self._state)
             if not healthy

@@ -376,7 +376,7 @@
             "artifactName": "MeshchatNext-v${version}-${os}-portable.${ext}"
         },
         "nsis": {
-            "artifactName": "MeshchatNext-v${version}-${os}-installer.${ext}",
+            "artifactName": "MeshchatNext-v${version}-${os}-${arch}-installer.${ext}",
             "oneClick": false,
             "allowToChangeInstallationDirectory": true
         }

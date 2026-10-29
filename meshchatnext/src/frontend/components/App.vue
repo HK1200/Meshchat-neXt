@@ -242,6 +242,7 @@
                             isSidebarOpen ? 'translate-x-0' : '-translate-x-full',
                             isSidebarCollapsed ? 'w-14' : 'w-80 md:max-lg:w-64 lg:w-80',
                         ]"
+                        @click="onSidebarDestinationClick"
                     >
                         <div
                             class="flex h-full w-full flex-col overflow-y-auto border-r border-sem-border bg-sem-canvas"
@@ -249,21 +250,39 @@
                             <!-- toggle button for desktop (h-10 aligns with Messages/Nomad collapse rows) -->
                             <div
                                 class="h-10 shrink-0 items-center gap-1 border-b border-sem-border px-2"
+                                :data-app-back-scope="isSidebarNavEditing ? '' : null"
                                 :class="[
                                     isSidebarNavEditing && !isSidebarCollapsed ? 'flex' : 'hidden sm:flex',
                                     isSidebarCollapsed ? 'justify-center' : 'justify-end',
                                 ]"
+                                @app-back.stop="discardSidebarNavEdit"
                             >
+                                <span
+                                    v-if="isSidebarNavEditing && !isSidebarCollapsed"
+                                    class="mr-auto text-xs font-semibold truncate"
+                                    >{{ $t("app.nav_reorder_sidebar") }}</span
+                                >
                                 <button
                                     v-if="isSidebarNavEditing && !isSidebarCollapsed"
                                     type="button"
-                                    class="p-1.5 rounded-lg text-sem-fg-muted hover:bg-sem-surface-muted transition-colors"
+                                    class="flex items-center gap-1 p-1.5 rounded-lg text-sm font-semibold text-sem-fg-muted hover:bg-sem-surface-muted transition-colors"
                                     data-testid="sidebar-nav-layout-save"
                                     :title="$t('common.save')"
                                     :aria-label="$t('common.save')"
                                     @click="saveSidebarNavLayout"
                                 >
                                     <MaterialDesignIcon icon-name="content-save" class="size-5" />
+                                    <span>{{ $t("common.save") }}</span>
+                                </button>
+                                <button
+                                    v-if="isSidebarNavEditing && !isSidebarCollapsed"
+                                    type="button"
+                                    class="p-1.5 rounded-lg text-sm text-sem-fg-muted hover:bg-sem-surface-muted"
+                                    data-app-back
+                                    data-testid="sidebar-nav-layout-cancel"
+                                    @click="discardSidebarNavEdit"
+                                >
+                                    {{ $t("common.cancel") }}
                                 </button>
                                 <button
                                     type="button"
@@ -1193,6 +1212,36 @@ export default {
             } else if (item.route) {
                 this.$router.push(item.route);
             }
+        },
+        onSidebarDestinationClick(event) {
+            if (
+                this.isSidebarNavEditing ||
+                !this.isSidebarOpen ||
+                event.button > 0 ||
+                event.ctrlKey ||
+                event.metaKey ||
+                event.shiftKey ||
+                event.altKey
+            )
+                return;
+            const link = event.target?.closest?.("a[href]");
+            // Expansion controls are buttons; only actual destinations dismiss the drawer.
+            if (!link || link.target === "_blank" || link.hasAttribute("download")) return;
+            const finish = () => {
+                this.$nextTick(() => {
+                    this.isSidebarOpen = false;
+                });
+            };
+            // Let the route watcher record the sidebar Back destination first.
+            if (this.$router?.afterEach) {
+                let cleanup;
+                const remove = this.$router.afterEach(() => {
+                    remove();
+                    clearTimeout(cleanup);
+                    finish();
+                });
+                cleanup = setTimeout(remove, 5000);
+            } else finish();
         },
         enterSidebarNavEdit() {
             if (this.isSidebarCollapsed || this.isSidebarNavEditing) {

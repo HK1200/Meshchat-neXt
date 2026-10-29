@@ -557,12 +557,14 @@ def _set_path_access(
     sid: ctypes.c_void_p,
     access_mask: int,
     mode: int,
+    *,
+    inherit: bool = True,
 ) -> None:
     advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
     ea = _EXPLICIT_ACCESS_W()
     ea.grfAccessPermissions = access_mask
     ea.grfAccessMode = mode
-    ea.grfInheritance = _SUB_CONTAINERS_AND_OBJECTS_INHERIT
+    ea.grfInheritance = _SUB_CONTAINERS_AND_OBJECTS_INHERIT if inherit else 0
     ea.Trustee.pMultipleTrustee = None
     ea.Trustee.MultipleTrusteeOperation = 0
     ea.Trustee.TrusteeForm = _TRUSTEE_IS_SID
@@ -630,17 +632,21 @@ def grant_path_access(sid: ctypes.c_void_p, path: str, *, write: bool) -> None:
 
 
 def grant_execute_access(sid: ctypes.c_void_p, path: str) -> None:
-    # Traverse-only: sufficient for parent directories on the way to the exe.
-    _set_path_access(path, sid, _GENERIC_EXECUTE, _GRANT_ACCESS)
+    # Ancestors need traverse access on this directory only. Inheritance would
+    # propagate the grant through unrelated descendant trees during startup.
+    _set_path_access(path, sid, _GENERIC_EXECUTE, _GRANT_ACCESS, inherit=False)
 
 
-def revoke_path_access(sid: ctypes.c_void_p, path: str) -> None:
+def revoke_path_access(
+    sid: ctypes.c_void_p, path: str, *, inherit: bool = True
+) -> None:
     try:
         _set_path_access(
             path,
             sid,
             _GENERIC_READ | _GENERIC_WRITE | _GENERIC_EXECUTE | _GENERIC_ALL,
             _REVOKE_ACCESS,
+            inherit=inherit,
         )
     except OSError as exc:
         logger.debug("revoke_path_access %s: %s", path, exc)
@@ -1184,6 +1190,7 @@ def launch_backend_sandboxed(
     sid: ctypes.c_void_p | None = None
     granted: list[tuple[str, bool]] = []
     granted_set: set[str] = set()
+    traverse_only_grants: set[str] = set()
 
     def _record_grant(path: str, write: bool) -> None:
         granted.append((path, write))
@@ -1212,6 +1219,7 @@ def launch_backend_sandboxed(
                         try:
                             grant_execute_access(sid, parent)
                             _record_grant(parent, False)
+                            traverse_only_grants.add(parent)
                         except OSError as grant_exc:
                             logger.debug(
                                 "grant_execute_access(%s) failed: %s",
@@ -1360,7 +1368,10 @@ def launch_backend_sandboxed(
     finally:
         if sid is not None:
             for path, _write in reversed(granted):
-                revoke_path_access(sid, path)
+                if path in traverse_only_grants:
+                    revoke_path_access(sid, path, inherit=False)
+                else:
+                    revoke_path_access(sid, path)
             try:
                 if sys.platform == "win32":
                     ctypes.windll.kernel32.LocalFree(sid)

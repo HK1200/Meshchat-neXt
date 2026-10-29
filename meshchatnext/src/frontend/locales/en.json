@@ -179,6 +179,7 @@
         "documentation": "Documentation",
         "about": "About",
         "nav_more": "More",
+        "nav_reorder_sidebar": "Reorder sidebar",
         "nav_layout_saved": "Sidebar order saved",
         "top_nav_buttons": "Top navigation buttons",
         "top_nav_description": "Choose which sections appear in the top bar and their order.",

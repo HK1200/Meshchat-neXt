@@ -5,6 +5,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { spawnSync } from "child_process";
+import { createRequire } from "module";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..");
@@ -26,10 +27,19 @@ function ensureParentDir(filePath) {
 }
 
 function buildCss() {
-    const result = spawnSync("pnpm", ["exec", "tailwindcss", "-i", SRC_CSS, "-o", ELECTRON_OUT, "--minify"], {
+    // Invoke the installed JS CLI directly: Windows cannot exec pnpm.cmd
+    // without a shell, and paths must remain individual arguments.
+    const require = createRequire(import.meta.url);
+    const packagePath = require.resolve("@tailwindcss/cli/package.json");
+    const metadata = JSON.parse(fs.readFileSync(packagePath, "utf8"));
+    const cliPath = path.resolve(path.dirname(packagePath), metadata.bin.tailwindcss);
+    const result = spawnSync(process.execPath, [cliPath, "-i", SRC_CSS, "-o", ELECTRON_OUT, "--minify"], {
         cwd: REPO_ROOT,
         stdio: "inherit",
     });
+    if (result.error) {
+        console.error(`build-electron-shell-css: ${result.error.message}`);
+    }
     if (result.status !== 0) {
         process.exit(result.status ?? 1);
     }

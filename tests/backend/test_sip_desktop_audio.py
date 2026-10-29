@@ -3,11 +3,13 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from meshchatnext.src.backend import sip_desktop_audio as audio_module
 from meshchatnext.src.backend.sip_desktop_audio import DesktopSipAudio
 
 
 @pytest.mark.asyncio
 async def test_private_echo_pair_is_owned_and_never_changes_defaults(monkeypatch):
+    monkeypatch.setattr(audio_module.sys, "platform", "linux")
     monkeypatch.delenv("PULSE_SOURCE", raising=False)
     monkeypatch.delenv("PULSE_SINK", raising=False)
     command = AsyncMock(side_effect=["mic", "speakers", "42", ""])
@@ -29,6 +31,7 @@ async def test_private_echo_pair_is_owned_and_never_changes_defaults(monkeypatch
 async def test_missing_audio_filter_falls_back_and_explicit_devices_are_honored(
     monkeypatch,
 ):
+    monkeypatch.setattr(audio_module.sys, "platform", "linux")
     monkeypatch.delenv("PULSE_SOURCE", raising=False)
     monkeypatch.delenv("PULSE_SINK", raising=False)
     command = AsyncMock(side_effect=FileNotFoundError())

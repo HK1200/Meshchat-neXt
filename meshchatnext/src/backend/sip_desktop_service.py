@@ -3,6 +3,7 @@
 
 import asyncio
 import contextlib
+import sys
 import time
 import uuid
 
@@ -45,6 +46,8 @@ class DesktopSipService:
         self._retry_delay = 5
         self._denied = False
         self._last_resume = float("-inf")
+        self._network_retry_at = {}
+        self._attempt_started = 0.0
 
     def _permitted(self):
         return self.store.feature_enabled and self.permitted()
@@ -52,7 +55,7 @@ class DesktopSipService:
     def status(self):
         return {
             "available": True,
-            "platform": "linux",
+            "platform": "windows" if sys.platform == "win32" else "linux",
             "feature_enabled": self.store.feature_enabled,
             "enabled": self.store.enabled,
             "state": self.state,
@@ -101,6 +104,16 @@ class DesktopSipService:
         if engine:
             await engine.close()
 
+    @staticmethod
+    def _network_key(network):
+        return (network["interface"], network["address"], network["kind"])
+
+    def _network_failed(self):
+        if self.binding:
+            self._network_retry_at[self._network_key(self.binding)] = (
+                time.monotonic() + 60
+            )
+
     def _event(self, engine, event):
         if engine is not self.engine:
             return
@@ -114,9 +127,9 @@ class DesktopSipService:
             self.state = "registration_failed"
             code = event.get("code", 0)
             self.error = f"SIP registration was not accepted (code {code})"
-            self._denied = code in (401, 403)
-            self._retry_at = time.monotonic() + self._retry_delay
-            self._retry_delay = min(self._retry_delay * 2, 300)
+            self._network_failed()
+            self._denied = False
+            self._retry_at = 0
         elif state in ("incoming", "calling", "ringing", "connected", "ended"):
             if state in ("incoming", "calling") and self.call_state == "idle":
                 self.call_id = uuid.uuid4().hex
@@ -144,7 +157,30 @@ class DesktopSipService:
             return
         row = self.store.find(self.store.selected)
         candidates = await asyncio.to_thread(self.networks)
-        selected = select_network(row["allowed_networks"], candidates)
+        # Validate the account policy before considering any connection.
+        select_network(row["allowed_networks"], candidates)
+        candidates = [n for n in candidates if n["kind"] in row["allowed_networks"]]
+        now = time.monotonic()
+        current_allowed = self.binding and any(
+            self._network_key(n) == self._network_key(self.binding) for n in candidates
+        )
+        if self.engine and current_allowed and self.engine.running:
+            if self.call_state != "idle" or self.state == "registered":
+                return
+            if self.state in ("starting", "registering"):
+                if now - self._attempt_started < 45:
+                    return
+                self._network_failed()
+        elif self.engine and not self.engine.running:
+            self._network_failed()
+        selected = select_network(
+            row["allowed_networks"],
+            [
+                n
+                for n in candidates
+                if self._network_retry_at.get(self._network_key(n), 0) <= now
+            ],
+        )
         if not selected:
             await self._stop()
             self.state = "waiting_network"
@@ -173,11 +209,15 @@ class DesktopSipService:
             )
             self._retry_at = time.monotonic() + 30
             return
-        engine = self.engine_factory(self.executable, interface=selected["interface"])
+        options = {"interface": selected["interface"]}
+        if sys.platform == "win32":
+            options["local_address"] = selected["address"]
+        engine = self.engine_factory(self.executable, **options)
         engine.on_event = lambda event: self._event(engine, event)
         self.engine = engine
         self.binding = selected
         self.state = "starting"
+        self._attempt_started = time.monotonic()
         try:
             await engine.launch()
             await engine.command(
@@ -188,11 +228,11 @@ class DesktopSipService:
                 password=password,
             )
         except Exception:
+            self._network_failed()
             await self._stop()
             self.state = "connection_failed"
             self.error = "SIP could not connect on the selected interface"
-            self._retry_at = time.monotonic() + self._retry_delay
-            self._retry_delay = min(self._retry_delay * 2, 300)
+            self._retry_at = 0
 
     async def command(self, op, **fields):
         async with self._lock:
@@ -204,6 +244,7 @@ class DesktopSipService:
                     await self._stop()
                 self._denied = False
                 self._retry_at = 0
+                self._network_retry_at.clear()
             elif op == "remove":
                 account_id = fields.get("id")
                 if account_id == self.store.selected:
@@ -230,6 +271,7 @@ class DesktopSipService:
                 await asyncio.to_thread(self.store.persist)
                 self._denied = False
                 self._retry_at = 0
+                self._network_retry_at.clear()
             elif op == "resume":
                 now = time.monotonic()
                 if (

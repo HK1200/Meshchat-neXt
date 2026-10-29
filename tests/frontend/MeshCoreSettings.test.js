@@ -45,6 +45,25 @@ async function read() {
     await flushPromises();
 }
 describe("MeshCore radio settings", () => {
+    it("offers native Windows discovery without Android pairing or OTG instructions", async () => {
+        setup({
+            snapshot: ref({
+                available: true,
+                connected: false,
+                owner,
+                radio_platform: "windows",
+                bluetooth_discovery_supported: true,
+            }),
+        });
+        await flushPromises();
+        expect(wrapper.text()).toContain("Find nearby radios");
+        expect(wrapper.text()).not.toContain("Pair your radio in Android");
+        const selector = wrapper.findAll("select").find((item) => item.find('option[value="usb"]').exists());
+        await selector.setValue("usb");
+        await flushPromises();
+        expect(wrapper.text()).toContain("COM port");
+        expect(wrapper.text()).not.toContain("OTG cable");
+    });
     it("hides a saved connection's selectors until Edit connection is opened", async () => {
         setup({
             snapshot: ref({

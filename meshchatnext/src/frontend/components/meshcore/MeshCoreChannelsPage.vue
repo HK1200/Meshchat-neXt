@@ -43,7 +43,12 @@
         <p v-if="error" role="alert" class="px-4 py-2 text-sm text-sem-danger">{{ error }}</p>
         <div v-if="!channelId" class="overflow-y-auto p-4 md:p-6 space-y-6">
             <div class="max-w-3xl mx-auto space-y-4">
-                <h2 class="font-semibold">Your channels</h2>
+                <h2 class="font-semibold">
+                    Your channels <span class="text-sm text-sem-accent">{{ unreadTotal }} unread</span>
+                </h2>
+                <p class="text-xs text-sem-fg-muted">
+                    Unread counts include all messages. Notification preferences only control alerts.
+                </p>
                 <RouterLink
                     :to="{ name: 'meshcore-tools', params: { tool: 'regions' } }"
                     class="text-sm text-sem-accent"
@@ -70,6 +75,20 @@
                         <span v-if="channel.unread" class="text-xs text-sem-accent">{{ channel.unread }} unread</span>
                         <MaterialDesignIcon v-if="channel.muted" icon-name="bell-off-outline" class="size-4" />
                     </RouterLink>
+                    <label class="flex items-center gap-2 text-xs text-sem-fg-muted pb-2">
+                        Alerts
+                        <select
+                            :aria-label="`Notifications for ${channel.name}`"
+                            class="rounded-lg border border-sem-border bg-sem-surface text-sem-fg px-2 py-2 text-xs"
+                            :disabled="busy"
+                            :value="channel.muted ? 'muted' : channel.mentions_only ? 'mentions' : 'all'"
+                            @change="setNotifications($event.target.value, channel.channel_id)"
+                        >
+                            <option value="all">All messages</option>
+                            <option value="mentions">Mentions only</option>
+                            <option value="muted">Muted</option>
+                        </select>
+                    </label>
                     <MeshCoreChannelScope
                         :channel="channel"
                         :regions="snapshot.regions || []"
@@ -318,6 +337,9 @@ const { snapshot, error, action, refresh } = useMeshCoreUi(
     () => props.visit
 );
 useMeshCoreNotificationContext(() => snapshot.value.active_notification_key);
+const unreadTotal = computed(() =>
+    (snapshot.value.channels || []).reduce((total, channel) => total + Math.max(0, Number(channel.unread) || 0), 0)
+);
 const selected = computed(() => (snapshot.value.channels || []).find((row) => row.channel_id === props.channelId));
 watch([() => snapshot.value.owner, () => props.channelId], () => {
     detailRow.value = null;
@@ -467,12 +489,12 @@ async function setChannelScope(channel, scope) {
     }
 }
 
-async function setNotifications(mode) {
-    if (busy.value) return;
+async function setNotifications(mode, channelId = props.channelId) {
+    if (!channelId || busy.value) return;
     busy.value = true;
     try {
         await action("channel-mute", {
-            channel: props.channelId,
+            channel: channelId,
             muted: mode === "muted",
             mentions_only: mode === "mentions",
         });

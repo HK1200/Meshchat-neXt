@@ -36,11 +36,11 @@ const props = defineProps({ dnd: { type: Boolean, default: false } });
 watch(
     () => [state.platform, state.enabled, state.call_state, state.call_id, props.dnd],
     () => {
-        if (state.platform === "linux" && window.electron) {
+        if (["linux", "windows"].includes(state.platform) && window.electron) {
             if (state.call_state === "incoming" && !props.dnd) ringtone.start(state.call_id);
             else ringtone.stop();
         }
-        if (state.platform === "linux" && window.electron?.updateSipCall)
+        if (["linux", "windows"].includes(state.platform) && window.electron?.updateSipCall)
             window.electron
                 .updateSipCall({
                     enabled: Boolean(state.enabled),
@@ -72,7 +72,8 @@ onMounted(() => {
 onBeforeUnmount(() => {
     clearInterval(timer);
     ringtone.stop();
-    if (state.platform === "linux") window.electron?.updateSipCall?.({ enabled: false, incoming: false });
+    if (["linux", "windows"].includes(state.platform))
+        window.electron?.updateSipCall?.({ enabled: false, incoming: false });
 });
 async function hangup() {
     try {
