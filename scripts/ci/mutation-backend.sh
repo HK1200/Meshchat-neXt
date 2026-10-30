@@ -11,7 +11,12 @@ STATS_FILE="${MUTMUT_STATS_FILE:-mutmut-cicd-stats.json}"
 echo "Running mutmut on: ${TARGET}"
 
 uv run mutmut run "${TARGET}"
-uv run mutmut export-cicd-stats > "${STATS_FILE}"
+# The exporter prints a status message and writes JSON to this file.
+# Do not interpret its stdout as the score report.
+rm -f mutants/mutmut-cicd-stats.json
+uv run mutmut export-cicd-stats
+test -s mutants/mutmut-cicd-stats.json
+cp mutants/mutmut-cicd-stats.json "${STATS_FILE}"
 
 if [[ -n "${THRESHOLD}" ]]; then
     uv run python scripts/ci/mutation-score-check.py \

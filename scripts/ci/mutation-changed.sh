@@ -32,7 +32,8 @@ mapfile -t changed < <(
 )
 
 if [[ "${#changed[@]}" -eq 0 ]]; then
-    echo "No backend Python modules changed vs ${BASE_REF}; skipping."
+    echo "No backend Python modules changed vs ${BASE_REF}; skipping." >&2
+    [[ "${1:-}" != "--list-json" ]] || echo '[]'
     exit 0
 fi
 
@@ -46,7 +47,8 @@ for path in "${changed[@]}"; do
 done
 
 if [[ "${#targets[@]}" -eq 0 ]]; then
-    echo "All changed backend modules were deleted; skipping."
+    echo "All changed backend modules were deleted; skipping." >&2
+    [[ "${1:-}" != "--list-json" ]] || echo '[]'
     exit 0
 fi
 
@@ -65,6 +67,23 @@ if [[ "${#targets[@]}" -gt "${MAX_MODULES}" ]]; then
         mod="${mod//\//.}"
         targets+=("${mod}")
     done
+fi
+
+# Selection and execution share this list; each CI worker must run a member.
+if [[ "${1:-}" == "--list-json" ]]; then
+    python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "${targets[@]}"
+    exit 0
+fi
+if [[ -n "${MUTMUT_MODULE:-}" ]]; then
+    found=false
+    for target in "${targets[@]}"; do
+        [[ "${target}" != "${MUTMUT_MODULE}" ]] || found=true
+    done
+    if [[ "${found}" != true ]]; then
+        echo "Requested module is not in the changed-module selection" >&2
+        exit 2
+    fi
+    targets=("${MUTMUT_MODULE}")
 fi
 
 echo "Mutation targets vs ${BASE_REF}:"
