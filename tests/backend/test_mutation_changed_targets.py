@@ -12,7 +12,11 @@ import pytest
 import yaml
 
 
-def test_changed_module_filters_select_mutants_without_data_payloads(tmp_path):
+def test_changed_module_filters_select_mutants_without_data_payloads(
+    tmp_path, monkeypatch
+):
+    # CI supplies a worker filter; the fixture must still test its own full plan.
+    monkeypatch.setenv("MUTMUT_MODULE", "meshchatnext.src.backend.http.routes.update")
     root = Path(__file__).resolve().parents[2]
     scripts = tmp_path / "scripts/ci"
     scripts.mkdir(parents=True)
@@ -63,6 +67,7 @@ def test_changed_module_filters_select_mutants_without_data_payloads(tmp_path):
         env={
             **os.environ,
             "MUTMUT_BASE_REF": "baseline",
+            "MUTMUT_MODULE": "",
             "MUTMUT_MIN_SCORE": "",
             "MUTMUT_TARGET_LOG": str(log),
         },
@@ -76,6 +81,7 @@ def test_changed_module_filters_select_mutants_without_data_payloads(tmp_path):
     env = {
         **os.environ,
         "MUTMUT_BASE_REF": "baseline",
+        "MUTMUT_MODULE": "",
         "MUTMUT_MIN_SCORE": "",
         "MUTMUT_TARGET_LOG": str(log),
     }
