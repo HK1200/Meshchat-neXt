@@ -509,7 +509,7 @@ jobs:
                   MUTMUT_MAX_MODULES: "3"
                   MUTMUT_MIN_SCORE: "50"
                   MUTMUT_MODULE: ${{ matrix.module }}
-              run: bash scripts/ci/mutation-changed.sh
+              run: python3 scripts/ci/with-resource-telemetry.py -- bash scripts/ci/mutation-changed.sh
 
             - name: Upload mutation report
               if: always()

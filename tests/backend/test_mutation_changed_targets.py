@@ -231,3 +231,36 @@ def test_backend_runner_reads_actual_mutmut_json_export(tmp_path, survivors, suc
     report = json.loads((tmp_path / "mutmut-cicd-stats.json").read_text())
     assert report["killed"] == 1
     assert report["survived"] == survivors
+
+
+@pytest.mark.parametrize("exit_code", [0, 17])
+def test_resource_observer_preserves_command_failure_and_reports_usage(
+    tmp_path, exit_code
+):
+    root = Path(__file__).resolve().parents[2]
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(root / "scripts/ci/with-resource-telemetry.py"),
+            "--interval",
+            "0.05",
+            "--",
+            sys.executable,
+            "-c",
+            f"import time; print('command-output', flush=True); time.sleep(0.12); raise SystemExit({exit_code})",
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == exit_code
+    assert "command-output" in result.stdout
+    reports = [
+        json.loads(line.removeprefix("CI_RESOURCE "))
+        for line in result.stdout.splitlines()
+        if line.startswith("CI_RESOURCE ")
+    ]
+    assert len(reports) >= 3
+    assert all(
+        report["free_bytes"] > 0 and report["free_inodes"] > 0 for report in reports
+    )
