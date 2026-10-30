@@ -7,10 +7,80 @@ import argparse
 import json
 import os
 import shutil
+import stat
 import subprocess
 import tempfile
 import time
 from pathlib import Path
+
+
+def directory_usage(path: Path) -> dict:
+    """Keep useful du totals even when inaccessible children make du exit 1."""
+    try:
+        result = subprocess.run(
+            [shutil.which("du") or "/usr/bin/du", "-x", "-s", str(path)],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        return {
+            "bytes": int(result.stdout.split()[0]) * 1024,
+            "complete": result.returncode == 0,
+        }
+    except (OSError, ValueError, IndexError, subprocess.SubprocessError):
+        return {"bytes": None, "complete": False}
+
+
+def open_deleted_files(only_pid: int | None = None) -> dict:
+    """Measure own-user unlinked regular files that du cannot see; no paths."""
+    files = {}
+    deadline = time.monotonic() + 5
+    try:
+        processes = list(Path("/proc").iterdir())
+    except OSError:
+        return {"allocated_bytes": 0, "files": [], "complete": False}
+    complete = True
+    for process in processes:
+        if time.monotonic() > deadline:
+            complete = False
+            break
+        if only_pid is not None and process.name != str(only_pid):
+            continue
+        if not process.name.isdecimal():
+            continue
+        try:
+            if process.stat().st_uid != os.getuid():
+                continue
+            for fd in (process / "fd").iterdir():
+                if time.monotonic() > deadline:
+                    complete = False
+                    break
+                try:
+                    target = os.readlink(fd)
+                    info = fd.stat()
+                    if not target.endswith(" (deleted)") or not stat.S_ISREG(
+                        info.st_mode
+                    ):
+                        continue
+                    key = (info.st_dev, info.st_ino)
+                    files[key] = {
+                        "pid": int(process.name),
+                        "bytes": info.st_size,
+                        "allocated_bytes": info.st_blocks * 512,
+                    }
+                except OSError:
+                    continue
+        except OSError:
+            continue
+    values = sorted(
+        files.values(), key=lambda row: row["allocated_bytes"], reverse=True
+    )
+    return {
+        "allocated_bytes": sum(row["allocated_bytes"] for row in values),
+        "files": values[:10],
+        "complete": complete,
+    }
 
 
 def snapshot() -> None:
@@ -26,6 +96,9 @@ def snapshot() -> None:
         Path(tempfile.gettempdir()),
         Path("/home/runner/actions-runner"),
         Path("/home/runner/work"),
+        Path("/var/lib/systemd/coredump"),
+        Path("/var/crash"),
+        Path("/var/log"),
     ]
     paths.extend(
         Path(os.environ[v])
@@ -35,17 +108,7 @@ def snapshot() -> None:
     for path in paths:
         if not path.exists():
             continue
-        try:
-            result = subprocess.run(
-                [shutil.which("du") or "/usr/bin/du", "-x", "-s", str(path)],
-                capture_output=True,
-                text=True,
-                timeout=5,
-                check=True,
-            )
-            sizes[str(path)] = int(result.stdout.split()[0]) * 1024
-        except (OSError, ValueError, subprocess.SubprocessError):
-            sizes[str(path)] = "unavailable"
+        sizes[str(path)] = directory_usage(path)
     memory = {}
     try:
         for line in Path("/proc/meminfo").read_text().splitlines():
@@ -62,6 +125,7 @@ def snapshot() -> None:
                 "free_bytes": usage.free,
                 "free_inodes": fs.f_favail,
                 "directory_bytes": sizes,
+                "open_deleted_files": open_deleted_files(),
                 "memory": memory,
             }
         ),

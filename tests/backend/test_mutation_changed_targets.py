@@ -264,3 +264,47 @@ def test_resource_observer_preserves_command_failure_and_reports_usage(
     assert all(
         report["free_bytes"] > 0 and report["free_inodes"] > 0 for report in reports
     )
+
+
+@pytest.fixture
+def resource_observer_module():
+    import importlib.util
+
+    root = Path(__file__).resolve().parents[2]
+    spec = importlib.util.spec_from_file_location(
+        "resource_observer", root / "scripts/ci/with-resource-telemetry.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_resource_observer_retains_partial_du_total(
+    resource_observer_module, monkeypatch, tmp_path
+):
+    module = resource_observer_module
+    monkeypatch.setattr(
+        module.subprocess,
+        "run",
+        lambda *a, **kw: subprocess.CompletedProcess(
+            [], 1, "16\tfixture\n", "permission denied"
+        ),
+    )
+    assert module.directory_usage(tmp_path) == {"bytes": 16384, "complete": False}
+
+
+def test_resource_observer_finds_real_unlinked_open_file(
+    resource_observer_module, tmp_path
+):
+    path = tmp_path / "synthetic-unlinked-data"
+    with path.open("wb+") as stream:
+        stream.write(b"x" * 8192)
+        stream.flush()
+        path.unlink()
+        report = resource_observer_module.open_deleted_files(only_pid=os.getpid())
+        assert report["allocated_bytes"] >= 8192
+        assert any(
+            row["pid"] == os.getpid() and row["bytes"] == 8192
+            for row in report["files"]
+        )
+        assert "synthetic-unlinked-data" not in json.dumps(report)
