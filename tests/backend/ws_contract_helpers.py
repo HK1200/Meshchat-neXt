@@ -8,6 +8,8 @@ import json
 import re
 from pathlib import Path
 
+from tests.backend.source_contract_helpers import source_declarations
+
 _CLIENT_HANDLER_RE = re.compile(
     r"(?:if|elif)\s+_type\s*==\s*(?:[\"']([^\"']+)[\"']|WsInboundType\.([A-Z0-9_]+))",
 )
@@ -41,7 +43,7 @@ def ws_inbound_type_values(repo_root: Path) -> dict[str, str]:
     path = repo_root / "meshchatnext" / "src" / "backend" / "constants.py"
     if not path.is_file():
         return {}
-    text = path.read_text(encoding="utf-8")
+    text = source_declarations(path.read_text(encoding="utf-8"))
     start = text.find("class WsInboundType")
     if start < 0:
         return {}
@@ -129,7 +131,7 @@ def extract_client_inbound_types(meshchat_py: Path) -> list[str]:
     for path in iter_ws_source_files(repo_root):
         if path.name == "rns_link_manager.py":
             continue
-        text = path.read_text(encoding="utf-8")
+        text = source_declarations(path.read_text(encoding="utf-8"))
         block = _dispatcher_block(text)
         if block:
             for m in _CLIENT_HANDLER_RE.finditer(block):
@@ -187,7 +189,7 @@ def extract_client_direct_response_types(meshchat_py: Path) -> list[str]:
     for path in iter_ws_source_files(repo_root):
         if path.name == "rns_link_manager.py":
             continue
-        text = path.read_text(encoding="utf-8")
+        text = source_declarations(path.read_text(encoding="utf-8"))
         block = _direct_response_block(text)
         scan = block or text
         if not block and "backend/http" not in path.as_posix():
@@ -208,7 +210,7 @@ def extract_server_broadcast_types(meshchat_py: Path) -> list[str]:
     members = ws_inbound_type_values(repo_root)
     types: set[str] = set()
     for path in iter_ws_source_files(repo_root):
-        text = path.read_text(encoding="utf-8")
+        text = source_declarations(path.read_text(encoding="utf-8"))
         for match in _BROADCAST_CALL_RE.finditer(text):
             chunk = text[match.end() : match.end() + 1200]
             type_match = _WS_TYPE_LITERAL_RE.search(chunk)
