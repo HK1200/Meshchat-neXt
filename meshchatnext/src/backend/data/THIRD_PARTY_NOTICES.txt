@@ -1,5 +1,5 @@
 Meshchat neXt - Third-party notices
-Generated at: 2026-10-27T16:19:09.461797Z
+Generated at: 2026-10-29T22:02:50.982487Z
 Frontend source: pnpm
 
 Python dependencies
@@ -445,16 +445,16 @@ Node dependencies
 @humanwhocodes/retry 0.4.3
   License: Apache-2.0
   Author: Nicholas C. Zaks
-@intlify/core-base 11.4.10
+@intlify/core-base 11.4.14
   License: MIT
   Author: kazuya kawaguchi
-@intlify/devtools-types 11.4.10
+@intlify/devtools-types 11.4.14
   License: MIT
   Author: kazuya kawaguchi
-@intlify/message-compiler 11.4.10
+@intlify/message-compiler 11.4.14
   License: MIT
   Author: kazuya kawaguchi
-@intlify/shared 11.4.10
+@intlify/shared 11.4.14
   License: MIT
   Author: kazuya kawaguchi
 @isaacs/cliui 8.0.2
@@ -2632,7 +2632,7 @@ vue-component-type-helpers 3.3.11
 vue-eslint-parser 10.4.1
   License: MIT
   Author: Toru Nagashima
-vue-i18n 11.4.10
+vue-i18n 11.4.14
   License: MIT
   Author: kazuya kawaguchi
 vue-router 4.6.4

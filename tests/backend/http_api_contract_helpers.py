@@ -8,6 +8,8 @@ import json
 import re
 from pathlib import Path
 
+from tests.backend.source_contract_helpers import source_declarations
+
 _ROUTE_DECORATOR = re.compile(
     r"(?<![\w.])@?routes\.(get|post|patch|delete|put)\(\s*(?:\n\s*)?"
     r"(?:"
@@ -49,7 +51,7 @@ def extract_meshchat_http_routes(meshchat_py: Path) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     seen: set[tuple[str, str]] = set()
     for path in http_route_source_paths(repo_root):
-        text = path.read_text(encoding="utf-8")
+        text = source_declarations(path.read_text(encoding="utf-8"))
         for m in _ROUTE_DECORATOR.finditer(text):
             literal, prefixed, fstring = m.group(2), m.group(3), m.group(4)
             if literal is not None:
@@ -93,7 +95,7 @@ def extract_frontend_api_paths(frontend_root: Path) -> set[str]:
     for path in list(frontend_root.rglob("*.vue")) + list(frontend_root.rglob("*.js")):
         if "node_modules" in path.parts:
             continue
-        text = path.read_text(encoding="utf-8")
+        text = source_declarations(path.read_text(encoding="utf-8"))
         for m in re.finditer(r"`(/api/v1[^`]+)`", text):
             s = m.group(1).split("?")[0]
             s = re.sub(r"\$\{[^}]+\}", "a", s)

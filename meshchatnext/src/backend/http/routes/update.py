@@ -125,6 +125,10 @@ def register_update_routes(routes, app):
         try:
             tmp_path = await mgr.download(manifest, entry)
             marker = mgr.stage(tmp_path, entry, manifest)
+        except PermissionError:
+            return http_unavailable(
+                "Unable to save the update file. Check storage access and try again."
+            )
         except UpdateVerifyError as e:
             return http_error_from_exception(e, fallback_status=422)
         except UpdateError as e:
@@ -166,6 +170,10 @@ def register_update_routes(routes, app):
             return web.json_response({"ok": True, "pending": marker})
         except PayloadTooLargeError:
             return http_payload_too_large()
+        except PermissionError:
+            return http_unavailable(
+                "Unable to save the update file. Check storage access and try again."
+            )
         except UpdateVerifyError as e:
             return http_error_from_exception(e, fallback_status=422)
         except UpdateUnavailable as e:

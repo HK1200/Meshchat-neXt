@@ -24,7 +24,7 @@ MIN_SCORE="${MUTMUT_MIN_SCORE:-}"
 
 MERGE_BASE="$(git merge-base "${BASE_REF}" HEAD)"
 mapfile -t changed < <(
-    git diff --name-only "${MERGE_BASE}" HEAD -- 'meshchatnext/src/backend/**/*.py' \
+    git diff --name-only "${MERGE_BASE}" HEAD -- ':(glob)meshchatnext/src/backend/**/*.py' \
         | grep -v '/data/' \
         | grep -v '__pycache__' \
         | grep -v '/__init__.py$' \
@@ -32,7 +32,8 @@ mapfile -t changed < <(
 )
 
 if [[ "${#changed[@]}" -eq 0 ]]; then
-    echo "No backend Python modules changed vs ${BASE_REF}; skipping."
+    echo "No backend Python modules changed vs ${BASE_REF}; skipping." >&2
+    [[ "${1:-}" != "--list-json" ]] || echo '[]'
     exit 0
 fi
 
@@ -46,14 +47,15 @@ for path in "${changed[@]}"; do
 done
 
 if [[ "${#targets[@]}" -eq 0 ]]; then
-    echo "All changed backend modules were deleted; skipping."
+    echo "All changed backend modules were deleted; skipping." >&2
+    [[ "${1:-}" != "--list-json" ]] || echo '[]'
     exit 0
 fi
 
 # Keep the job bounded: mutate at most MAX_MODULES modules, highest churn first.
 if [[ "${#targets[@]}" -gt "${MAX_MODULES}" ]]; then
     mapfile -t ranked < <(
-        git diff --numstat "${MERGE_BASE}" HEAD -- 'meshchatnext/src/backend/**/*.py' \
+        git diff --numstat "${MERGE_BASE}" HEAD -- ':(glob)meshchatnext/src/backend/**/*.py' \
             | sort -rn -k1,1 \
             | awk '{print $3}' \
             | head -n "${MAX_MODULES}"
@@ -67,6 +69,23 @@ if [[ "${#targets[@]}" -gt "${MAX_MODULES}" ]]; then
     done
 fi
 
+# Selection and execution share this list; each CI worker must run a member.
+if [[ "${1:-}" == "--list-json" ]]; then
+    python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "${targets[@]}"
+    exit 0
+fi
+if [[ -n "${MUTMUT_MODULE:-}" ]]; then
+    found=false
+    for target in "${targets[@]}"; do
+        [[ "${target}" != "${MUTMUT_MODULE}" ]] || found=true
+    done
+    if [[ "${found}" != true ]]; then
+        echo "Requested module is not in the changed-module selection" >&2
+        exit 2
+    fi
+    targets=("${MUTMUT_MODULE}")
+fi
+
 echo "Mutation targets vs ${BASE_REF}:"
 printf '  %s\n' "${targets[@]}"
 
@@ -76,7 +95,8 @@ STATS_FILE="mutmut-cicd-stats.json"
 overall_rc=0
 for target in "${targets[@]}"; do
     echo "== mutmut run ${target}"
-    MUTMUT_TARGET="${target}" MUTMUT_STATS_FILE="${STATS_FILE}" \
+    # mutmut filters fully qualified mutant keys, not bare module names.
+    MUTMUT_TARGET="${target}.*" MUTMUT_STATS_FILE="${STATS_FILE}" \
         bash scripts/ci/mutation-backend.sh || overall_rc=$?
     if [[ -n "${MIN_SCORE}" ]]; then
         uv run python scripts/ci/mutation-score-check.py \

@@ -432,12 +432,51 @@ jobs:
             - name: Verify workspace clean
               uses: ./.github/actions/verify-workspace-clean
 
-    mutation-changed:
-        name: Mutation (changed backend modules, advisory)
-        if: github.event_name == 'pull_request'
+    mutation-plan:
+        name: Select changed mutation modules
+        # Owner disabled automatic mutation testing; retained for local research only.
+        if: ${{ false }}
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        permissions:
+            contents: read
+        outputs:
+            modules: ${{ steps.select.outputs.modules }}
+        steps:
+            - name: Harden runner
+              uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+              with:
+                  egress-policy: ${{ runner.os == 'Linux' && 'block' || 'audit' }}
+                  allowed-endpoints: ${{ env.HARDEN_ENDPOINTS }}
+            - name: Checkout
+              uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+              with:
+                  persist-credentials: false
+                  fetch-depth: 0
+
+            - name: Fetch base ref for diff
+              env:
+                  PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+              run: git fetch origin "+refs/heads/${PR_BASE_REF}:refs/remotes/origin/${PR_BASE_REF}"
+            - name: Select modules
+              id: select
+              env:
+                  MUTMUT_BASE_REF: origin/${{ github.event.pull_request.base.ref }}
+                  MUTMUT_MAX_MODULES: "3"
+              run: |
+                  modules=$(bash scripts/ci/mutation-changed.sh --list-json)
+                  echo "modules=$modules" >> "$GITHUB_OUTPUT"
+
+    mutation-module:
+        name: Mutation module (${{ matrix.module }})
+        needs: mutation-plan
+        if: needs.mutation-plan.outputs.modules != '[]'
+        strategy:
+            fail-fast: false
+            matrix:
+                module: ${{ fromJSON(needs.mutation-plan.outputs.modules) }}
         runs-on: ubuntu-latest
         timeout-minutes: 120
-        continue-on-error: true
         permissions:
             contents: read
         steps:
@@ -470,15 +509,39 @@ jobs:
                   MUTMUT_BASE_REF: origin/${{ github.event.pull_request.base.ref }}
                   MUTMUT_MAX_MODULES: "3"
                   MUTMUT_MIN_SCORE: "50"
-              run: bash scripts/ci/mutation-changed.sh
+                  MUTMUT_MODULE: ${{ matrix.module }}
+              run: python3 scripts/ci/with-resource-telemetry.py -- bash scripts/ci/mutation-changed.sh
 
             - name: Upload mutation report
               if: always()
               uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
               with:
-                  name: mutation-pr-report
+                  name: mutation-pr-report-${{ matrix.module }}
                   path: mutmut-cicd-stats.json
                   if-no-files-found: ignore
+
+    mutation-changed:
+        name: Mutation (changed backend modules, advisory)
+        needs: [mutation-plan, mutation-module]
+        if: ${{ false }}
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        continue-on-error: true
+        permissions:
+            contents: read
+        steps:
+            - name: Require every selected module to pass
+              env:
+                  PLAN_RESULT: ${{ needs.mutation-plan.result }}
+                  MODULES: ${{ needs.mutation-plan.outputs.modules }}
+                  MODULE_RESULT: ${{ needs.mutation-module.result }}
+              run: |
+                  test "$PLAN_RESULT" = success
+                  if [ "$MODULES" = '[]' ]; then
+                      test "$MODULE_RESULT" = skipped
+                  else
+                      test "$MODULE_RESULT" = success
+                  fi
 
     zizmor:
         name: Workflow audit (zizmor)

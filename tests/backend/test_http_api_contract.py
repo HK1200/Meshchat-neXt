@@ -55,3 +55,48 @@ def test_frontend_api_paths_exist_on_backend():
         if not any(path_matches_aiohttp_route(br, fp) for br in backend_paths)
     ]
     assert not missing, f"Frontend references unknown HTTP paths: {missing}"
+
+
+def test_route_inventory_ignores_only_mutation_copies(tmp_path):
+    package = tmp_path / "meshchatnext"
+    package.mkdir()
+    main = package / "meshchat.py"
+    main.write_text("# source entrypoint\n")
+    routes = package / "src/backend/http/routes"
+    routes.mkdir(parents=True)
+    source = routes / "fixture.py"
+    source.write_text(
+        "from mutmut.mutation.trampoline import wrap_in_trampoline as _mutmut_mutated\n"
+        "def register(routes):\n"
+        "    @routes.get('/api/v1/real')\n"
+        "    async def real(request): pass\n"
+        "def x_register__mutmut_orig(routes):\n"
+        "    @routes.get('/api/v1/real')\n"
+        "    async def real(request): pass\n"
+        "def x_register__mutmut_1(routes):\n"
+        "    @routes.get('/api/v1/XXrealXX')\n"
+        "    async def real(request): pass\n"
+    )
+    assert extract_meshchat_http_routes(main) == [
+        {"method": "GET", "path": "/api/v1/real"}
+    ]
+    source.write_text(
+        source.read_text().replace(
+            "@routes.get('/api/v1/real')", "@routes.get('/api/v1/changed')", 1
+        )
+    )
+    assert extract_meshchat_http_routes(main) == [
+        {"method": "GET", "path": "/api/v1/changed"}
+    ]
+
+
+def test_real_source_named_like_mutant_is_still_checked(tmp_path):
+    package = tmp_path / "meshchatnext"
+    package.mkdir()
+    main = package / "meshchat.py"
+    main.write_text(
+        "def x_custom__mutmut_1(routes):\n    @routes.get('/api/v1/real')\n    async def real(request): pass\n"
+    )
+    assert extract_meshchat_http_routes(main) == [
+        {"method": "GET", "path": "/api/v1/real"}
+    ]

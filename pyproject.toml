@@ -192,6 +192,9 @@ parallel = true
 
 [tool.mutmut]
 paths_to_mutate = ["meshchatnext/src/backend/"]
+# Packaged source payloads must keep their original bytes. The changed-module
+# mutation job already excludes /data/ from its targets.
+do_not_mutate = ["meshchatnext/src/backend/data/*"]
 # mutmut copies only paths_to_mutate into mutants/, then pytest runs from that
 # directory. meshchatnext/ then shadows the installed package as a namespace
 # package, so these non-backend modules must be copied too.
@@ -202,6 +205,7 @@ paths_to_mutate = ["meshchatnext/src/backend/"]
 also_copy = [
     "pytest.ini",
     "package.json",
+    "next-release.json",
     "cx_setup.py",
     "Taskfile.yml",
     ".agents/",
@@ -210,6 +214,7 @@ also_copy = [
     "electron/",
     "packaging/",
     "scripts/",
+    "docs/",
     "typings/",
     "meshchatnext/__init__.py",
     "meshchatnext/android_codec2.py",
@@ -230,6 +235,7 @@ also_copy = [
     "meshchatnext/src/version.py",
     "meshchatnext/src/frontend/components/",
     "meshchatnext/src/frontend/js/",
+    "meshchatnext/src/frontend/locales/",
 ]
 pytest_add_cli_args = [
     "-m",

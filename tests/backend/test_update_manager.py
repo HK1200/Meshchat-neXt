@@ -632,3 +632,194 @@ def test_linux_update_channel_does_not_follow_android_latest(
     assert manager.artifact_url({"tag": "v0.1.2-linux"}, {"file": "next.AppImage"}) == (
         f"{DEFAULT_BASE_URL}/releases/download/v0.1.2-linux/next.AppImage"
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [401, 403, 404, 429, 503])
+async def test_download_upstream_http_error_is_not_local_auth(
+    tmp_path, monkeypatch, status
+):
+    import tempfile
+    import urllib.error
+
+    mgr = _mgr(tmp_path)
+    manifest = _manifest()
+    entry = manifest["artifacts"][0]
+    original = tempfile.mkstemp
+    paths = []
+
+    def create_temp(**kwargs):
+        fd, name = original(**kwargs, dir=tmp_path)
+        paths.append(Path(name))
+        return fd, name
+
+    def refuse(*args, **kwargs):
+        raise urllib.error.HTTPError(
+            "https://cdn.example.test/private-token", status, "refused", {}, None
+        )
+
+    monkeypatch.setattr("tempfile.mkstemp", create_temp)
+    monkeypatch.setattr("urllib.request.urlopen", refuse)
+    with pytest.raises(
+        UpdateError, match=f"update download failed: HTTP {status}"
+    ) as error:
+        await mgr.download(manifest, entry)
+    assert not isinstance(error.value, urllib.error.HTTPError)
+    assert paths and all(not path.exists() for path in paths)
+    assert mgr.pending() is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [401, 403])
+async def test_route_cdn_auth_refusal_is_service_error(
+    mock_app, tmp_path, monkeypatch, status
+):
+    import urllib.error
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    mgr = _mgr(tmp_path)
+    manifest = _manifest()
+    entry = manifest["artifacts"][0]
+    mock_app.update_manager = mgr
+    monkeypatch.setattr(mgr, "fetch_manifest", AsyncMock(return_value=manifest))
+    monkeypatch.setattr(mgr, "matching_artifacts", lambda value: [entry])
+
+    def refuse(*args, **kwargs):
+        raise urllib.error.HTTPError(
+            "https://cdn.example.test/private-token", status, "refused", {}, None
+        )
+
+    monkeypatch.setattr("urllib.request.urlopen", refuse)
+    request = SimpleNamespace(
+        content=None, json=AsyncMock(return_value={"file": entry["file"]})
+    )
+    response = await _route(mock_app, "POST", "/api/v1/update/download")(request)
+    assert response.status == 503
+    assert "private-token" not in response.text
+    assert mgr.pending() is None
+
+
+def test_stage_cross_storage_does_not_copy_metadata(tmp_path, monkeypatch):
+    import errno
+    import shutil
+
+    mgr = _mgr(tmp_path / "managed")
+    source = tmp_path / "download.apk"
+    payload = b"verified APK content"
+    source.write_bytes(payload)
+    entry = {
+        "file": "fixture.apk",
+        "sha256": hashlib.sha256(payload).hexdigest(),
+        "size": len(payload),
+        "kind": "apk",
+        "platform": "android",
+        "arch": "aarch64",
+    }
+
+    def deny_rename(*args, **kwargs):
+        raise PermissionError(errno.EACCES, "Android storage rename denied")
+
+    def deny_metadata(*args, **kwargs):
+        raise AssertionError("Android staging must not copy filesystem metadata")
+
+    monkeypatch.setattr("os.rename", deny_rename)
+    monkeypatch.setattr(shutil, "copystat", deny_metadata)
+    marker = mgr.stage(source, entry, {"version": "0.1.4", "tag": "test"})
+    assert Path(marker["path"]).read_bytes() == payload
+    assert not source.exists()
+    assert mgr.pending_payload_path() == Path(marker["path"])
+
+
+@pytest.mark.asyncio
+async def test_route_staging_permission_error_does_not_expire_login(
+    mock_app, tmp_path, monkeypatch
+):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    mgr = _mgr(tmp_path)
+    manifest = _manifest()
+    entry = manifest["artifacts"][0]
+    mock_app.update_manager = mgr
+    monkeypatch.setattr(mgr, "fetch_manifest", AsyncMock(return_value=manifest))
+    monkeypatch.setattr(mgr, "matching_artifacts", lambda value: [entry])
+    monkeypatch.setattr(
+        mgr, "download", AsyncMock(return_value=tmp_path / "verified.apk")
+    )
+
+    def denied(*args):
+        raise PermissionError("private storage path")
+
+    monkeypatch.setattr(mgr, "stage", denied)
+    request = SimpleNamespace(
+        content=None, json=AsyncMock(return_value={"file": entry["file"]})
+    )
+    response = await _route(mock_app, "POST", "/api/v1/update/download")(request)
+    assert response.status == 503
+    assert "storage access" in response.text
+    assert "private storage path" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_download_network_failure_cleans_partial_file(tmp_path, monkeypatch):
+    import tempfile
+    import urllib.error
+
+    mgr = _mgr(tmp_path)
+    manifest = _manifest()
+    paths = []
+    original = tempfile.mkstemp
+
+    def create_temp(**kwargs):
+        fd, name = original(**kwargs, dir=tmp_path)
+        paths.append(Path(name))
+        return fd, name
+
+    def unreachable(*args, **kwargs):
+        raise urllib.error.URLError("private network details")
+
+    monkeypatch.setattr("tempfile.mkstemp", create_temp)
+    monkeypatch.setattr("urllib.request.urlopen", unreachable)
+    with pytest.raises(
+        UpdateError, match="update download endpoint unreachable"
+    ) as error:
+        await mgr.download(manifest, manifest["artifacts"][0])
+    assert "private network details" not in str(error.value)
+    assert paths and all(not path.exists() for path in paths)
+    assert mgr.pending() is None
+
+
+@pytest.mark.asyncio
+async def test_route_manual_upload_storage_error_preserves_auth(
+    mock_app, tmp_path, monkeypatch
+):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    mgr = _mgr(tmp_path)
+    mock_app.update_manager = mgr
+    field = SimpleNamespace(
+        name="file", read_chunk=AsyncMock(side_effect=[b"verified upload", b""])
+    )
+    reader = SimpleNamespace(next=AsyncMock(return_value=field))
+    request = SimpleNamespace(
+        content_type="multipart/form-data; boundary=test",
+        multipart=AsyncMock(return_value=reader),
+    )
+    entry = _manifest()["artifacts"][0]
+    monkeypatch.setattr(
+        mgr,
+        "verify_local_file",
+        AsyncMock(return_value={"entry": entry, "manifest": _manifest()}),
+    )
+
+    def denied(*args):
+        raise PermissionError("private filesystem path")
+
+    monkeypatch.setattr(mgr, "stage", denied)
+    response = await _route(mock_app, "POST", "/api/v1/update/apply-file")(request)
+    assert response.status == 503
+    assert "storage access" in response.text
+    assert "private filesystem path" not in response.text
+    assert mgr.pending() is None

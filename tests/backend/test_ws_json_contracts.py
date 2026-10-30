@@ -100,3 +100,27 @@ async def test_ws_ping_emits_pong_contract():
         for payload in sent:
             assert_ws_message_matches_schema(json.loads(payload))
             assert json.loads(payload)["type"] == "pong"
+
+
+def test_ws_source_manifest_excludes_only_dormant_mutant_copies(tmp_path):
+    package = tmp_path / "meshchatnext"
+    package.mkdir()
+    main = package / "meshchat.py"
+    main.write_text("# source entrypoint\n")
+    folder = package / "src/backend/http"
+    folder.mkdir(parents=True)
+    source = folder / "fixture.py"
+    source.write_text(
+        "from mutmut.mutation.trampoline import wrap_in_trampoline as _mutmut_mutated\n"
+        "async def real(client):\n"
+        "    await client.send_str(json.dumps({'type': 'real'}))\n"
+        "async def x_real__mutmut_orig(client):\n"
+        "    await client.send_str(json.dumps({'type': 'real'}))\n"
+        "async def x_real__mutmut_1(client):\n"
+        "    await client.send_str(json.dumps({'type': 'XXrealXX'}))\n"
+    )
+    assert extract_client_direct_response_types(main) == ["real"]
+    source.write_text(
+        source.read_text().replace("{'type': 'real'}", "{'type': 'changed'}", 1)
+    )
+    assert extract_client_direct_response_types(main) == ["changed"]
