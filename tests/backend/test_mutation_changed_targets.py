@@ -293,18 +293,34 @@ def test_resource_observer_retains_partial_du_total(
     assert module.directory_usage(tmp_path) == {"bytes": 16384, "complete": False}
 
 
-def test_resource_observer_finds_real_unlinked_open_file(
-    resource_observer_module, tmp_path
-):
-    path = tmp_path / "synthetic-unlinked-data"
-    with path.open("wb+") as stream:
-        stream.write(b"x" * 8192)
-        stream.flush()
-        path.unlink()
-        report = resource_observer_module.open_deleted_files(only_pid=os.getpid())
-        assert report["allocated_bytes"] >= 8192
-        assert any(
-            row["pid"] == os.getpid() and row["bytes"] == 8192
-            for row in report["files"]
-        )
-        assert "synthetic-unlinked-data" not in json.dumps(report)
+def test_resource_observer_finds_real_unlinked_open_file(tmp_path):
+    # A fresh process has no unrelated pytest capture descriptors competing for
+    # the intentionally bounded top-ten diagnostic report.
+    root = Path(__file__).resolve().parents[2]
+    observer = root / "scripts/ci/with-resource-telemetry.py"
+    fixture = tmp_path / "synthetic-unlinked-data"
+    code = """
+import importlib.util, json, os, pathlib, sys
+spec = importlib.util.spec_from_file_location('observer', sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+path = pathlib.Path(sys.argv[2])
+with path.open('wb+') as stream:
+    stream.write(b'x' * 8192)
+    stream.flush()
+    path.unlink()
+    print(json.dumps({'pid': os.getpid(), 'report': module.open_deleted_files(only_pid=os.getpid())}))
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", code, str(observer), str(fixture)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    payload = json.loads(result.stdout)
+    report = payload["report"]
+    assert report["allocated_bytes"] >= 8192
+    assert any(
+        row["pid"] == payload["pid"] and row["bytes"] == 8192 for row in report["files"]
+    )
+    assert "synthetic-unlinked-data" not in json.dumps(report)
