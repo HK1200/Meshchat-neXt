@@ -132,3 +132,8 @@ test.describe("Meshchat neXt E2E (Vite + Python backend)", () => {
         });
     });
 });
+
+test("current sidebar destination dismisses the mobile drawer after Back restores it", async ({ page, baseURL }) => {
+    const { exerciseSidebarDestinationDismissal } = require("./sidebarDrawer");
+    await exerciseSidebarDestinationDismissal({ page, baseURL });
+});

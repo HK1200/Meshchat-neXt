@@ -96,7 +96,7 @@ window.NEXT_GUIDE = {
                 "Reticulum and MeshCore do not automatically bridge messages. Linking contacts only groups their addresses in your address book.",
                 "TAC is a map/team workflow carried over MeshCore; it is not another general-purpose radio network. SIP is separate internet telephony.",
                 "Feature visibility switches do not stop an already running service. Disconnect or disable it through its own controls.",
-                "Windows source is under development; public Windows packages require signing and final native package verification before release.",
+                "Windows packages are released only after final native package verification and are clearly labelled unsigned when no Authenticode certificate is present. Windows or device policy may warn or block an unsigned installer. Signed update metadata remains required.",
             ],
             related: ["choose", "identity", "first-message"],
         },

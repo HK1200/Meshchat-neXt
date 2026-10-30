@@ -130,15 +130,17 @@ function defaultAxiosImplementation(url) {
     return Promise.resolve({ data: {} });
 }
 
-function makeMountedApp() {
+function makeMountedApp(realRouterLinks = false) {
     const router = createRouter({
         history: createWebHashHistory(),
-        routes,
+        routes: realRouterLinks
+            ? [...routes, { path: "/relay-chat", name: "relay-chat", component: { template: "<div>Relay</div>" } }]
+            : routes,
     });
     return mount(App, {
         global: {
             plugins: [router, i18n],
-            stubs: appStubs,
+            stubs: { ...appStubs, ...(realRouterLinks ? { RouterLink: false } : {}) },
         },
     });
 }
@@ -594,5 +596,19 @@ describe("App.vue sidebar identity label and announce control", () => {
         wrapper.vm.isSidebarCollapsed = true;
         wrapper.vm.enterSidebarNavEdit();
         expect(wrapper.vm.isSidebarNavEditing).toBe(false);
+    });
+    it("dismisses an open drawer when the already selected destination is clicked with the real router", async () => {
+        registerCoreContributions();
+        wrapper = makeMountedApp(true);
+        const router = wrapper.vm.$router;
+        await readyShell(router);
+        await router.push("/contacts");
+        await flushPromises();
+        wrapper.vm.isSidebarOpen = true;
+        await flushPromises();
+        await wrapper.get('[data-testid="sidebar-nav"] a[aria-label="Contacts"]').trigger("click");
+        await flushPromises();
+        expect(router.currentRoute.value.fullPath).toBe("/contacts");
+        expect(wrapper.vm.isSidebarOpen).toBe(false);
     });
 });

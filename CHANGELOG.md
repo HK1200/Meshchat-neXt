@@ -1,5 +1,10 @@
 # Meshchat neXt changelog
 
+## 0.1.5
+
+- Fixed the mobile sidebar staying open when selecting its current destination, including after Back restores the drawer. Different destinations, sidebar reordering and onboarding Back retain their existing behavior.
+- Windows packages will be clearly labelled unsigned after native package verification. Android retains its permanent APK certificate; signed update feeds remain required.
+
 ## 0.1.4
 
 - Update download and storage failures stay on the Updates page instead of being mistaken for an expired app login. Android update staging avoids unsupported file-metadata copies on shared storage. Failed partial downloads are removed.

@@ -1,6 +1,6 @@
 # Meshchat neXt · User guide
 
-User guide for Meshchat neXt 0.1.4. Features vary by platform, firmware and peer application.
+User guide for Meshchat neXt 0.1.5. Features vary by platform, firmware and peer application.
 
 ## One app, independent services
 
@@ -104,7 +104,7 @@ Meshchat neXt puts several communications tools in one place. You can use just o
 - Reticulum and MeshCore do not automatically bridge messages. Linking contacts only groups their addresses in your address book.
 - TAC is a map/team workflow carried over MeshCore; it is not another general-purpose radio network. SIP is separate internet telephony.
 - Feature visibility switches do not stop an already running service. Disconnect or disable it through its own controls.
-- Windows source is under development; public Windows packages require signing and final native package verification before release.
+- Windows packages are released only after final native package verification and are clearly labelled unsigned when no Authenticode certificate is present. Windows or device policy may warn or block an unsigned installer. Signed update metadata remains required.
 
 ## Choose your starting path
 
@@ -881,4 +881,4 @@ No. It is a local reading aid. Checklists save browser progress only; no keys, r
 
 ## Review boundaries
 
-This guide describes Meshchat neXt 0.1.4. Compatibility is specific to the firmware, codec, server and package in use; it does not imply support for every ATAK deployment. A firmware assistant is not included. External projects and firmware change. Check the exact neXt release notes and hardware before flashing.
+This guide describes Meshchat neXt 0.1.5. Compatibility is specific to the firmware, codec, server and package in use; it does not imply support for every ATAK deployment. A firmware assistant is not included. External projects and firmware change. Check the exact neXt release notes and hardware before flashing.
