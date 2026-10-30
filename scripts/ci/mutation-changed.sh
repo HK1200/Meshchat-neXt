@@ -24,7 +24,7 @@ MIN_SCORE="${MUTMUT_MIN_SCORE:-}"
 
 MERGE_BASE="$(git merge-base "${BASE_REF}" HEAD)"
 mapfile -t changed < <(
-    git diff --name-only "${MERGE_BASE}" HEAD -- 'meshchatnext/src/backend/**/*.py' \
+    git diff --name-only "${MERGE_BASE}" HEAD -- ':(glob)meshchatnext/src/backend/**/*.py' \
         | grep -v '/data/' \
         | grep -v '__pycache__' \
         | grep -v '/__init__.py$' \
@@ -53,7 +53,7 @@ fi
 # Keep the job bounded: mutate at most MAX_MODULES modules, highest churn first.
 if [[ "${#targets[@]}" -gt "${MAX_MODULES}" ]]; then
     mapfile -t ranked < <(
-        git diff --numstat "${MERGE_BASE}" HEAD -- 'meshchatnext/src/backend/**/*.py' \
+        git diff --numstat "${MERGE_BASE}" HEAD -- ':(glob)meshchatnext/src/backend/**/*.py' \
             | sort -rn -k1,1 \
             | awk '{print $3}' \
             | head -n "${MAX_MODULES}"
@@ -76,7 +76,8 @@ STATS_FILE="mutmut-cicd-stats.json"
 overall_rc=0
 for target in "${targets[@]}"; do
     echo "== mutmut run ${target}"
-    MUTMUT_TARGET="${target}" MUTMUT_STATS_FILE="${STATS_FILE}" \
+    # mutmut filters fully qualified mutant keys, not bare module names.
+    MUTMUT_TARGET="${target}.*" MUTMUT_STATS_FILE="${STATS_FILE}" \
         bash scripts/ci/mutation-backend.sh || overall_rc=$?
     if [[ -n "${MIN_SCORE}" ]]; then
         uv run python scripts/ci/mutation-score-check.py \
