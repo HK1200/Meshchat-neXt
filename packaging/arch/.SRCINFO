@@ -1,6 +1,6 @@
 pkgbase = meshchat-next-git
 	pkgdesc = A simple mesh network communications app powered by the Reticulum Network Stack
-	pkgver = 0.1.4
+	pkgver = 0.1.5
 	pkgrel = 1
 	arch = x86_64
 	arch = aarch64

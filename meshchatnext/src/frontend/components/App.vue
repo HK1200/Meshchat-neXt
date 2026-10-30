@@ -242,7 +242,7 @@
                             isSidebarOpen ? 'translate-x-0' : '-translate-x-full',
                             isSidebarCollapsed ? 'w-14' : 'w-80 md:max-lg:w-64 lg:w-80',
                         ]"
-                        @click="onSidebarDestinationClick"
+                        @click.capture="onSidebarDestinationClick"
                     >
                         <div
                             class="flex h-full w-full flex-col overflow-y-auto border-r border-sem-border bg-sem-canvas"

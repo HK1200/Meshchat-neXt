@@ -79,7 +79,7 @@ lxmfy 2.1.1
 lxst 0.5.4
   License: Other/Proprietary License
   Author: Mark Qvist
-meshchat-next 0.1.4
+meshchat-next 0.1.5
   License: 0BSD AND MIT
   Author: Quad4
 meshcore 2.3.17
