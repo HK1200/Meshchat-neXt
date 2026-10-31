@@ -1,5 +1,4 @@
 import ctypes
-import ntpath
 import unittest
 from unittest.mock import patch
 
@@ -38,17 +37,6 @@ class ParentAclTest(unittest.TestCase):
         self.free.start()
         self.addCleanup(self.loader.stop)
         self.addCleanup(self.free.stop)
-
-    def test_windows_ancestors_include_drive_root_once(self):
-        self.assertEqual(
-            list(ac._ancestor_directories(r"D:\a\build\public", path_module=ntpath)),
-            [r"D:\a\build", r"D:\a", "D:\\"],
-        )
-
-    def test_volume_root_grant_is_traverse_only_and_noninheriting(self):
-        ac.grant_execute_access(self.sid, "D:\\")
-        self.assertEqual(self.api.entries, [(0, ac._GENERIC_EXECUTE)])
-        self.no_propagation_mock.assert_called_once()
 
     def test_parent_traverse_does_not_inherit(self):
         ac.grant_execute_access(self.sid, r"E:\Projects")

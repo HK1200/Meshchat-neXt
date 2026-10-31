@@ -725,17 +725,6 @@ def grant_path_access(sid: ctypes.c_void_p, path: str, *, write: bool) -> None:
     _set_path_access(path, sid, mask, _GRANT_ACCESS)
 
 
-def _ancestor_directories(path: str, *, path_module=os.path):
-    """Include the volume root, which a restricted token must traverse too."""
-    parent = path_module.dirname(path)
-    while parent:
-        yield parent
-        next_parent = path_module.dirname(parent)
-        if next_parent == parent:
-            break
-        parent = next_parent
-
-
 def grant_execute_access(sid: ctypes.c_void_p, path: str) -> None:
     # Ancestors need traverse access on this directory only. Inheritance would
     # propagate the grant through unrelated descendant trees during startup.
@@ -1348,7 +1337,8 @@ def launch_backend_sandboxed(
             # this the child cannot reach the granted directories at all
             # (for example %TEMP% under C:\Users\<user>\AppData).
             for root in rw_roots + ro_roots + list(extra_ro_files or ()):
-                for parent in _ancestor_directories(root):
+                parent = os.path.dirname(root)
+                while parent and parent != os.path.dirname(parent):
                     if parent not in granted_set:
                         try:
                             grant_execute_access(sid, parent)
@@ -1360,6 +1350,7 @@ def launch_backend_sandboxed(
                                 parent,
                                 grant_exc,
                             )
+                    parent = os.path.dirname(parent)
 
             # A venv interpreter reads pyvenv.cfg from the prefix root to
             # find its real installation. The directory grant does not

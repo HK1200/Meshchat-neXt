@@ -222,11 +222,18 @@ async def connect_child_pipe(address, expected_pid):
         reader = asyncio.StreamReader(limit=65536)
         protocol = asyncio.StreamReaderProtocol(reader)
         waiter = loop.create_future()
-        transport = loop._make_duplex_pipe_transport(
-            PipeHandle(handle), protocol, waiter
-        )
-        handle = None
-        await waiter
+        pipe_handle = PipeHandle(handle)
+        handle = None  # PipeHandle owns it from this point, including failures.
+        try:
+            transport = loop._make_duplex_pipe_transport(pipe_handle, protocol, waiter)
+        except BaseException:
+            pipe_handle.close()
+            raise
+        try:
+            await waiter
+        except BaseException:
+            transport.close()
+            raise
         return reader, asyncio.StreamWriter(transport, protocol, reader, loop)
     finally:
         if handle is not None:
@@ -248,7 +255,16 @@ async def proxy_connection(reader, writer, *, address, expected_pid):
             asyncio.create_task(copy(reader, pipe_writer)),
             asyncio.create_task(copy(pipe_reader, writer)),
         ]
-        await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        for task in done:
+            task.result()
+        # A client may finish sending while the backend is still responding.
+        # Keep the response direction alive; supervisor cancellation still owns
+        # the lifetime of this bounded session. Named pipes cannot half-close.
+        if tasks[0] in done and tasks[1] not in done:
+            if pipe_writer.can_write_eof():
+                pipe_writer.write_eof()
+            await tasks[1]
     finally:
         for task in tasks:
             task.cancel()

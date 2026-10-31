@@ -12619,6 +12619,11 @@ def main():
         )
 
         install_private_directory_compat()
+        from meshchatnext.src.backend.appcontainer_paths import (
+            install_private_path_compat,
+        )
+
+        install_private_path_compat()
     if _maybe_run_embedded_module():
         return
 
