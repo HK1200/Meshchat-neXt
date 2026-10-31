@@ -1,3 +1,4 @@
+import path from "node:path";
 // SPDX-License-Identifier: 0BSD
 
 import { createRequire } from "module";
@@ -100,7 +101,7 @@ describe("safeConsole", () => {
         expect(consoleSpy).not.toHaveBeenCalled();
         expect(mkdirCalls.length).toBeGreaterThan(0);
         expect(writes).toHaveLength(1);
-        expect(writes[0][0]).toBe("/tmp/meshchat-logs/meshchatnext.log");
+        expect(writes[0][0]).toBe(path.join("/tmp/meshchat-logs", "meshchatnext.log"));
         expect(writes[0][1]).toContain(ELECTRON_LOG_PREFIX);
         expect(writes[0][1]).toContain("backend ready");
     });

@@ -40,7 +40,7 @@ describe("semantic color usage", () => {
     const files = walk(COMPONENTS_ROOT);
     const current = {};
     for (const p of files) {
-        const rel = relative(COMPONENTS_ROOT, p);
+        const rel = relative(COMPONENTS_ROOT, p).split(/[/\\]/).join("/");
         const count = countHardcoded(p);
         if (count > 0) {
             current[rel] = count;
