@@ -206,6 +206,25 @@ def run_smoke(build_dir: Path) -> int:
                 f"fs_sandbox_active={bool(data.get('fs_sandbox_active'))})."
             )
             shutdown_app(DEFAULT_PORT)
+        except Exception:
+            # Keep the actual contained-child failure visible before the
+            # disposable smoke profile is removed. Never substitute a pass.
+            for diagnostic in (console_log, logs / "appcontainer-child.log"):
+                try:
+                    with diagnostic.open("rb") as stream:
+                        stream.seek(0, os.SEEK_END)
+                        stream.seek(max(0, stream.tell() - 16384))
+                        tail = stream.read().decode("utf-8", errors="replace")
+                    print(
+                        f"AppContainer diagnostic {diagnostic.name}:\n{tail}",
+                        file=sys.stderr,
+                    )
+                except OSError as error:
+                    print(
+                        f"AppContainer diagnostic unavailable: {diagnostic.name}: {error}",
+                        file=sys.stderr,
+                    )
+            raise
         finally:
             try:
                 proc.wait(timeout=SHUTDOWN_TIMEOUT)
