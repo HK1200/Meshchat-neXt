@@ -106,8 +106,10 @@ async def _supervise(exe, argv, *, storage_dir, reticulum_config_dir, log_dir):
     for name in ("TEMP", "TMP", "TMPDIR"):
         env[name] = str(private_temp)
     env["MESHCHAT_APPCONTAINER_PIPE"] = rf"\\.\pipe\LOCAL\{leaf}"
-    # This supervisor owns fallback; a contained child may never serve TCP.
-    env["MESHCHAT_APPCONTAINER"] = "1"
+    # Preserve the requested mode for status reporting. Containment itself is
+    # still mandatory here (forced=True); only the outer launcher owns fallback.
+    requested_mode = (env_str("MESHCHAT_APPCONTAINER") or "").strip().lower()
+    env["MESHCHAT_APPCONTAINER"] = "auto" if requested_mode == "auto" else "1"
     token = secrets.token_hex(32)
     env["MESHCHAT_APPCONTAINER_SHUTDOWN_TOKEN"] = token
     stop = threading.Event()

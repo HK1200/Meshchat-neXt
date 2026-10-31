@@ -16,9 +16,11 @@ def free_port():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("requested_mode", ["auto", "1"])
 async def test_supervisor_forces_containment_and_authenticated_graceful_quit(
-    monkeypatch, tmp_path
+    monkeypatch, tmp_path, requested_mode
 ):
+    monkeypatch.setenv("MESHCHAT_APPCONTAINER", requested_mode)
     monkeypatch.setenv("MESHCHAT_APPCONTAINER_CONTROL_STDIN", "1")
     monkeypatch.setattr(
         broker.sys, "stdin", SimpleNamespace(buffer=io.BytesIO(b"meshchatnext-stop\n"))
@@ -56,7 +58,7 @@ async def test_supervisor_forces_containment_and_authenticated_graceful_quit(
     )
     assert result.ok and result.used_appcontainer and not result.fell_back
     assert captured["forced"] is True
-    assert captured["env"]["MESHCHAT_APPCONTAINER"] == "1"
+    assert captured["env"]["MESHCHAT_APPCONTAINER"] == requested_mode
     assert captured["extra_ro_files"] is None
     for name in ("TEMP", "TMP", "TMPDIR"):
         assert captured["env"][name] == str(tmp_path / ".appcontainer-temp")
