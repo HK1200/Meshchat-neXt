@@ -42,7 +42,7 @@ function isResolvedPathUnderRoot(resolvedCandidate, rootPath) {
     const root = resolveDirForPrefixCheck(rootPath);
     const file = realpathOrNearest(resolvedCandidate);
     const rel = path.relative(root, file);
-    return rel === "" || (!rel.startsWith(`..${path.sep}`) && rel !== "..");
+    return rel === "" || (!path.isAbsolute(rel) && !rel.startsWith(`..${path.sep}`) && rel !== "..");
 }
 
 function pairedLegacyStorageDir(defaultStorageDir) {
