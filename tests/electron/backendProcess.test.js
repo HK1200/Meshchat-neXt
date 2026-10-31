@@ -356,6 +356,11 @@ describe("electron/backendProcess", () => {
             backendProc.exitCode = 0;
             setImmediate(() => backendProc.emit("exit", 0));
         });
+        const childProcess = require("node:child_process");
+        const taskkill = vi.spyOn(childProcess, "execFileSync").mockImplementation(() => {
+            backendProc.exitCode = 0;
+            setImmediate(() => backendProc.emit("exit", 0));
+        });
         const maintProc = createFakeChildProcess();
         maintProc.pid = 5555;
         const spawn = vi.fn().mockReturnValueOnce(backendProc).mockReturnValueOnce(maintProc);
@@ -366,7 +371,17 @@ describe("electron/backendProcess", () => {
         await manager.spawnBackend("/tmp/MeshchatNext", { backend: { ok: true, issues: [] } });
         const promise = manager.runMaintenanceTask(["--restore-db", "/tmp/backup.zip"]);
         await vi.waitFor(() => expect(manager.getChildProcess()).toBe(maintProc));
-        expect(backendProc.kill).toHaveBeenCalledWith("SIGTERM");
+        if (process.platform === "win32") {
+            expect(taskkill).toHaveBeenCalledWith("taskkill", ["/F", "/T", "/PID", "4242"], {
+                stdio: "ignore",
+                windowsHide: true,
+            });
+            expect(backendProc.kill).not.toHaveBeenCalled();
+        } else {
+            expect(backendProc.kill).toHaveBeenCalledWith("SIGTERM");
+            expect(taskkill).not.toHaveBeenCalled();
+        }
+        taskkill.mockRestore();
 
         maintProc.emit("exit", 0);
         const result = await promise;

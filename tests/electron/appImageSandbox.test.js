@@ -37,8 +37,17 @@ it("the actual generated launcher keeps sandboxing when unshare fails", () => {
             '#!/bin/sh\nprintf \'%s\\n\' "$@" > "$APPDIR/received-args"\n',
             { mode: 0o755 }
         );
-        execFileSync("bash", [file, "--headless"], {
-            env: { ...process.env, APPDIR: root, PATH: `${root}:${process.env.PATH}` },
+        const shellRoot =
+            process.platform === "win32"
+                ? execFileSync("bash", ["-c", 'cygpath -u "$1"', "_", root], { encoding: "utf8" }).trim()
+                : root;
+        const shellFile = `${shellRoot}/AppRun`;
+        execFileSync("bash", [shellFile, "--headless"], {
+            env: {
+                ...process.env,
+                APPDIR: shellRoot,
+                PATH: process.platform === "win32" ? `${shellRoot}:/usr/bin:/bin` : `${root}:${process.env.PATH}`,
+            },
             encoding: "utf8",
         });
         const args = fs.readFileSync(path.join(root, "received-args"), "utf8");

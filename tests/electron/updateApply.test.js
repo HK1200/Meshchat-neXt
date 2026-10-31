@@ -2,7 +2,7 @@ import crypto from "crypto";
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { applyPendingUpdate, readPendingMarker } from "../../electron/updateApply.js";
 
@@ -102,14 +102,19 @@ describe("electron/updateApply", () => {
         savedAppImage = process.env.APPIMAGE;
         process.env.APPIMAGE = target;
 
+        const chmod = vi.spyOn(fs, "chmodSync");
         const res = applyPendingUpdate(dir);
+        expect(chmod).toHaveBeenCalledWith(s.path, 0o755);
+        chmod.mockRestore();
         expect(res.applied).toBe(true);
         expect(fs.readFileSync(target)).toEqual(payload);
         expect(fs.readFileSync(target + ".bak")).toEqual(Buffer.from("old-image"));
         expect(fs.existsSync(s.path)).toBe(false);
         expect(readPendingMarker(dir)).toBe(null);
         const mode = fs.statSync(target).mode & 0o777;
-        expect(mode & 0o111).not.toBe(0);
+        // Windows filesystems do not expose POSIX executable bits; the chmod
+        // request above is still required on every host.
+        if (process.platform !== "win32") expect(mode & 0o111).not.toBe(0);
     });
 
     it("ignores a marker path field pointing outside pending dir", () => {
