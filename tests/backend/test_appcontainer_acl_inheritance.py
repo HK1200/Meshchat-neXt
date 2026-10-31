@@ -27,6 +27,11 @@ class ParentAclTest(unittest.TestCase):
         self.api = FakeApi()
         self.sid = ctypes.c_void_p(1)
         self.loader = patch.object(ctypes, "WinDLL", return_value=self.api, create=True)
+        self.no_propagation = patch.object(
+            ac, "_set_directory_dacl_without_propagation", return_value=0
+        )
+        self.no_propagation_mock = self.no_propagation.start()
+        self.addCleanup(self.no_propagation.stop)
         self.free = patch.object(ac, "_local_free")
         self.loader.start()
         self.free.start()
@@ -36,6 +41,7 @@ class ParentAclTest(unittest.TestCase):
     def test_parent_traverse_does_not_inherit(self):
         ac.grant_execute_access(self.sid, r"E:\Projects")
         self.assertEqual(self.api.entries, [(0, ac._GENERIC_EXECUTE)])
+        self.no_propagation_mock.assert_called_once()
 
     def test_read_root_still_inherits(self):
         ac.grant_path_access(self.sid, r"E:\candidate", write=False)

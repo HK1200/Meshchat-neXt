@@ -1461,7 +1461,10 @@ function quit() {
         app.quit();
         return;
     }
-    const timeoutMs = 5000;
+    const timeoutMs =
+        process.platform === "win32" && /^(1|true|yes|on|auto)$/i.test(process.env.MESHCHAT_APPCONTAINER || "")
+            ? 20000
+            : 5000;
     quitTimeoutId = setTimeout(() => {
         try {
             const proc = getBackendManager().getChildProcess();
