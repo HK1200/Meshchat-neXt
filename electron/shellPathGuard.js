@@ -41,8 +41,12 @@ function realpathOrNearest(targetPath) {
 function isResolvedPathUnderRoot(resolvedCandidate, rootPath) {
     const root = resolveDirForPrefixCheck(rootPath);
     const file = realpathOrNearest(resolvedCandidate);
-    const rel = path.relative(root, file);
-    return rel === "" || (!path.isAbsolute(rel) && !rel.startsWith(`..${path.sep}`) && rel !== "..");
+    return isPathWithinRoot(root, file);
+}
+
+function isPathWithinRoot(root, file, pathApi = path) {
+    const rel = pathApi.relative(root, file);
+    return rel === "" || (!pathApi.isAbsolute(rel) && !rel.startsWith(`..${pathApi.sep}`) && rel !== "..");
 }
 
 function pairedLegacyStorageDir(defaultStorageDir) {
@@ -130,5 +134,6 @@ function isAllowedShellPath(targetPath, ctx, options = {}) {
 }
 
 module.exports = {
+    isPathWithinRoot,
     isAllowedShellPath,
 };
