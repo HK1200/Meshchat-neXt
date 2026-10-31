@@ -6324,7 +6324,7 @@ class ReticulumMeshChat:
                 "see /api/v1/diagnostics/memory for reports",
             )
 
-        pipe_address = os.environ.get("MESHCHAT_APPCONTAINER_PIPE")
+        pipe_address = env_str("MESHCHAT_APPCONTAINER_PIPE")
         if pipe_address and is_appcontainer_child():
             from meshchatnext.src.backend.appcontainer_pipe import run_private_pipe_app
 

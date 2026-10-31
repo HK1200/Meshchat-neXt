@@ -10,12 +10,12 @@ from __future__ import annotations
 import asyncio
 import ctypes
 import hmac
-import os
 import re
 
 from aiohttp import web
 
 from meshchatnext.src.backend.appcontainer_security import token_sid
+from meshchatnext.src.env_utils import env_str
 
 PIPE_PREFIX = "MeshchatNext-"
 
@@ -170,9 +170,11 @@ def trusted_pipe_middleware(scheme, *, shutdown_token=None, shutdown_callback=No
             ):
                 raise web.HTTPForbidden()
 
+            callback = shutdown_callback
+
             async def finish():
                 await asyncio.sleep(0.1)
-                await shutdown_callback()
+                await callback()
 
             request.app["meshchatnext_container_quit_task"] = asyncio.create_task(
                 finish()
@@ -264,7 +266,7 @@ def run_private_pipe_app(app, *, address, use_https, shutdown_callback):
 
     if not is_appcontainer_process():
         raise RuntimeError("Private pipe server requires an AppContainer token")
-    token = os.environ.get("MESHCHAT_APPCONTAINER_SHUTDOWN_TOKEN", "")
+    token = env_str("MESHCHAT_APPCONTAINER_SHUTDOWN_TOKEN") or ""
     if not re.fullmatch(r"[0-9a-f]{64}", token):
         raise RuntimeError("Missing private supervisor shutdown token")
     app.middlewares.insert(

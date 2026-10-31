@@ -24,6 +24,7 @@ from meshchatnext.src.backend.appcontainer_pipe import (
     request_child_shutdown,
 )
 from meshchatnext.src.env_config import MeshchatEnv
+from meshchatnext.src.env_utils import env_str
 from meshchatnext.src.ssl_self_signed import generate_ssl_certificate
 
 logger = logging.getLogger(__name__)
@@ -60,6 +61,8 @@ def broker_settings(argv, storage_dir):
     if not custom:
         directory = Path(storage_dir) / "ssl"
         cert, key = str(directory / "cert.pem"), str(directory / "key.pem")
+    if not cert or not key:
+        raise ValueError("Both SSL certificate and key must be supplied")
     return host, port, use_https, os.path.abspath(cert), os.path.abspath(key), custom
 
 
@@ -109,7 +112,7 @@ async def _supervise(exe, argv, *, storage_dir, reticulum_config_dir, log_dir):
     env["MESHCHAT_APPCONTAINER_SHUTDOWN_TOKEN"] = token
     stop = threading.Event()
     quit_requested = threading.Event()
-    if os.environ.get("MESHCHAT_APPCONTAINER_CONTROL_STDIN") == "1":
+    if env_str("MESHCHAT_APPCONTAINER_CONTROL_STDIN") == "1":
 
         def read_control():
             try:
