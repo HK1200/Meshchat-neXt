@@ -400,4 +400,29 @@ describe("electron/backendProcess", () => {
         expect(result.ok).toBe(false);
         expect(() => badProc.emit("error", new Error("spawn ENOENT"))).not.toThrow();
     });
+    it("requests graceful AppContainer shutdown through supervisor stdin", async () => {
+        const previousPlatform = process.platform;
+        const previousEnv = process.env.MESHCHAT_APPCONTAINER;
+        Object.defineProperty(process, "platform", { value: "win32" });
+        process.env.MESHCHAT_APPCONTAINER = "1";
+        const taskkill = vi.spyOn(require("node:child_process"), "execFileSync").mockImplementation(() => {});
+        try {
+            fakeProc.stdin = { write: vi.fn(), destroyed: false };
+            const manager = createManager({ spawn: spawnMock });
+            manager.setUserProvidedArguments([]);
+            manager.resolveExecutablePath(() => "C:\\app\\MeshchatNext.exe");
+            await manager.spawnBackend("C:\\app\\MeshchatNext.exe", { current: null });
+            manager.killChild("SIGTERM");
+            expect(fakeProc.stdin.write).toHaveBeenCalledWith("meshchatnext-stop\n");
+            expect(taskkill).not.toHaveBeenCalled();
+            expect(spawnMock.mock.calls[0][2].env.MESHCHAT_APPCONTAINER_CONTROL_STDIN).toBe("1");
+            manager.killChild("SIGKILL");
+            expect(taskkill).toHaveBeenCalledWith("taskkill", ["/F", "/T", "/PID", "4242"], expect.any(Object));
+        } finally {
+            taskkill.mockRestore();
+            Object.defineProperty(process, "platform", { value: previousPlatform });
+            if (previousEnv === undefined) delete process.env.MESHCHAT_APPCONTAINER;
+            else process.env.MESHCHAT_APPCONTAINER = previousEnv;
+        }
+    });
 });
