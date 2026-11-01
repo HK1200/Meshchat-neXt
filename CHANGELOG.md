@@ -2,6 +2,8 @@
 
 ## 0.1.6
 
+- Add an administrator repeater terminal and firmware-aware MediaMesh / Radio2 controls, with explicit command confirmation, profile readback and protection against stale responses after changing radios.
+
 - Expand individual MeshCore message-path candidates to inspect their public key, type and reported position, with a map link when coordinates are available. Partial route maps retain gaps for unknown or ambiguous hops.
 - Search saved MeshCore node names and public-key prefixes locally, independently of geographic place search, including while offline.
 - Store multiple labelled Home, Office, Mobile or Other SIP destinations per contact. Add an extension from Edit contact to the shared Telephone SIP phonebook without losing existing numbers.

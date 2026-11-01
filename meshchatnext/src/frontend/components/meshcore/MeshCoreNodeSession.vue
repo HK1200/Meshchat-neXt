@@ -203,6 +203,11 @@
                 </button>
             </form>
             <p v-if="adminResult" role="status" class="whitespace-pre-wrap break-words text-sm">{{ adminResult }}</p>
+            <MeshCoreRepeaterConsole
+                :key="`${snapshot.owner}:${snapshot.radio_id}:${snapshot.connection_id}:${node.peer}`"
+                :request="repeaterRequest"
+                :disabled="busy || needsRecovery || !snapshot.connected"
+            />
         </section>
         <template v-if="node.kind === 3">
             <h3 class="font-semibold">Room messages · MeshCore</h3>
@@ -266,6 +271,7 @@
     </div>
 </template>
 <script setup>
+import MeshCoreRepeaterConsole from "./MeshCoreRepeaterConsole.vue";
 import { useMeshCoreMessagePosition } from "../../js/meshcoreMessagePosition";
 import { computed, ref, watch, onBeforeUnmount } from "vue";
 import MeshCoreNodePasswords from "./MeshCoreNodePasswords.vue";
@@ -525,6 +531,7 @@ async function operate(action, extra = {}) {
             notice.value = "Post accepted by radio. Check its room receipt below.";
         } else if (action === "node-logout") notice.value = "Logout submitted; local login cleared.";
         emit("changed");
+        return result;
     } catch (error) {
         if (!stopped && token === generation) {
             if (action === "node-admin" && error?.response?.status === 400) {
@@ -583,6 +590,15 @@ async function login() {
     showPassword.value = false;
     await operate("node-login", { password: value, ...(rememberPassword.value ? { remember: true } : {}) });
 }
+async function repeaterRequest(action, value = "", confirmed = false) {
+    if (!administrator.value) throw new Error("Log in as administrator first.");
+    const result = await operate("node-admin", { action, value, confirmed });
+    if (result?.state !== "admin_response")
+        throw new Error(
+            "No verified response. Check the connection before continuing; changes may already have applied."
+        );
+    return result.text || "";
+}
 async function administer() {
     if (!administrator.value || adminUncertain.value || (adminDisruptive.value && !adminConfirmed.value)) return;
     if (adminSecret.value && (!adminPasswordValid.value || adminPasswordConfirm.value !== adminValue.value)) return;
@@ -601,6 +617,7 @@ async function send() {
 watch(
     [
         () => props.snapshot.owner,
+        () => props.snapshot.radio_id,
         () => props.snapshot.connected,
         () => props.snapshot.connection_id,
         () => props.node.peer,
