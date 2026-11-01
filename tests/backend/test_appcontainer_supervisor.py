@@ -187,3 +187,68 @@ async def test_supervisor_caps_sessions_and_cleans_up_on_cancel(monkeypatch, tmp
     assert all(writer.closed for writer in entered)
     server.close.assert_called_once()
     server.wait_closed.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_static_files_stream_without_socket_sendfile(monkeypatch, tmp_path):
+    """Exercise aiohttp in a fresh child with the actual broker environment."""
+    import subprocess
+    import sys
+
+    monkeypatch.delenv("AIOHTTP_NOSENDFILE", raising=False)
+    monkeypatch.delenv("MESHCHAT_APPCONTAINER_CONTROL_STDIN", raising=False)
+    monkeypatch.setattr(broker, "child_pipe_address", lambda leaf: "private-address")
+    asset = tmp_path / "asset.bin"
+    asset.write_bytes(bytes(range(256)) * 3000)
+    outcome = {}
+    probe = r"""
+import asyncio,sys
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock,patch
+from aiohttp.web_fileresponse import FileResponse
+async def main():
+    payload=Path(sys.argv[1]).read_bytes()
+    chunks=[]
+    async def write(data): chunks.append(bytes(data))
+    writer=SimpleNamespace(write=write,drain=AsyncMock())
+    loop=asyncio.get_running_loop()
+    unsupported=AsyncMock(side_effect=RuntimeError('sendfile unsupported for pipe transport'))
+    request=SimpleNamespace(_loop=loop,transport=object())
+    response=FileResponse(sys.argv[1],chunk_size=8192)
+    with patch('aiohttp.web_fileresponse.StreamResponse.prepare',AsyncMock(return_value=writer)),patch.object(loop,'sendfile',unsupported):
+        with open(sys.argv[1],'rb') as stream:
+            await response._sendfile(request,stream,19,len(payload)-43)
+    assert b''.join(chunks)==payload[19:-24]
+    assert len(chunks)>1 and max(map(len,chunks))<=8192
+    unsupported.assert_not_awaited()
+    writer.drain.assert_awaited_once()
+asyncio.run(main())
+"""
+
+    def child(exe, argv, **kwargs):
+        result = subprocess.run(
+            [sys.executable, "-c", probe, str(asset)],
+            env=kwargs["env"],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        outcome["result"] = result
+        return broker.sandbox.LaunchResult(
+            ok=result.returncode == 0,
+            exit_code=result.returncode,
+            used_appcontainer=True,
+            fell_back=False,
+        )
+
+    monkeypatch.setattr(broker.sandbox, "launch_backend_sandboxed", child)
+    result = await broker._supervise(
+        "backend",
+        ["--no-https", "--port", str(free_port())],
+        storage_dir=str(tmp_path),
+        reticulum_config_dir=str(tmp_path),
+        log_dir=str(tmp_path),
+    )
+    assert result.ok, outcome["result"].stderr
+    assert "AIOHTTP_NOSENDFILE" not in broker.os.environ

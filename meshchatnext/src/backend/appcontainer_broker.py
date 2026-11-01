@@ -106,6 +106,8 @@ async def _supervise(exe, argv, *, storage_dir, reticulum_config_dir, log_dir):
     for name in ("TEMP", "TMP", "TMPDIR"):
         env[name] = str(private_temp)
     env["MESHCHAT_APPCONTAINER_PIPE"] = rf"\\.\pipe\LOCAL\{leaf}"
+    # A private pipe is not a socket: aiohttp FileResponse must stream chunks.
+    env["AIOHTTP_NOSENDFILE"] = "1"
     # Preserve the requested mode for status reporting. Containment itself is
     # still mandatory here (forced=True); only the outer launcher owns fallback.
     requested_mode = (env_str("MESHCHAT_APPCONTAINER") or "").strip().lower()
