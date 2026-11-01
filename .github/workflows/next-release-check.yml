@@ -31,7 +31,7 @@ jobs:
               run: |
                   set -euo pipefail
                   python -m pip install 'rns==1.5.7' 'packaging>=24'
-                  gh release download "$RELEASE_TAG" --dir release-check --pattern '*.apk' --pattern latest.rsm --pattern latest.json
+                  gh release download "$RELEASE_TAG" --dir release-check --pattern '*.apk' --pattern '*.exe' --pattern latest.rsm --pattern latest.json
                   apksigner="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)"
                   python scripts/ci/verify-next-release.py release-check --tag "$RELEASE_TAG" --apksigner "$apksigner" --signer-hash "$NEXT_UPDATE_SIGNER_HASH" --certificate-sha256 "$NEXT_APK_CERTIFICATE_SHA256"
 

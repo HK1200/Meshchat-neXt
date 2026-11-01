@@ -1,4 +1,17 @@
-# Windows 11 port — local development
+# Windows 11 development and release status
+
+## Published Windows 0.1.5 — 2026-11-01
+
+Windows 11 x64 portable and installer packages are published with publisher metadata HK1200. See [installation](../en/installation.md#windows-11-x64--015) for downloads and the unsigned-binary policy, and [updates](../en/updates.md#hk1200-release-feeds) for signed-feed behavior. The application source for these binaries is `d0b6f137e02992a061bd6883352762eb9d090538`; release provenance records the reviewed publisher metadata build override.
+
+The final native default and forced AppContainer UI runs passed without a manually supplied static-transfer flag. Static asset hashes, Range/HEAD/cache responses, concurrent requests, WebSocket, backup CRC and process/port/ACL cleanup passed. In-place installer upgrade preserved 93 synthetic profile files; backup/restore and uninstall profile preservation passed. Both hosted Windows executable hashes and signed-feed selection, staging, tamper rejection and current-version behavior were independently verified through the updater on Linux with Windows platform selection. This hosted check is separate from the recorded native Windows execution.
+
+Only Authenticode signing was waived. No OS protection bypass or self-signed trust certificate is part of this release. Private signing keys remain on Linux. These checks do not establish Windows ARM64 or untested physical radio/adapter compatibility. Android/Linux release assets and their existing feeds were preserved.
+
+## Historical development notes
+
+The following dated and candidate-specific notes describe earlier work. Statements that packages had not yet been built or published apply to those earlier stages; the current release status is above.
+
 
 This is work in progress, not a Windows release. No Windows package has been built or verified yet. Source is isolated in `work/meshchat-next-windows`, branch `feature/windows11-port`, based on a4cfc10. The separate Radio2/channel branch is preserved; it has not been merged here.
 

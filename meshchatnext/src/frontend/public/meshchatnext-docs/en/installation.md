@@ -2,6 +2,14 @@
 
 Meshchat neXt can be installed in several ways. All release artifacts that ship the web UI include pre-built frontend assets. You do not need Node.js on the machine that only runs the Python wheel or Docker image.
 
+## Windows 11 x64 — 0.1.5
+
+Download the [portable application](https://github.com/HK1200/Meshchat-neXt/releases/download/v0.1.5/MeshchatNext-v0.1.5-win-portable.exe) or [x64 installer](https://github.com/HK1200/Meshchat-neXt/releases/download/v0.1.5/MeshchatNext-v0.1.5-win-x64-installer.exe) from the [0.1.5 release](https://github.com/HK1200/Meshchat-neXt/releases/tag/v0.1.5). Both include the desktop UI and frozen backend; Python and Node.js are not needed to run them. The installer publisher is HK1200.
+
+These Windows executables are **unsigned: they have no Authenticode signature**. The signed update feed and [Windows SHA-256 checksums](https://github.com/HK1200/Meshchat-neXt/releases/download/v0.1.5/WINDOWS-0.1.5-SHA256SUMS.txt) verify the exact release bytes; they do not establish Windows publisher trust. Do not disable Windows protection or install a self-signed trust certificate. If system policy blocks execution, leave that protection enabled.
+
+Back up your profile before upgrading and close the running application. The installer supports in-place upgrades; upgrade, backup/restore and profile preservation on uninstall were verified with synthetic profiles. Keep your backups separate from the application files. Windows ARM64 packages are not provided by this release.
+
 ## Requirements
 
 | Component | Version                                            |
