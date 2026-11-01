@@ -3,12 +3,26 @@
 <template>
     <div v-click-outside="closeResults" class="relative">
         <div class="flex items-center bg-sem-surface rounded-xl shadow-2xl border-0 ring-0">
+            <select
+                v-if="nodeSearchEnabled"
+                :value="scope"
+                aria-label="Map search type"
+                class="bg-sem-surface text-sem-fg text-xs min-h-11 max-w-24 rounded-l-xl"
+                @change="$emit('update:scope', $event.target.value)"
+            >
+                <option value="nodes">MeshCore nodes</option>
+                <option value="places">Places / coordinates</option>
+            </select>
             <input
                 ref="inputEl"
                 :value="modelValue"
                 type="text"
-                class="flex-1 px-4 py-2.5 bg-transparent text-sem-fg placeholder-gray-400 focus:outline-hidden focus:ring-0 border-0 text-sm"
-                :placeholder="placeholder || $t('map.search_placeholder')"
+                class="min-w-0 flex-1 px-4 py-2.5 bg-transparent text-sem-fg placeholder-gray-400 focus:outline-hidden focus:ring-0 border-0 text-sm"
+                :placeholder="
+                    scope === 'nodes' && nodeSearchEnabled
+                        ? 'Node name or key prefix'
+                        : placeholder || $t('map.search_placeholder')
+                "
                 @input="onInput"
                 @keydown.enter="$emit('search')"
                 @focus="$emit('focus')"
@@ -49,6 +63,9 @@
                     @click="$emit('select', result)"
                 >
                     <div class="font-bold text-sem-fg text-sm">{{ result.display_name }}</div>
+                    <div v-if="result.node" class="font-mono text-xs break-all text-sem-fg-muted">
+                        {{ result.node.peer }}
+                    </div>
                     <div class="text-[10px] text-sem-fg-muted mt-0.5 font-bold uppercase tracking-wider">
                         {{ result.type }}
                     </div>
@@ -65,6 +82,8 @@ export default {
     name: "MapSearchBar",
     components: { MaterialDesignIcon },
     props: {
+        scope: { type: String, default: "places" },
+        nodeSearchEnabled: { type: Boolean, default: false },
         modelValue: { type: String, default: "" },
         results: { type: Array, default: () => [] },
         error: { type: String, default: null },
@@ -72,7 +91,7 @@ export default {
         showResults: { type: Boolean, default: false },
         placeholder: { type: String, default: "" },
     },
-    emits: ["update:modelValue", "input", "search", "clear", "focus", "blur", "select"],
+    emits: ["update:scope", "update:modelValue", "input", "search", "clear", "focus", "blur", "select"],
     methods: {
         closeResults() {
             this.$emit("blur");

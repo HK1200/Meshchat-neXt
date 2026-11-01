@@ -251,6 +251,7 @@ describe("MapPage.vue", () => {
 
     const mountMapPage = () => {
         const wrapper = mount(MapPage, {
+            data: () => ({ searchScope: "places" }),
             global: {
                 mocks: {
                     $t: (key) => key,
@@ -298,6 +299,54 @@ describe("MapPage.vue", () => {
         await wrapper.vm.$nextTick();
 
         expect(wrapper.vm.isSettingsOpen).toBe(true);
+    });
+
+    it("searches the companion cache offline without sending node names to a place service", async () => {
+        const wrapper = mountMapPage();
+        await flushPromises();
+        wrapper.vm.searchScope = "nodes";
+        await wrapper.vm.$nextTick();
+        wrapper.vm.offlineEnabled = true;
+        wrapper.vm.searchQuery = "hill";
+        window.api.get.mockResolvedValueOnce({
+            data: {
+                result: {
+                    owner: "a1".repeat(32),
+                    radio_id: "radio-one",
+                    nodes: [{ peer: "b2".repeat(32), name: "Hill Repeater", kind: 2, latitude: 49, longitude: -123 }],
+                },
+            },
+        });
+        global.fetch = vi.fn();
+        await wrapper.vm.performSearch();
+        expect(wrapper.vm.searchResults[0].display_name).toBe("Hill Repeater");
+        expect(wrapper.vm.searchResults[0].owner).toBe("a1".repeat(32));
+        expect(global.fetch).not.toHaveBeenCalled();
+        window.api.get.mockResolvedValueOnce({ data: { result: { nodes: [] } } });
+        wrapper.vm.searchQuery = "not known";
+        await wrapper.vm.performSearch();
+        expect(wrapper.vm.searchError).toContain("No matching MeshCore nodes");
+        expect(global.fetch).not.toHaveBeenCalled();
+    });
+    it("discards a local node search response after switching search type", async () => {
+        const wrapper = mountMapPage();
+        await flushPromises();
+        wrapper.vm.searchScope = "nodes";
+        await wrapper.vm.$nextTick();
+        wrapper.vm.searchQuery = "hill";
+        let resolve;
+        window.api.get.mockReturnValueOnce(
+            new Promise((r) => {
+                resolve = r;
+            })
+        );
+        const pending = wrapper.vm.performSearch();
+        wrapper.vm.searchScope = "places";
+        await wrapper.vm.$nextTick();
+        resolve({ data: { result: { nodes: [{ peer: "b2".repeat(32), name: "Hill", latitude: 49, longitude: 1 }] } } });
+        await pending;
+        expect(wrapper.vm.searchResults).toEqual([]);
+        expect(wrapper.vm.isSearching).toBe(false);
     });
 
     it("performs search and displays results", async () => {

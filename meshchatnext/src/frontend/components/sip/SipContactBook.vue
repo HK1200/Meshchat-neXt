@@ -35,6 +35,10 @@
             aria-label="Search SIP contacts"
             placeholder="Search SIP contacts"
         />
+        <div class="flex items-center justify-between gap-2 text-xs text-sem-fg-muted" role="status">
+            <span>Showing {{ filtered.length }} of {{ sipContacts.length }} SIP contacts</span>
+            <button v-if="search" type="button" class="secondary-chip" @click="search = ''">Clear SIP search</button>
+        </div>
         <div
             v-for="contact in filtered"
             :key="contact.id"
@@ -44,65 +48,56 @@
                 <div class="font-medium text-sem-fg">
                     {{ contact.name }} <span class="text-xs text-sem-fg-muted">SIP</span>
                 </div>
-                <div class="text-xs text-sem-fg-muted break-all">{{ contact.address }}</div>
+                <div
+                    v-for="(number, index) in sipContactNumbers(contact)"
+                    :key="index"
+                    class="flex items-center gap-2 py-1"
+                >
+                    <span class="text-xs text-sem-fg-muted break-all flex-1"
+                        >{{ number.label }} · {{ number.address }}</span
+                    >
+                    <button
+                        type="button"
+                        class="secondary-chip min-h-11"
+                        :aria-label="`Call ${contact.name} ${number.label} ${number.address}`"
+                        @click="$router.push(sipCallRoute(number.address))"
+                    >
+                        Call via SIP
+                    </button>
+                </div>
             </div>
-            <button type="button" class="secondary-chip" @click="$router.push(sipCallRoute(contact.address))">
-                Call via SIP
-            </button>
             <button type="button" class="secondary-chip" :aria-label="`Edit ${contact.name}`" @click="edit(contact)">
                 Edit
             </button>
         </div>
-        <p v-if="!filtered.length" class="text-sm text-sem-fg-muted">No SIP contacts yet.</p>
-        <form v-if="form" class="border border-sem-border rounded-lg p-3 space-y-3" @submit.prevent="save">
-            <label class="block text-sm"
-                >Name<input
-                    v-model="form.name"
-                    class="rounded-lg border border-sem-border bg-sem-surface px-3 py-2 text-sem-fg focus:outline-none focus:ring-1 focus:ring-sem-accent block w-full"
-                    maxlength="100"
-                    required
-            /></label>
-            <label class="block text-sm"
-                >SIP extension or address<input
-                    v-model="form.address"
-                    class="rounded-lg border border-sem-border bg-sem-surface px-3 py-2 text-sem-fg focus:outline-none focus:ring-1 focus:ring-sem-accent block w-full"
-                    placeholder="Extension or sip:user@server"
-                    required
-            /></label>
-            <p v-if="error" role="alert" class="text-sem-danger text-sm">{{ error }}</p>
-            <div class="flex gap-2 flex-wrap">
-                <button class="primary-chip" type="submit">Save contact</button
-                ><button class="secondary-chip" type="button" @click="form = null">Cancel</button
-                ><button v-if="form.id" class="secondary-chip text-sem-danger" type="button" @click="remove">
-                    Delete SIP contact
-                </button>
-            </div>
-        </form>
+        <p v-if="!filtered.length" class="text-sm text-sem-fg-muted">
+            {{
+                sipContacts.length
+                    ? "No SIP contacts match this search. Clear the search to show all saved entries."
+                    : "No SIP contacts yet."
+            }}
+        </p>
+        <SipContactEditor :contact="form" @close="form = null" @saved="form = null" />
     </section>
 </template>
 <script setup>
 import { computed, ref } from "vue";
-import { sipContacts, saveSipContact, deleteSipContact, sipCallRoute } from "../../js/sip";
+import SipContactEditor from "./SipContactEditor.vue";
+import { sipContacts, sipContactNumbers, sipCallRoute } from "../../js/sip";
 const search = ref(""),
-    form = ref(null),
-    error = ref("");
+    form = ref(null);
 const filtered = computed(() =>
-    sipContacts.filter((c) => `${c.name} ${c.address}`.toLowerCase().includes(search.value.toLowerCase()))
+    [...sipContacts]
+        .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
+        .filter((c) =>
+            `${c.name} ${sipContactNumbers(c)
+                .map((n) => `${n.label} ${n.address}`)
+                .join(" ")}`
+                .toLowerCase()
+                .includes(search.value.toLowerCase())
+        )
 );
 function edit(c) {
-    error.value = "";
-    form.value = c ? { ...c } : { name: "", address: "" };
-}
-function save() {
-    try {
-        saveSipContact(form.value);
-        form.value = null;
-    } catch (e) {
-        error.value = e.message;
-    }
-}
-function remove() {
-    deleteSipContact(form.value.id);
-    form.value = null;
+    form.value = c ? { ...c, numbers: sipContactNumbers(c) } : { name: "", numbers: [{ label: "Home", address: "" }] };
 }
 </script>

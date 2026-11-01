@@ -342,8 +342,6 @@ describe("ContactsPage edit contact name", () => {
         });
 
     it("editContactName updates both contact and custom display name", async () => {
-        DialogUtils.prompt.mockResolvedValue("Renamed Alice");
-
         const wrapper = mountPage();
         await wrapper.vm.$nextTick();
 
@@ -356,6 +354,8 @@ describe("ContactsPage edit contact name", () => {
         };
 
         await wrapper.vm.editContactName(contact);
+        wrapper.vm.editingName = "Renamed Alice";
+        await wrapper.vm.saveContactName();
 
         expect(axiosMock.patch).toHaveBeenCalledWith("/api/v1/telephone/contacts/42", {
             name: "Renamed Alice",
@@ -366,32 +366,29 @@ describe("ContactsPage edit contact name", () => {
         );
     });
 
-    it("editContactName does nothing when user cancels prompt", async () => {
-        DialogUtils.prompt.mockResolvedValue(null);
-
+    it("editContactName does nothing when user cancels editor", async () => {
         const wrapper = mountPage();
         await wrapper.vm.$nextTick();
 
         await wrapper.vm.editContactName({ id: 1, name: "Alice" });
+        wrapper.vm.closeContactEditor();
 
         expect(axiosMock.patch).not.toHaveBeenCalled();
         expect(axiosMock.post).not.toHaveBeenCalled();
     });
 
     it("editContactName does nothing when name unchanged", async () => {
-        DialogUtils.prompt.mockResolvedValue("Alice");
-
         const wrapper = mountPage();
         await wrapper.vm.$nextTick();
 
         await wrapper.vm.editContactName({ id: 1, name: "Alice" });
+        wrapper.vm.editingName = "Alice";
+        await wrapper.vm.saveContactName();
 
         expect(axiosMock.patch).not.toHaveBeenCalled();
     });
 
     it("editContactName skips custom display name when no dest hash", async () => {
-        DialogUtils.prompt.mockResolvedValue("New Name");
-
         const wrapper = mountPage();
         await wrapper.vm.$nextTick();
 
@@ -403,6 +400,8 @@ describe("ContactsPage edit contact name", () => {
         };
 
         await wrapper.vm.editContactName(contact);
+        wrapper.vm.editingName = "New Name";
+        await wrapper.vm.saveContactName();
 
         expect(axiosMock.patch).toHaveBeenCalledWith("/api/v1/telephone/contacts/99", {
             name: "New Name",
@@ -411,8 +410,6 @@ describe("ContactsPage edit contact name", () => {
     });
 
     it("editContactName uses lxmf_address when remote_destination_hash absent", async () => {
-        DialogUtils.prompt.mockResolvedValue("Updated");
-
         const wrapper = mountPage();
         await wrapper.vm.$nextTick();
 
@@ -424,6 +421,8 @@ describe("ContactsPage edit contact name", () => {
         };
 
         await wrapper.vm.editContactName(contact);
+        wrapper.vm.editingName = "Updated";
+        await wrapper.vm.saveContactName();
 
         expect(axiosMock.post).toHaveBeenCalledWith(
             `/api/v1/destination/${"l".repeat(32)}/custom-display-name/update`,
@@ -432,7 +431,6 @@ describe("ContactsPage edit contact name", () => {
     });
 
     it("editContactName handles API error gracefully", async () => {
-        DialogUtils.prompt.mockResolvedValue("Fail Name");
         axiosMock.patch.mockRejectedValue(new Error("Network error"));
 
         const wrapper = mountPage();
@@ -441,13 +439,13 @@ describe("ContactsPage edit contact name", () => {
         const contact = { id: 5, name: "Before", remote_identity_hash: "x".repeat(32) };
 
         await wrapper.vm.editContactName(contact);
+        wrapper.vm.editingName = "Fail Name";
+        await wrapper.vm.saveContactName();
 
         expect(axiosMock.patch).toHaveBeenCalled();
     });
 
     it("editContactName with empty string does nothing", async () => {
-        DialogUtils.prompt.mockResolvedValue("");
-
         const wrapper = mountPage();
         await wrapper.vm.$nextTick();
 
@@ -459,6 +457,8 @@ describe("ContactsPage edit contact name", () => {
         };
 
         await wrapper.vm.editContactName(contact);
+        wrapper.vm.editingName = "";
+        await wrapper.vm.saveContactName();
 
         expect(axiosMock.patch).not.toHaveBeenCalled();
         expect(axiosMock.post).not.toHaveBeenCalled();

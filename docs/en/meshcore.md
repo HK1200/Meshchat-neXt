@@ -75,3 +75,9 @@ layer is hidden, and existing history is not replayed when resuming.
 The regional map name and source credits are available in the map’s expandable © control, keeping the map view clear.
 
 Unknown route gaps appear in one compact **? gaps** badge beside the MeshCore map button. Expand it for hop counts and details; no boxes cover the map or imply unknown node locations.
+
+## Message repeater details and local map search
+
+Open a message's Details and expand a known node or possible match to see its public key, node type and saved reported position. **Show on map** appears only when valid coordinates are available. A known repeater without coordinates still has a details entry. Short path hashes can match multiple nodes; choosing a candidate's location does not establish that it relayed the message. Positions are saved reports, not verified current positions or locations at message time.
+
+In map search, choose **MeshCore nodes** to search the selected companion's saved located nodes by name or public-key prefix. This local search works offline and does not send node names to a geographic search provider. Choose **Places / coordinates** for geographic queries. Route maps show known positions and leave gaps for unresolved hops.

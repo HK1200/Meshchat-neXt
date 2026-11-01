@@ -571,6 +571,26 @@ let focusedNotification = "";
 function focusNotification() {
     const query = router?.currentRoute?.value?.query || {};
     const signature = JSON.stringify(query);
+    if (query.meshcoreNode) {
+        if (!props.active || !props.map || signature === focusedNotification) return;
+        if (query.meshcoreOwner !== owner.value) {
+            open.value = true;
+            problem.value =
+                "This node belongs to a different MeshCore identity. Select its companion before opening its location.";
+            return;
+        }
+        const node = nodes.value.find((item) => item.peer === query.meshcoreNode);
+        if (!node) {
+            open.value = true;
+            problem.value = "This node has no saved reported position for the selected companion.";
+            return;
+        }
+        focusedNotification = signature;
+        open.value = true;
+        visible.value = true;
+        focus(node);
+        return;
+    }
     if (
         !props.active ||
         !props.map ||
@@ -596,7 +616,9 @@ watch(
     () => [router?.currentRoute?.value?.query, props.active, props.map],
     () => {
         if (
-            (router?.currentRoute?.value?.query?.meshcoreFence || router?.currentRoute?.value?.query?.meshcoreItem) &&
+            (router?.currentRoute?.value?.query?.meshcoreFence ||
+                router?.currentRoute?.value?.query?.meshcoreItem ||
+                router?.currentRoute?.value?.query?.meshcoreNode) &&
             props.active
         )
             void refresh();
