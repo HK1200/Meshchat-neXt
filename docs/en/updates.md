@@ -1,10 +1,16 @@
 # Updates
 
 Meshchat neXt supports signed, channel-based updates delivered through the
-project CDN. Every update decision is anchored on a signed manifest, not
+configured release endpoint. The HK1200 distribution uses GitHub Releases. Every update decision is anchored on a signed manifest, not
 on HTTPS alone: the manifest carries a Reticulum identity signature, and
 the app verifies it against the pinned release signer before trusting
 anything inside.
+
+## HK1200 release feeds
+
+Stable Android and Windows builds use the shared [signed release feed](https://github.com/HK1200/Meshchat-neXt/releases/latest/download/latest.rsm). Linux uses its separate [linux-stable signed feed](https://github.com/HK1200/Meshchat-neXt/releases/download/linux-stable/latest.rsm). Version 0.1.5 adds the Windows x64 portable executable and installer to the shared feed while preserving the Android entries. Existing Android and Linux releases remain available.
+
+The Windows 0.1.5 executables are unsigned for Authenticode. Their signed-feed entries authenticate package size and SHA-256; source integrity signatures and update-feed signatures do not substitute for Windows executable signing. Back up your profile before installing an update and keep OS protections enabled.
 
 ## Channels
 

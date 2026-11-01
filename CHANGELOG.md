@@ -3,7 +3,7 @@
 ## 0.1.5
 
 - Fixed the mobile sidebar staying open when selecting its current destination, including after Back restores the drawer. Different destinations, sidebar reordering and onboarding Back retain their existing behavior.
-- Windows packages will be clearly labelled unsigned after native package verification. Android retains its permanent APK certificate; signed update feeds remain required.
+- Windows 11 x64 portable and installer packages are published as unsigned binaries. Native default and forced AppContainer UI, static assets, cleanup, installer upgrade and profile preservation were verified. Signed update feeds verify package integrity; they do not provide Windows Authenticode signing. Android retains its permanent APK certificate.
 
 ## 0.1.4
 
