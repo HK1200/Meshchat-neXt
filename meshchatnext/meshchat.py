@@ -6324,7 +6324,26 @@ class ReticulumMeshChat:
                 "see /api/v1/diagnostics/memory for reports",
             )
 
-        if use_https and ssl_context:
+        pipe_address = env_str("MESHCHAT_APPCONTAINER_PIPE")
+        if pipe_address and is_appcontainer_child():
+            from meshchatnext.src.backend.appcontainer_pipe import run_private_pipe_app
+
+            if enable_https and not ssl_context:
+                raise RuntimeError(
+                    "AppContainer HTTPS setup failed; refusing plaintext fallback"
+                )
+
+            async def supervisor_shutdown():
+                await self.shutdown(None)
+                self.exit_app(0)
+
+            run_private_pipe_app(
+                app,
+                address=pipe_address,
+                use_https=use_https,
+                shutdown_callback=supervisor_shutdown,
+            )
+        elif use_https and ssl_context:
             web.run_app(app, host=host, port=port, ssl_context=ssl_context)
         else:
             web.run_app(app, host=host, port=port)
@@ -12593,6 +12612,18 @@ def _maybe_run_embedded_module():
 
 # class to manage config stored in database
 def main():
+    # Frozen re-entry probes also need private temporary directories in LPAC.
+    if sys.platform == "win32":
+        from meshchatnext.src.backend.appcontainer_temp import (
+            install_private_directory_compat,
+        )
+
+        install_private_directory_compat()
+        from meshchatnext.src.backend.appcontainer_paths import (
+            install_private_path_compat,
+        )
+
+        install_private_path_compat()
     if _maybe_run_embedded_module():
         return
 

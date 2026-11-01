@@ -213,6 +213,7 @@ function createBackendProcessManager(deps) {
         const logsDir = getLogsDir(storageDir());
         return {
             ...process.env,
+            MESHCHAT_APPCONTAINER_CONTROL_STDIN: shouldUseAppContainerLauncher() ? "1" : "0",
             MESHCHAT_LOG_DIR: logsDir,
             MESHCHAT_STORAGE_DIR: storageDir(),
             MESHCHAT_RETICULUM_CONFIG_DIR: reticulumConfigDir(),
@@ -331,6 +332,16 @@ function createBackendProcessManager(deps) {
             return;
         }
         if (process.platform === "win32") {
+            if (
+                signal === "SIGTERM" &&
+                proc === childProcess &&
+                shouldUseAppContainerLauncher() &&
+                proc.stdin &&
+                !proc.stdin.destroyed
+            ) {
+                proc.stdin.write("meshchatnext-stop\n");
+                return;
+            }
             try {
                 const { execFileSync } = require("node:child_process");
                 execFileSync("taskkill", ["/F", "/T", "/PID", String(proc.pid)], {

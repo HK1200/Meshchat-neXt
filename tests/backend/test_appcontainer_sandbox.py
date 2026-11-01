@@ -82,7 +82,13 @@ def test_is_appcontainer_child(monkeypatch):
     monkeypatch.delenv(ac.CHILD_ENV_FLAG, raising=False)
     assert ac.is_appcontainer_child() is False
     monkeypatch.setenv(ac.CHILD_ENV_FLAG, "1")
-    assert ac.is_appcontainer_child() is True
+    # Environment markers cannot attest to a restricted Windows token.
+    assert ac.is_appcontainer_child() is False
+    with patch(
+        "meshchatnext.src.backend.appcontainer_security.is_appcontainer_process",
+        return_value=True,
+    ):
+        assert ac.is_appcontainer_child() is True
 
 
 def test_collect_rw_roots_includes_storage_and_temp(tmp_path, monkeypatch):
@@ -501,3 +507,15 @@ def test_launch_backend_unsupported_fallback(monkeypatch, tmp_path):
     assert result.fell_back is True
     assert call_log["create_in_appcontainer"] == 0
     assert captured_env.get("MESHCHAT_APPCONTAINER_LAUNCHER") == "1"
+
+
+def test_child_temp_does_not_grant_parent_temp(tmp_path, monkeypatch):
+    private = tmp_path / "private"
+    private.mkdir()
+    parent = tmp_path / "parent"
+    parent.mkdir()
+    monkeypatch.setattr(ac.tempfile, "gettempdir", lambda: str(parent))
+    monkeypatch.setattr(ac, "collect_user_exchange_roots", lambda create=True: [])
+    roots = ac.collect_rw_roots(None, None, None, env={"TEMP": str(private)})
+    assert str(private) in roots
+    assert str(parent) not in roots

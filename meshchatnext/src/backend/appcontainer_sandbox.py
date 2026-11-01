@@ -17,7 +17,7 @@ import tempfile
 import time
 from dataclasses import dataclass
 
-from meshchatnext.src.env_utils import env_bool, env_str
+from meshchatnext.src.env_utils import env_str
 
 logger = logging.getLogger("meshchatnext.appcontainer")
 
@@ -220,8 +220,9 @@ def _env_override() -> bool | str | None:
 
 
 def is_appcontainer_child() -> bool:
-    """Return True when this process was launched inside the AppContainer."""
-    return env_bool(CHILD_ENV_FLAG)
+    from meshchatnext.src.backend.appcontainer_security import is_appcontainer_process
+
+    return is_appcontainer_process()
 
 
 def _windows_version_supported() -> bool:
@@ -427,17 +428,19 @@ def collect_rw_roots(
     log_dir: str | None,
     *,
     exe_dir: str | None = None,
+    env: dict[str, str] | None = None,
 ) -> list[str]:
     """Collect directories that need Package-SID write access."""
+    temp_env = os.environ if env is None else env
     paths: list[str] = []
     for candidate in (
         storage_dir,
         reticulum_config_dir,
         log_dir,
-        tempfile.gettempdir(),
-        env_str("TMP"),
-        env_str("TEMP"),
-        env_str("TMPDIR"),
+        tempfile.gettempdir() if env is None else None,
+        temp_env.get("TMP"),
+        temp_env.get("TEMP"),
+        temp_env.get("TMPDIR"),
     ):
         existing = _existing_dir(candidate)
         if existing and existing not in paths:
@@ -487,6 +490,51 @@ def _local_free(ptr: ctypes.c_void_p | int | None) -> None:
         ctypes.windll.kernel32.LocalFree(_as_void_p(ptr))
     except Exception:
         pass
+
+
+def _named_capability_sid(name: str) -> ctypes.c_void_p:
+    """Resolve an explicit LPAC capability and own a copied SID buffer."""
+    api = ctypes.WinDLL("kernelbase", use_last_error=True)
+    derive = api.DeriveCapabilitySidsFromName
+    pointer_array = ctypes.POINTER(ctypes.c_void_p)
+    derive.argtypes = [
+        ctypes.c_wchar_p,
+        ctypes.POINTER(pointer_array),
+        ctypes.POINTER(ctypes.c_ulong),
+        ctypes.POINTER(pointer_array),
+        ctypes.POINTER(ctypes.c_ulong),
+    ]
+    derive.restype = ctypes.c_int
+    groups, caps = pointer_array(), pointer_array()
+    group_count, cap_count = ctypes.c_ulong(), ctypes.c_ulong()
+    try:
+        if not derive(
+            name,
+            ctypes.byref(groups),
+            ctypes.byref(group_count),
+            ctypes.byref(caps),
+            ctypes.byref(cap_count),
+        ):
+            raise ctypes.WinError(ctypes.get_last_error())
+        if cap_count.value != 1:
+            raise OSError("Expected one capability SID for " + name)
+        advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
+        advapi32.GetLengthSid.argtypes = [ctypes.c_void_p]
+        advapi32.GetLengthSid.restype = ctypes.c_ulong
+        length = advapi32.GetLengthSid(caps[0])
+        if not length:
+            raise ctypes.WinError(ctypes.get_last_error())
+        buffer = ctypes.create_string_buffer(length)
+        ctypes.memmove(buffer, caps[0], length)
+        holder = ctypes.cast(buffer, ctypes.c_void_p)
+        holder._buffer = buffer
+        return holder
+    finally:
+        for array, count in ((groups, group_count.value), (caps, cap_count.value)):
+            if array:
+                for index in range(count):
+                    _local_free(array[index])
+                _local_free(ctypes.cast(array, ctypes.c_void_p))
 
 
 def _create_capability_sid(well_known: int) -> ctypes.c_void_p | None:
@@ -552,6 +600,49 @@ def ensure_appcontainer_profile(
     return sid
 
 
+def _set_directory_dacl_without_propagation(path, dacl):
+    """Set an ancestor-only DACL without walking unrelated descendants.
+
+    SetSecurityInfo documents that a MAXIMUM_ALLOWED handle suppresses
+    propagation to child objects. Existing inheritance flags stay intact.
+    """
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
+    create = kernel32.CreateFileW
+    create.argtypes = [
+        ctypes.c_wchar_p,
+        ctypes.c_ulong,
+        ctypes.c_ulong,
+        ctypes.c_void_p,
+        ctypes.c_ulong,
+        ctypes.c_ulong,
+        ctypes.c_void_p,
+    ]
+    create.restype = ctypes.c_void_p
+    handle = create(path, 0x02000000, 7, None, 3, 0x02000000, None)
+    if handle in (None, ctypes.c_void_p(-1).value):
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        setter = advapi32.SetSecurityInfo
+        setter.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_ulong,
+            ctypes.c_ulong,
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+        ]
+        setter.restype = ctypes.c_ulong
+        return setter(
+            handle, _SE_FILE_OBJECT, _DACL_SECURITY_INFORMATION, None, None, dacl, None
+        )
+    finally:
+        kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+        kernel32.CloseHandle.restype = ctypes.c_int
+        kernel32.CloseHandle(handle)
+
+
 def _set_path_access(
     path: str,
     sid: ctypes.c_void_p,
@@ -603,15 +694,18 @@ def _set_path_access(
             err = ctypes.get_last_error()
             raise OSError(err, f"SetEntriesInAclW failed for {path}: status={status}")
 
-        result = advapi32.SetNamedSecurityInfoW(
-            ctypes.c_wchar_p(path),
-            _SE_FILE_OBJECT,
-            _DACL_SECURITY_INFORMATION,
-            None,
-            None,
-            new_acl,
-            None,
-        )
+        if inherit:
+            result = advapi32.SetNamedSecurityInfoW(
+                ctypes.c_wchar_p(path),
+                _SE_FILE_OBJECT,
+                _DACL_SECURITY_INFORMATION,
+                None,
+                None,
+                new_acl,
+                None,
+            )
+        else:
+            result = _set_directory_dacl_without_propagation(path, new_acl)
         if result != _ERROR_SUCCESS:
             err = ctypes.get_last_error()
             raise OSError(
@@ -918,6 +1012,12 @@ def create_process_in_appcontainer(
         if cap is not None and cap.value:
             capability_holders.append(cap)
 
+    if use_lpac:
+        # Explicit common-system access required by LPAC loader/COM initialization.
+        capability_holders.extend(
+            _named_capability_sid(name) for name in ("registryRead", "lpacCom")
+        )
+
     caps_array = (_SID_AND_ATTRIBUTES * max(1, len(capability_holders)))()
     for i, holder in enumerate(capability_holders):
         caps_array[i].Sid = holder
@@ -936,7 +1036,7 @@ def create_process_in_appcontainer(
         sec_caps.CapabilityCount = 0
     sec_caps.Reserved = 0
 
-    attr_count = 2 if use_lpac else 1
+    attr_count = (2 if use_lpac else 1) + bool(child_log_path)
     size = ctypes.c_size_t(0)
     kernel32.InitializeProcThreadAttributeList(None, attr_count, 0, ctypes.byref(size))
     if size.value == 0:
@@ -1003,6 +1103,19 @@ def create_process_in_appcontainer(
                 siex.StartupInfo.dwFlags |= _STARTF_USESTDHANDLES
                 siex.StartupInfo.hStdOutput = log_handle
                 siex.StartupInfo.hStdError = log_handle
+                # Inherit only the diagnostic log, never unrelated handles held
+                # by the full-trust supervisor (including its quit-control pipe).
+                allowed_handles = (ctypes.c_void_p * 1)(log_handle)
+                if not kernel32.UpdateProcThreadAttribute(
+                    attr_list,
+                    0,
+                    0x00020002,
+                    allowed_handles,
+                    ctypes.sizeof(allowed_handles),
+                    None,
+                    None,
+                ):
+                    raise ctypes.WinError(ctypes.get_last_error())
 
         pi = _PROCESS_INFORMATION()
         cmdline = ctypes.create_unicode_buffer(_build_command_line(exe, args))
@@ -1138,8 +1251,11 @@ def launch_backend_sandboxed(
     use_lpac: bool = True,
     env: dict[str, str] | None = None,
     extra_ro_roots: list[str] | None = None,
+    extra_ro_files: list[str] | None = None,
     child_log_path: str | None = None,
     wait_timeout_s: float | None = None,
+    on_child_started=None,
+    stop_event=None,
 ) -> LaunchResult:
     """Grant ACLs, launch into AppContainer, wait, revoke ACLs.
 
@@ -1174,7 +1290,7 @@ def launch_backend_sandboxed(
         )
         return _run_unsandboxed_child(exe, args, env=env)
 
-    rw_roots = collect_rw_roots(storage_dir, reticulum_config_dir, log_dir)
+    rw_roots = collect_rw_roots(storage_dir, reticulum_config_dir, log_dir, env=env)
     ro_roots = collect_ro_roots(exe_dir=os.path.dirname(exe) if exe else None)
     # A venv interpreter loads python3xx.dll and the stdlib from the real
     # installation under base_prefix, not from the venv itself. Grant the
@@ -1207,12 +1323,20 @@ def launch_backend_sandboxed(
             grant_path_access(sid, path, write=False)
             _record_grant(path, False)
 
+        for filename in extra_ro_files or ():
+            filename = os.path.abspath(filename)
+            if not os.path.isfile(filename):
+                raise FileNotFoundError(filename)
+            if filename not in granted_set:
+                grant_path_access(sid, filename, write=False)
+                _record_grant(filename, False)
+
         if sys.platform == "win32":
             # The AppContainer token must be able to traverse every ancestor
             # of each root before the root ACL is even evaluated. Without
             # this the child cannot reach the granted directories at all
             # (for example %TEMP% under C:\Users\<user>\AppData).
-            for root in rw_roots + ro_roots:
+            for root in rw_roots + ro_roots + list(extra_ro_files or ()):
                 parent = os.path.dirname(root)
                 while parent and parent != os.path.dirname(parent):
                     if parent not in granted_set:
@@ -1287,18 +1411,7 @@ def launch_backend_sandboxed(
                     walk_root,
                 )
 
-        # LPAC children do not inherit ALL_APPLICATION_PACKAGES, so the
-        # interactive window station and desktop deny them and user32.dll
-        # fails to initialise (0xC0000142). Grant the package SID explicitly.
-        try:
-            grant_winstation_desktop_access(sid)
-        except Exception as grant_exc:
-            logger.warning(
-                "Window station/desktop grant failed. Sandboxed child may "
-                "fail during loader init: %s",
-                grant_exc,
-            )
-
+        # Headless LPAC needs registryRead/lpacCom, not interactive desktop ACLs.
         started = time.monotonic()
         try:
             child_cwd = (
@@ -1335,8 +1448,20 @@ def launch_backend_sandboxed(
                 raise
         try:
             close_handle(h_thread)
+            if on_child_started is not None:
+                on_child_started(_pid)
             timeout_ms = None if wait_timeout_s is None else int(wait_timeout_s * 1000)
-            exit_code = _wait_process(h_process, timeout_ms)
+            if stop_event is None:
+                exit_code = _wait_process(h_process, timeout_ms)
+            else:
+                kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+                kernel.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+                kernel.TerminateProcess.argtypes = [ctypes.c_void_p, ctypes.c_uint]
+                while kernel.WaitForSingleObject(h_process, 100) == _WAIT_TIMEOUT:
+                    if stop_event.is_set():
+                        kernel.TerminateProcess(h_process, _CHILD_WAIT_TIMEOUT_EXIT)
+                        break
+                exit_code = _wait_process(h_process, 5000)
         finally:
             close_handle(h_process)
         elapsed = time.monotonic() - started

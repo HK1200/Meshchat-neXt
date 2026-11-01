@@ -17,8 +17,9 @@ import sys
 import tempfile
 
 from meshchatnext.src.backend.appcontainer_sandbox import (
-    LaunchResult,
+    _run_unsandboxed_child,
     appcontainer_forced,
+    appcontainer_requested,
     appcontainer_supported,
     is_appcontainer_child,
     launch_backend_sandboxed,
@@ -29,12 +30,13 @@ logger = logging.getLogger("meshchatnext.appcontainer.launcher")
 
 
 def _parse_dir_flag(argv: list[str], flag: str) -> str | None:
+    value = None
     for i, arg in enumerate(argv):
         if arg == flag and i + 1 < len(argv):
-            return argv[i + 1]
-        if arg.startswith(flag + "="):
-            return arg.split("=", 1)[1]
-    return None
+            value = argv[i + 1]
+        elif arg.startswith(flag + "="):
+            value = arg.split("=", 1)[1]
+    return value
 
 
 def _resolve_paths(argv: list[str]) -> tuple[str | None, str | None, str | None]:
@@ -44,6 +46,15 @@ def _resolve_paths(argv: list[str]) -> tuple[str | None, str | None, str | None]
     reticulum = _parse_dir_flag(argv, "--reticulum-config-dir") or env_str(
         "MESHCHAT_RETICULUM_CONFIG_DIR",
     )
+    from meshchatnext.src.path_utils import resolve_meshchat_data_roots
+
+    storage, reticulum = resolve_meshchat_data_roots(
+        data_dir=_parse_dir_flag(argv, "--data-dir"),
+        storage_dir=storage,
+        reticulum_config_dir=reticulum,
+    )
+    storage = os.path.abspath(storage or "storage")
+    reticulum = os.path.abspath(reticulum or os.path.expanduser("~/.reticulum"))
     log_dir = env_str("MESHCHAT_LOG_DIR")
     if not log_dir and storage:
         log_dir = os.path.join(storage, "logs")
@@ -88,14 +99,27 @@ def run_launcher(argv: list[str] | None = None) -> int:
     except Exception:
         pass
 
-    result: LaunchResult = launch_backend_sandboxed(
-        exe,
-        list(argv),
-        storage_dir=storage_dir,
-        reticulum_config_dir=reticulum_config_dir,
-        log_dir=log_dir,
-        forced=appcontainer_forced(),
-    )
+    if appcontainer_requested() and appcontainer_supported():
+        from meshchatnext.src.backend.appcontainer_broker import launch_brokered_backend
+
+        result = launch_brokered_backend(
+            exe,
+            list(argv),
+            storage_dir=storage_dir,
+            reticulum_config_dir=reticulum_config_dir,
+            log_dir=log_dir,
+        )
+        if not result.ok and not appcontainer_forced():
+            result = _run_unsandboxed_child(exe, list(argv))
+    else:
+        result = launch_backend_sandboxed(
+            exe,
+            list(argv),
+            storage_dir=storage_dir,
+            reticulum_config_dir=reticulum_config_dir,
+            log_dir=log_dir,
+            forced=appcontainer_forced(),
+        )
 
     if result.fell_back:
         logger.warning(
