@@ -2,6 +2,8 @@
 
 ## 0.1.6
 
+- Update Android certificate trust bundles and the packaged Python runtime to address the compromised eMudhra certificate authorities.
+
 - Add an administrator repeater terminal and firmware-aware MediaMesh / Radio2 controls, with explicit command confirmation, profile readback and protection against stale responses after changing radios.
 
 - Expand individual MeshCore message-path candidates to inspect their public key, type and reported position, with a map link when coordinates are available. Partial route maps retain gaps for unknown or ambiguous hops.

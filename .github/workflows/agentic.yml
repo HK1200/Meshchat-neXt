@@ -74,8 +74,8 @@ env:
         *.mozilla.com:443
         storage.googleapis.com:443
         *.stepsecurity.io:443
-    UV_VERSION: "0.11.15"
-    PYTHON_VERSION: "3.14"
+    UV_VERSION: "0.13.6"
+    PYTHON_VERSION: "3.14.10"
     NODE_VERSION: "24"
 
 jobs:
