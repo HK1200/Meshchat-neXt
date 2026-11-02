@@ -41,7 +41,7 @@ on:
                 description: Python version used by the docs bundler.
                 required: false
                 type: string
-                default: "3.14"
+                default: "3.14.10"
         outputs:
             artifact_name:
                 description: Name of the uploaded frontend artifact.

@@ -15,7 +15,7 @@ inputs:
     uv-version:
         description: UV version installed from GitHub releases
         required: false
-        default: "0.11.15"
+        default: "0.13.6"
 
 runs:
     using: composite

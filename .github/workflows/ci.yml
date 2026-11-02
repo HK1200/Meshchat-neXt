@@ -98,9 +98,9 @@ env:
         *.stepsecurity.io:443
     FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     NODE_OPTIONS: --max-old-space-size=8192
-    PYTHON_VERSION: "3.14"
+    PYTHON_VERSION: "3.14.10"
     NODE_VERSION: "24"
-    UV_VERSION: "0.11.15"
+    UV_VERSION: "0.13.6"
     PNPM_VERSION: "12.7.0"
     GO_VERSION: "1.27.x"
     TINYGO_VERSION: "0.42.0"
