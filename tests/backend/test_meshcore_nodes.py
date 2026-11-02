@@ -245,6 +245,66 @@ class NodeTests(unittest.IsolatedAsyncioTestCase):
             self.commands.send_cmd.call_args.args[1], "set path.hash.mode 2"
         )
 
+    async def test_terminal_and_radio2_require_admin_confirmation_and_single_line(self):
+        self.types.CONTACT_MSG_RECV = "contact"
+        self.session._payload = lambda event: event.payload
+        self.commands.get_time = AsyncMock(
+            return_value=SimpleNamespace(payload={"time": 100})
+        )
+        self.messages.store.reserve_command_clock = lambda owner, peer, floor: floor
+        self.commands.send_cmd = AsyncMock()
+        with self.assertRaises(ValueError):
+            await self.nodes.admin(PEER, "terminal", "get radio2", True)
+        self.commands._send_login_raw.side_effect = lambda *args: self.response(
+            "success", {"is_admin": True}
+        )
+        await self.nodes.login(PEER, "admin")
+        for action, value, confirmed in [
+            ("terminal", "get radio2", False),
+            ("terminal", "get radio2\nreboot", True),
+            ("terminal", "x" * 141, True),
+            ("terminal", "get\tradio2", True),
+            ("set-radio2", "911.15,250,7,5,rxtx", False),
+            ("set-radio2", "911.15,250,99,5,rxtx", True),
+            ("set-radio2", "911.15,250,7,5,bogus", True),
+            ("set-radio2-cross", "on", True),
+        ]:
+            with self.assertRaises(ValueError):
+                await self.nodes.admin(PEER, action, value, confirmed)
+        self.commands.send_cmd.assert_not_awaited()
+
+        def reply(*args, **kwargs):
+            self.response("contact", {"txt_type": 1, "text": "> off"})
+            return SimpleNamespace(type=self.types.MSG_SENT, payload={})
+
+        self.commands.send_cmd.side_effect = reply
+        result = await self.nodes.admin(PEER, "radio2")
+        self.assertEqual(result["text"], "> off")
+        self.commands.send_cmd.assert_awaited_once_with(
+            PEER, "get radio2", timestamp=101, dst_type=3
+        )
+        self.commands.send.side_effect = reply
+        result = await self.nodes.admin(PEER, "terminal", "get radio2", True)
+        self.assertEqual(result["text"], "> off")
+        self.assertTrue(self.commands.send.call_args.args[0].endswith(b"get radio2"))
+        self.assertEqual(self.commands.send_cmd.await_count, 1)
+        await self.nodes.admin(PEER, "set-radio2-preset", "mediamesh", True)
+        self.assertEqual(
+            self.commands.send_cmd.call_args.args[1], "set radio2 mediamesh"
+        )
+        for action, value, expected in (
+            ("set-radio2", "911.15,250,7,5,rx", "set radio2 911.15,250.0,7,5,rx,auto"),
+            ("set-radio2", "off", "set radio2 off"),
+            ("set-radio2-cross", "off", "set radio2.cross off"),
+            ("set-radio2-preset", "mediamesh-range", "set radio2 mediamesh-range"),
+        ):
+            await self.nodes.admin(PEER, action, value, True)
+            self.assertEqual(self.commands.send_cmd.call_args.args[1], expected)
+        with self.assertRaises(ValueError):
+            await self.nodes.admin(PEER, "set-radio2-preset", "other", True)
+        with self.assertRaises(ValueError):
+            await self.nodes.admin(PEER, "set-radio2-preset", "mediamesh", False)
+
     async def test_admin_timeout_blocks_retry_and_reboot_clears_login(self):
         self.types.CONTACT_MSG_RECV = "contact"
         self.session._payload = lambda event: event.payload

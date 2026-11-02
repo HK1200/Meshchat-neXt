@@ -80,6 +80,57 @@ describe("ContactsPage.vue", () => {
             },
         });
 
+    it("renames the selected identity without changing an unrelated same-name contact", async () => {
+        const wrapper = mountPage();
+        try {
+            await flushPromises();
+            const contact = { id: 12, name: "Casey", remote_identity_hash: "a".repeat(32) };
+            wrapper.vm.contacts = [
+                contact,
+                { ...contact, id: 13 },
+                { ...contact, id: 14, remote_identity_hash: "b".repeat(32) },
+            ];
+            axiosMock.patch = vi.fn().mockResolvedValue({ data: {} });
+            axiosMock.post.mockResolvedValue({ data: {} });
+            wrapper.vm.editContactName(contact);
+            wrapper.vm.editingName = "Casey Updated";
+            await wrapper.vm.saveContactName();
+            expect(axiosMock.patch.mock.calls.map((call) => call[0])).toEqual([
+                "/api/v1/telephone/contacts/12",
+                "/api/v1/telephone/contacts/13",
+            ]);
+            expect(wrapper.vm.editingBusy).toBe(false);
+        } finally {
+            wrapper.unmount();
+        }
+    });
+    it("drops the editor and stops remaining rename writes if the active identity changes", async () => {
+        const wrapper = mountPage();
+        try {
+            await flushPromises();
+            const contact = { id: 12, name: "Casey", remote_identity_hash: "a".repeat(32) };
+            wrapper.vm.contacts = [contact, { ...contact, id: 13 }];
+            let release;
+            axiosMock.patch = vi.fn().mockReturnValue(
+                new Promise((resolve) => {
+                    release = resolve;
+                })
+            );
+            wrapper.vm.editContactName(contact);
+            wrapper.vm.editingName = "New name";
+            const saving = wrapper.vm.saveContactName();
+            await wrapper.vm.onIdentitySwitched();
+            release({ data: {} });
+            await saving;
+            expect(axiosMock.patch).toHaveBeenCalledTimes(1);
+            expect(wrapper.vm.editingContact).toBeNull();
+            expect(wrapper.vm.editingBusy).toBe(false);
+            expect(axiosMock.post).not.toHaveBeenCalled();
+        } finally {
+            wrapper.unmount();
+        }
+    });
+
     it("keeps Reticulum sharing as the default and switches explicitly to the MeshCore public identity", async () => {
         const wrapper = mountPage();
         await flushPromises();
@@ -182,11 +233,13 @@ describe("ContactsPage.vue", () => {
         expect(html).toContain("contacts.import_contacts");
     });
 
-    it("renders floating add-contact action for mobile layout", async () => {
+    it("keeps the mobile add-contact action in the header so it cannot cover the last row", async () => {
         const wrapper = mountPage();
         await wrapper.vm.$nextTick();
         const mobileFab = wrapper.find('button[title="contacts.add_contact"]');
         expect(mobileFab.exists()).toBe(true);
+        expect(mobileFab.classes()).not.toContain("fixed");
+        expect(mobileFab.classes()).not.toContain("hidden");
     });
 
     it("getContacts maps total_count from telephone contacts API", async () => {
@@ -294,7 +347,12 @@ describe("ContactsPage.vue", () => {
             // The standalone MeshCore row has no Reticulum send/call buttons.
             expect(wrapper.findAll('button[title="contacts.send_message"]')).toHaveLength(1);
             expect(wrapper.findAll('button[title="contacts.call_contact"]')).toHaveLength(1);
-            const networks = wrapper.findAllComponents({ name: "MeshCoreContactNetworks" })[0];
+            expect(wrapper.text()).not.toContain("Link a MeshCore contact…");
+            wrapper.vm.editContactName(wrapper.vm.mergedContacts.find((c) => !c.meshcore_only));
+            await flushPromises();
+            const networks = wrapper
+                .findAllComponents({ name: "MeshCoreContactNetworks" })
+                .find((c) => c.props("editable"));
             await networks.find("select").setValue(peer);
             await networks.find("button").trigger("click");
             await flushPromises();

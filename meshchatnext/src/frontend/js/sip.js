@@ -107,16 +107,36 @@ export function validSipAddress(address) {
     if (host.length > 2 || !/^[A-Za-z0-9.-]{1,253}$/.test(host[0]) || host[0].includes("..")) return false;
     return host.length === 1 || (/^[0-9]{1,5}$/.test(host[1]) && Number(host[1]) > 0 && Number(host[1]) <= 65535);
 }
+export function sipContactNumbers(contact) {
+    return Array.isArray(contact.numbers)
+        ? contact.numbers.map((number) => ({ ...number }))
+        : [{ label: "Other", address: contact.address || "" }];
+}
 export function saveSipContact(contact) {
-    const name = String(contact.name || "").trim(),
-        address = String(contact.address || "").trim();
-    if (!name || name.length > 100 || !validSipAddress(address))
-        throw new Error("Enter a name and SIP extension or sip:user@server address");
+    const name = String(contact.name || "").trim();
+    const numbers = sipContactNumbers(contact).map((number) => ({
+        label: String(number.label || "Other").trim(),
+        address: String(number.address || "").trim(),
+    }));
+    if (
+        !name ||
+        name.length > 100 ||
+        !numbers.length ||
+        numbers.length > 12 ||
+        numbers.some(
+            (number) =>
+                !["Home", "Office", "Mobile", "Other"].includes(number.label) || !validSipAddress(number.address)
+        )
+    )
+        throw new Error("Enter a name and 1–12 labelled SIP extensions or sip:user@server addresses");
+    if (new Set(numbers.map((number) => number.address.toLowerCase())).size !== numbers.length)
+        throw new Error("Each extension or SIP address must be different");
     const id = contact.id || crypto.randomUUID();
     const row = {
         id,
         name,
-        address,
+        address: numbers[0].address,
+        numbers,
         linked_contact: typeof contact.linked_contact === "string" ? contact.linked_contact : "",
     };
     const index = sipContacts.findIndex((c) => c.id === id);

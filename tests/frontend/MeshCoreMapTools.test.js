@@ -273,3 +273,74 @@ it("labels future remote clocks as unreliable instead of permanently just update
         w.unmount();
     }
 });
+
+it("focuses the exact reported node from message details, including zero coordinates", async () => {
+    const owner = "a1".repeat(32),
+        peer = "b2".repeat(32),
+        animate = vi.fn();
+    route.value.query = { meshcoreOwner: owner, meshcoreNode: peer };
+    window.api = {
+        get: vi.fn().mockResolvedValue({
+            data: {
+                result: { owner, nodes: [{ peer, name: "Hill", kind: 2, latitude: 0, longitude: 0, updated: 1 }] },
+            },
+        }),
+        post: vi.fn(),
+    };
+    const map = { addLayer: vi.fn(), removeLayer: vi.fn(), on: vi.fn(), getView: () => ({ animate }) };
+    const w = mount(Tools, { props: { map }, global: { stubs: { Teleport: true } } });
+    try {
+        await flushPromises();
+        expect(animate).toHaveBeenCalled();
+        expect(w.text()).toContain("Hill");
+        expect(w.text()).toContain("reported position");
+        expect(map.addLayer.mock.calls[0][0].getVisible()).toBe(true);
+        expect(window.api.post).not.toHaveBeenCalled();
+    } finally {
+        w.unmount();
+        route.value.query = {};
+    }
+});
+it("does not focus another identity's node", async () => {
+    route.value.query = { meshcoreOwner: "wrong", meshcoreNode: "b2".repeat(32) };
+    const animate = vi.fn();
+    window.api = { get: vi.fn().mockResolvedValue({ data: { result: { owner: "other", nodes: [] } } }) };
+    const map = { addLayer: vi.fn(), removeLayer: vi.fn(), on: vi.fn(), getView: () => ({ animate }) };
+    const w = mount(Tools, { props: { map }, global: { stubs: { Teleport: true } } });
+    try {
+        await flushPromises();
+        expect(animate).not.toHaveBeenCalled();
+        expect(w.text()).toContain("different MeshCore identity");
+    } finally {
+        w.unmount();
+        route.value.query = {};
+    }
+});
+
+it("can refocus a node after the message is reopened", async () => {
+    const owner = "a1".repeat(32),
+        peer = "b2".repeat(32),
+        animate = vi.fn();
+    route.value.query = { meshcoreOwner: owner, meshcoreNode: peer, meshcoreFocus: "one" };
+    window.api = {
+        get: vi
+            .fn()
+            .mockResolvedValue({
+                data: { result: { owner, nodes: [{ peer, kind: 2, name: "Hill", latitude: 1, longitude: 2 }] } },
+            }),
+    };
+    const map = { addLayer: vi.fn(), removeLayer: vi.fn(), on: vi.fn(), getView: () => ({ animate }) };
+    const w = mount(Tools, { props: { map }, global: { stubs: { Teleport: true } } });
+    try {
+        await flushPromises();
+        const previous = animate.mock.calls.length;
+        await w.setProps({ active: false });
+        route.value.query = { meshcoreOwner: owner, meshcoreNode: peer, meshcoreFocus: "two" };
+        await w.setProps({ active: true });
+        await flushPromises();
+        expect(animate.mock.calls.length).toBeGreaterThan(previous);
+    } finally {
+        w.unmount();
+        route.value.query = {};
+    }
+});

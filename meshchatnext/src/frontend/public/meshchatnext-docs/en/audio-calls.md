@@ -106,3 +106,11 @@ Also check Settings, System, Sound so the app is not muted and a working input d
 - **LXMF messaging** for text conversations with the same peers
 - **Identities, privacy, and security** for HTTPS and local access controls
 - LXST project documentation for codec and session details
+
+## SIP contact numbers and links
+
+Telephone → Contacts → SIP and the sidebar's expanded SIP contacts section use the same saved SIP phonebook on this client. Each contact can hold up to twelve destinations labelled Home, Office, Mobile or Other. Each destination has its own call button; search matches names, labels and every extension or SIP address. Existing single-number contacts are preserved.
+
+From the main contact's three-dot menu, choose **Edit contact** to link or unlink SIP and MeshCore entries. **Add SIP extension** saves to the shared SIP phonebook and links it to this contact. If exactly one SIP entry is already linked, the extension is appended to it; otherwise a new linked SIP entry is created. Links save when changed; **Save name** saves the displayed contact name. The public HOIP online directory remains separate and is not modified by saving a local SIP contact.
+
+On phones, **Add contact** is in the header rather than floating over the last row. Long SIP lists scroll within their section; the count and **Clear SIP search** show whether a filter is hiding entries. SIP editing opens a dialog so the form stays reachable at the bottom of a long phonebook.

@@ -1,5 +1,15 @@
 # Meshchat neXt changelog
 
+## 0.1.6
+
+- Add an administrator repeater terminal and firmware-aware MediaMesh / Radio2 controls, with explicit command confirmation, profile readback and protection against stale responses after changing radios.
+
+- Expand individual MeshCore message-path candidates to inspect their public key, type and reported position, with a map link when coordinates are available. Partial route maps retain gaps for unknown or ambiguous hops.
+- Search saved MeshCore node names and public-key prefixes locally, independently of geographic place search, including while offline.
+- Store multiple labelled Home, Office, Mobile or Other SIP destinations per contact. Add an extension from Edit contact to the shared Telephone SIP phonebook without losing existing numbers.
+- Move SIP and MeshCore link management into the main contact editor. Put Add contact in the header on phones and make long SIP lists scroll with clear counts and search reset controls.
+- Renaming a contact updates only records belonging to the same identity, and stops further rename writes when the active identity changes.
+
 ## 0.1.5
 
 - Fixed the mobile sidebar staying open when selecting its current destination, including after Back restores the drawer. Different destinations, sidebar reordering and onboarding Back retain their existing behavior.

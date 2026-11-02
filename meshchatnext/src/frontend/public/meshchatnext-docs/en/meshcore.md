@@ -75,3 +75,17 @@ layer is hidden, and existing history is not replayed when resuming.
 The regional map name and source credits are available in the map’s expandable © control, keeping the map view clear.
 
 Unknown route gaps appear in one compact **? gaps** badge beside the MeshCore map button. Expand it for hop counts and details; no boxes cover the map or imply unknown node locations.
+
+## Message repeater details and local map search
+
+Open a message's Details and expand a known node or possible match to see its public key, node type and saved reported position. **Show on map** appears only when valid coordinates are available. A known repeater without coordinates still has a details entry. Short path hashes can match multiple nodes; choosing a candidate's location does not establish that it relayed the message. Positions are saved reports, not verified current positions or locations at message time.
+
+In map search, choose **MeshCore nodes** to search the selected companion's saved located nodes by name or public-key prefix. This local search works offline and does not send node names to a geographic search provider. Choose **Places / coordinates** for geographic queries. Route maps show known positions and leave gaps for unresolved hops.
+
+### Repeater terminal and MediaMesh
+
+After a verified administrator login, repeater administration includes MediaMesh / Radio2 controls and an Advanced terminal. Check support first: firmware version numbers alone do not establish Radio2 support. Unsupported responses leave the terminal available for commands documented by that firmware.
+
+Choose a local Radio2 profile, confirm the change, then Save and verify. Enabling first requests the firmware MediaMesh preset, which also enables its public #mediamesh forwarding region on compatible repeater builds, then applies your selected profile. Companion-only media transmit policy is configured separately on your connected radio. The app reads back the second-radio profile, crossing settings and checks that the primary profile is unchanged. If a response is missing or differs, inspect the repeater before continuing: some changes may already have applied, and the app does not retry them automatically. The preset is optional and must match your local network.
+
+The terminal sends one explicitly confirmed administrator command at a time and displays its response. Commands can change settings, erase data or disconnect a repeater. Command history is not saved; responses can be cleared and are removed when the repeater session changes.

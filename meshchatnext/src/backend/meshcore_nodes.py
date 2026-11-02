@@ -442,6 +442,9 @@ class MeshCoreNodes:
             raise ValueError("Reconnect before another uncertain server request")
         contact = await self._contact(peer)
         reads = {
+            "radio2": "get radio2",
+            "radio2-cross": "get radio2.cross",
+            "radio2-status": "get radio2.status",
             "version": "ver",
             "board": "board",
             "name": "get name",
@@ -481,6 +484,67 @@ class MeshCoreNodes:
             if confirmed is not True:
                 raise ValueError("Confirm the room password change")
             command = "set guest.password " + value
+        elif action == "terminal":
+            if (
+                not value.strip()
+                or len(value.encode()) > 140
+                or any(ord(c) < 32 or ord(c) == 127 for c in value)
+            ):
+                raise ValueError(
+                    "Enter one command of 1-140 UTF-8 bytes without control characters"
+                )
+            if confirmed is not True:
+                raise ValueError(
+                    "Confirm this terminal command may change or disconnect the server"
+                )
+            command = value.strip()
+        elif action in (
+            "set-radio2-cross",
+            "set-radio2-preset",
+            "set-radio2",
+        ):
+            if confirmed is not True:
+                raise ValueError("Confirm this Radio2 change")
+            if action == "set-radio2-cross" and value == "off":
+                command = "set radio2.cross off"
+            elif action == "set-radio2-preset" and value in (
+                "mediamesh",
+                "mediamesh-range",
+            ):
+                command = "set radio2 " + value
+            elif action == "set-radio2":
+                if value == "off":
+                    command = "set radio2 off"
+                else:
+                    from meshchatnext.src.backend.meshcore_settings import (
+                        validate_changes,
+                    )
+
+                    try:
+                        freq, bw, sf, cr, mode = value.split(",")
+                        if mode not in ("rx", "rxtx"):
+                            raise ValueError("Invalid mode")
+                        settings = validate_changes(
+                            {
+                                "frequency_mhz": float(freq),
+                                "bandwidth_khz": float(bw),
+                                "sf": int(sf),
+                                "cr": int(cr),
+                            },
+                            127,
+                        )
+                    except (ValueError, TypeError):
+                        raise ValueError(
+                            "Use frequency MHz,bandwidth kHz,SF,CR,rx or rxtx"
+                        ) from None
+                    command = (
+                        "set radio2 "
+                        + ",".join(
+                            str(settings[k])
+                            for k in ("frequency_mhz", "bandwidth_khz", "sf", "cr")
+                        )
+                        + f",{mode},auto"
+                    )
         elif action == "sync-clock":
             command = "clock sync"
         elif action in ("set-latitude", "set-longitude"):
@@ -626,7 +690,7 @@ class MeshCoreNodes:
                 )
                 armed = True
                 may_have_sent = True
-                if secret_action:
+                if secret_action or action == "terminal":
                     # send_cmd logs command text at debug level. Use the same wire
                     # frame directly so credentials never enter that log path.
                     frame = (

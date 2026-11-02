@@ -14,7 +14,7 @@
                 Message via MeshCore
             </button>
         </div>
-        <details v-if="appFeatures.reticulum && !contact.meshcore_only" class="text-sem-fg-muted">
+        <details v-if="editable && appFeatures.reticulum && !contact.meshcore_only" class="text-sem-fg-muted">
             <summary class="cursor-pointer">
                 {{ contact.meshcore_key ? "Manage MeshCore link" : "Link a MeshCore contact…" }}
             </summary>
@@ -42,7 +42,7 @@
             </div>
         </details>
         <button
-            v-if="appFeatures.reticulum && contact.meshcore_only && linkedContact"
+            v-if="editable && appFeatures.reticulum && contact.meshcore_only && linkedContact"
             type="button"
             class="text-sem-fg-muted"
             :disabled="busy"
@@ -59,7 +59,11 @@ import { computed, ref, watch } from "vue";
 import MaterialDesignIcon from "../MaterialDesignIcon.vue";
 import { meshcoreRoute } from "../../js/meshcoreUi";
 import { apiPath } from "../../js/constants";
-const props = defineProps({ contact: { type: Object, required: true }, snapshot: { type: Object, required: true } });
+const props = defineProps({
+    editable: { type: Boolean, default: true },
+    contact: { type: Object, required: true },
+    snapshot: { type: Object, required: true },
+});
 const emit = defineEmits(["changed"]);
 const selected = ref(""),
     busy = ref(false),

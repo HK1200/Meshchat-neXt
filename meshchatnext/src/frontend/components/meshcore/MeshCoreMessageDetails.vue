@@ -75,30 +75,73 @@
                                         : `${hop.candidate_count} possible matches · ambiguous`
                                 }}
                             </p>
-                            <p v-for="node in hop.matches" :key="node.peer" class="break-words">
-                                {{ node.name
-                                }}<span class="text-sem-fg-muted">
-                                    ·
+                            <details
+                                v-for="node in hop.matches"
+                                :key="node.peer"
+                                class="rounded border border-sem-border p-2 mt-2"
+                            >
+                                <summary class="cursor-pointer break-words min-h-11 py-2">
+                                    {{ node.name }} ·
                                     {{
-                                        node.latitude != null ? "reported location available" : "no reported location"
-                                    }}</span
+                                        hasReportedPosition(node)
+                                            ? "reported location available"
+                                            : "no reported location"
+                                    }}
+                                </summary>
+                                <dl class="space-y-2 text-xs break-words">
+                                    <div>
+                                        <dt>Type</dt>
+                                        <dd>{{ nodeKinds[node.kind] || "Node" }}</dd>
+                                    </div>
+                                    <div>
+                                        <dt>Public key</dt>
+                                        <dd class="font-mono">{{ node.peer }}</dd>
+                                    </div>
+                                    <template v-if="hasReportedPosition(node)">
+                                        <div>
+                                            <dt>Reported position</dt>
+                                            <dd>{{ node.latitude.toFixed(6) }}, {{ node.longitude.toFixed(6) }}</dd>
+                                        </div>
+                                        <div>
+                                            <dt>Position report saved</dt>
+                                            <dd>{{ positionDate(node.updated) }}</dd>
+                                        </div>
+                                    </template>
+                                </dl>
+                                <p class="text-xs text-sem-fg-muted mt-2">
+                                    {{
+                                        hop.candidate_count > 1
+                                            ? "Possible prefix match; this hop is ambiguous."
+                                            : "Prefix match, not a verified relay identity."
+                                    }}
+                                    Reported positions may be old and are not positions at message time.
+                                </p>
+                                <button
+                                    v-if="hasReportedPosition(node)"
+                                    type="button"
+                                    class="secondary-chip mt-2 min-h-11"
+                                    @click="showNode(node)"
                                 >
-                            </p></template
+                                    Show on map
+                                </button>
+                            </details></template
                         >
                     </li>
                 </ol>
+                <p v-if="route.points.length && hasUnmappedHops" class="text-xs text-sem-fg-muted">
+                    Some hops have no reported location or match more than one node. The map shows known positions and
+                    leaves gaps between unresolved hops.
+                </p>
                 <button v-if="route.points.length" type="button" class="primary-chip" @click="showMap(selection)">
                     View captured route on map
                 </button>
                 <p v-if="!route.points.length" class="text-xs text-sem-fg-muted">
                     {{
                         route.route === "direct"
-                            ? "Map unavailable: this is a supplied direct path, not a captured traversal."
-                            : "Map unavailable: no nodes in this captured packet have unambiguous reported locations."
+                            ? "This packet lists a supplied path, not an observed route."
+                            : "A route map is not available for this observation."
                     }}
-                    <span v-if="details.direction === 'out'">
-                        Sent messages need a matching received copy with usable locations to show a captured route.
-                    </span>
+                    Expand a repeater above for its details. Show on map is available when it has a reported location.
                 </p>
             </template>
             <button v-if="details.endpoints?.length" type="button" class="secondary-chip" @click="showMap(-1)">
@@ -111,6 +154,7 @@
 <script setup>
 import { ref, computed, watch, onBeforeUnmount } from "vue";
 import { useRouter } from "vue-router";
+import { hasReportedPosition } from "../../js/meshcoreNodeSearch";
 import AppModal from "../AppModal.vue";
 import { apiPath } from "../../js/constants";
 const props = defineProps({
@@ -126,7 +170,21 @@ const details = ref(null),
     loading = ref(false),
     selection = ref(0);
 let generation = 0;
+const nodeKinds = { 1: "Client", 2: "Repeater", 3: "Room server", 4: "Sensor" };
+function positionDate(stamp) {
+    if (!Number.isFinite(stamp) || stamp <= 0) return "Time unavailable";
+    const date = new Date(stamp * 1000);
+    return Number.isFinite(date.getTime()) ? date.toLocaleString() : "Time unavailable";
+}
+function showNode(node) {
+    if (!hasReportedPosition(node) || !/^[a-f0-9]{64}$/i.test(node.peer || "")) return;
+    emit("close");
+    void router.push({ name: "map", query: { meshcoreNode: node.peer, meshcoreOwner: props.owner } });
+}
 const route = computed(() => details.value?.routes?.[selection.value]);
+const hasUnmappedHops = computed(() =>
+    route.value?.hops?.some((hop) => hop.candidate_count !== 1 || !hasReportedPosition(hop.matches?.[0]))
+);
 watch(
     () => [props.row?.id, props.owner, props.target, props.kind],
     async () => {

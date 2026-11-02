@@ -74,10 +74,8 @@ it("explains an unmappable outgoing observation without presenting an inactive m
         global: { stubs: { AppModal: modal } },
     });
     await flushPromises();
-    expect(w.text()).toContain(
-        "Map unavailable: no nodes in this captured packet have unambiguous reported locations."
-    );
-    expect(w.text()).toContain("Sent messages need a matching received copy");
+    expect(w.text()).toContain("A route map is not available for this observation.");
+    expect(w.text()).toContain("Show on map is available when it has a reported location");
     expect(w.findAll("button").some((button) => button.text() === "View captured route on map")).toBe(false);
 });
 it("opens an outgoing captured observation when it has a reported location", async () => {
@@ -112,4 +110,67 @@ it("opens an outgoing captured observation when it has a reported location", asy
             mcObservation: "0",
         },
     });
+});
+
+it("opens each ambiguous candidate separately and maps a zero-coordinate reported location", async () => {
+    const response = await window.api.get();
+    response.data.result.routes = [
+        {
+            route: "flood",
+            hash_bytes: 1,
+            received: 1,
+            points: [],
+            hops: [
+                {
+                    hash: "b2",
+                    candidate_count: 2,
+                    matches: [
+                        { peer: target, name: "Hill repeater", kind: 2, latitude: 0, longitude: 0, updated: 1 },
+                        { peer: "b2" + "c3".repeat(31), name: "Other repeater", kind: 2, latitude: 100, longitude: 5 },
+                    ],
+                },
+            ],
+        },
+    ];
+    w = mount(Details, {
+        props: { owner, target, kind: "direct", row: { id: "one" } },
+        global: { stubs: { AppModal: modal } },
+    });
+    await flushPromises();
+    expect(w.findAll("summary")).toHaveLength(2);
+    expect(w.text()).toContain("Possible prefix match; this hop is ambiguous");
+    expect(w.text()).toContain("0.000000, 0.000000");
+    expect(w.text()).toContain(target);
+    const maps = w.findAll("button").filter((b) => b.text() === "Show on map");
+    expect(maps).toHaveLength(1);
+    await maps[0].trigger("click");
+    expect(push).toHaveBeenCalledWith({ name: "map", query: { meshcoreNode: target, meshcoreOwner: owner } });
+});
+
+it("explains partial routes without claiming known repeater locations are missing", async () => {
+    const response = await window.api.get();
+    response.data.result.routes = [
+        {
+            route: "flood",
+            received: 1,
+            hash_bytes: 1,
+            points: [{ peer: target, latitude: 49, longitude: -123, order: 1 }],
+            hops: [
+                {
+                    hash: "b2",
+                    candidate_count: 1,
+                    matches: [{ peer: target, name: "Harbour", kind: 2, latitude: 49, longitude: -123 }],
+                },
+                { hash: "cc", candidate_count: 1, matches: [{ peer: "cc".repeat(32), name: "Forest", kind: 2 }] },
+            ],
+        },
+    ];
+    w = mount(Details, {
+        props: { owner, target, kind: "direct", row: { id: "one" } },
+        global: { stubs: { AppModal: modal } },
+    });
+    await flushPromises();
+    expect(w.text()).toContain("The map shows known positions and leaves gaps");
+    expect(w.text()).not.toContain("A route map is not available");
+    expect(w.text()).not.toContain("no nodes in this captured packet");
 });

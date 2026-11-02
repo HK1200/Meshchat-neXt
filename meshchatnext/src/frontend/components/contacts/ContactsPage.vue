@@ -45,7 +45,8 @@
                         <button
                             v-if="appFeatures.reticulum || appFeatures.meshcore"
                             type="button"
-                            class="primary-chip hidden sm:inline-flex"
+                            class="primary-chip inline-flex"
+                            :title="$t('contacts.add_contact')"
                             @click="openAddDialog"
                         >
                             <MaterialDesignIcon icon-name="plus" class="size-4" />
@@ -64,9 +65,19 @@
                     />
                 </div>
 
-                <details v-if="appFeatures.sip" class="shrink-0 border-b border-sem-border">
+                <details
+                    v-if="appFeatures.sip"
+                    class="shrink min-h-0 border-b border-sem-border open:flex open:flex-col"
+                >
                     <summary class="cursor-pointer py-3 text-sm font-medium">SIP contacts</summary>
-                    <SipContactBook />
+                    <div
+                        class="min-h-0 overflow-y-auto overscroll-contain max-h-[60dvh] pb-4"
+                        role="region"
+                        tabindex="0"
+                        aria-label="Saved SIP phonebook"
+                    >
+                        <SipContactBook />
+                    </div>
                 </details>
                 <div class="min-w-0 flex-1 min-h-0 flex flex-col">
                     <template v-if="isLoading && contacts.length === 0">
@@ -153,12 +164,13 @@
                                             >{{ contact.lxmf_address || contact.remote_identity_hash }}</span
                                         >
                                     </div>
-                                    <SipContactLink v-if="appFeatures.sip" :contact="contact" />
+                                    <SipContactLink v-if="appFeatures.sip" :contact="contact" :editable="false" />
                                     <MeshCoreContactNetworks
                                         v-if="appFeatures.meshcore"
                                         :key="contact.id"
                                         :contact="contact"
                                         :snapshot="mcSnapshot"
+                                        :editable="false"
                                         @changed="mcRefresh"
                                     />
                                 </div>
@@ -264,12 +276,13 @@
                                         >{{ contact.lxmf_address || contact.remote_identity_hash }}</span
                                     >
                                 </div>
-                                <SipContactLink v-if="appFeatures.sip" :contact="contact" />
+                                <SipContactLink v-if="appFeatures.sip" :contact="contact" :editable="false" />
                                 <MeshCoreContactNetworks
                                     v-if="appFeatures.meshcore"
                                     :key="contact.id"
                                     :contact="contact"
                                     :snapshot="mcSnapshot"
+                                    :editable="false"
                                     @changed="mcRefresh"
                                 />
                             </div>
@@ -320,16 +333,6 @@
             </div>
         </div>
 
-        <button
-            v-if="appFeatures.reticulum || appFeatures.meshcore"
-            type="button"
-            class="sm:hidden fixed bottom-5 right-4 z-180 flex h-14 w-14 items-center justify-center rounded-full bg-sem-action-primary text-sem-action-primary-text shadow-lg ring-1 ring-sem-border transition active:scale-95 hover:bg-sem-action-primary-hover"
-            :title="$t('contacts.add_contact')"
-            @click="openAddDialog"
-        >
-            <MaterialDesignIcon icon-name="plus" class="size-7" />
-        </button>
-
         <!-- Contact context menu -->
         <ContextMenuPanel
             v-click-outside="{ handler: closeContextMenu, capture: true }"
@@ -358,10 +361,7 @@
                 >Message via MeshCore</ContextMenuItem
             >
             <ContextMenuDivider />
-            <ContextMenuItem
-                v-if="appFeatures.reticulum && !contextMenu.contact?.meshcore_only"
-                @click="editContactName(contextMenu.contact)"
-            >
+            <ContextMenuItem v-if="contextMenu.contact" @click="editContactName(contextMenu.contact)">
                 <MaterialDesignIcon icon-name="pencil-outline" class="size-4" />
                 {{ $t("contacts.edit_contact") }}
             </ContextMenuItem>
@@ -675,6 +675,47 @@
                 </div>
             </div>
         </div>
+        <AppModal
+            :model-value="Boolean(editingContact)"
+            title="Edit contact"
+            body-class="overflow-y-auto"
+            show-close
+            @update:model-value="!$event && closeContactEditor()"
+        >
+            <div v-if="editingContact" class="p-4 space-y-4 overflow-y-auto">
+                <form
+                    v-if="appFeatures.reticulum && !editingContact.meshcore_only"
+                    class="space-y-2"
+                    @submit.prevent="saveContactName"
+                >
+                    <label class="block text-sm"
+                        >Contact name<input
+                            v-model="editingName"
+                            class="input-field block w-full"
+                            maxlength="100"
+                            required
+                    /></label>
+                    <button type="submit" class="primary-chip" :disabled="editingBusy">
+                        {{ editingBusy ? "Saving…" : "Save name" }}
+                    </button>
+                </form>
+                <p v-else class="font-semibold">{{ editingContact.name }}</p>
+                <p class="text-xs text-sem-fg-muted">Network links are saved when you link or unlink an entry.</p>
+                <section v-if="appFeatures.sip" class="space-y-2">
+                    <h3 class="font-semibold">SIP links</h3>
+                    <SipContactLink :contact="editingContact" />
+                </section>
+                <section v-if="appFeatures.meshcore" class="space-y-2">
+                    <h3 class="font-semibold">MeshCore link</h3>
+                    <MeshCoreContactNetworks
+                        :contact="editingContact"
+                        :snapshot="mcSnapshot"
+                        @changed="refreshEditorLinks"
+                    />
+                </section>
+                <button type="button" class="secondary-chip" @click="closeContactEditor">Done</button>
+            </div>
+        </AppModal>
     </div>
 </template>
 
@@ -682,6 +723,7 @@
 import { appFeatures } from "../../js/appFeatures";
 import { useMeshCoreUi, combineNetworkContacts, meshcoreRoute } from "../../js/meshcoreUi";
 import SipContactBook from "../sip/SipContactBook.vue";
+import AppModal from "../AppModal.vue";
 import SipContactLink from "../sip/SipContactLink.vue";
 import MeshCoreIdentityShare from "../meshcore/MeshCoreIdentityShare.vue";
 import MeshCoreContactNetworks from "../meshcore/MeshCoreContactNetworks.vue";
@@ -718,6 +760,7 @@ import SidebarVirtualList from "../SidebarVirtualList.vue";
 export default {
     name: "ContactsPage",
     components: {
+        AppModal,
         MeshCoreContactNetworks,
         MeshCoreIdentityShare,
         SipContactBook,
@@ -766,6 +809,10 @@ export default {
             pendingLxmaImport: false,
             lxmaImportTimeout: null,
 
+            editingGeneration: 0,
+            editingContact: null,
+            editingName: "",
+            editingBusy: false,
             contextMenu: {
                 visible: false,
                 x: 0,
@@ -837,6 +884,9 @@ export default {
             this.myQrDataUrl = null;
             this.myIdentityUri = null;
             this.closeContextMenu();
+            this.editingGeneration++;
+            this.editingContact = null;
+            this.editingBusy = false;
             await this.getConfig();
             await this.getContacts();
         },
@@ -1108,21 +1158,47 @@ export default {
                 ToastUtils.error(this.$t("contacts.failed_remove_contact"));
             }
         },
-        async editContactName(contact) {
+        editContactName(contact) {
             this.closeContextMenu();
-            if (!contact?.id) return;
-            const entered = await DialogUtils.prompt(this.$t("contacts.enter_contact_name"), contact.name);
-            if (entered == null) return;
-            const name = String(entered).trim();
+            if (!contact) return;
+            this.editingGeneration++;
+            this.editingContact = contact;
+            this.editingName = contact.name || "";
+        },
+        closeContactEditor() {
+            if (!this.editingBusy) {
+                this.editingGeneration++;
+                this.editingContact = null;
+            }
+        },
+        async refreshEditorLinks() {
+            await this.mcRefresh();
+            if (this.editingContact)
+                this.editingContact =
+                    this.mergedContacts.find((c) => c.id === this.editingContact.id) || this.editingContact;
+        },
+        async saveContactName() {
+            const contact = this.editingContact;
+            if (!contact?.id || contact.meshcore_only || this.editingBusy) return;
+            const name = String(this.editingName).trim();
             if (!name || name === contact.name) return;
+            const generation = this.editingGeneration;
+            this.editingBusy = true;
             try {
-                const duplicates = this.contacts.filter((c) => c.name === contact.name && c.id !== contact.id);
+                const duplicates = this.contacts.filter(
+                    (c) =>
+                        c.id !== contact.id &&
+                        contact.remote_identity_hash &&
+                        c.remote_identity_hash === contact.remote_identity_hash
+                );
                 const ids = [contact.id, ...duplicates.map((c) => c.id)];
                 for (const id of ids) {
+                    if (generation !== this.editingGeneration) return;
                     await window.api.patch(apiPath(`/telephone/contacts/${id}`), { name });
                 }
                 const allContacts = [contact, ...duplicates];
                 for (const c of allContacts) {
+                    if (generation !== this.editingGeneration) return;
                     const destHash = c.remote_destination_hash || c.lxmf_address || c.remote_identity_hash;
                     if (destHash) {
                         await window.api.post(apiPath(`/destination/${destHash}/custom-display-name/update`), {
@@ -1130,10 +1206,14 @@ export default {
                         });
                     }
                 }
+                if (generation !== this.editingGeneration) return;
                 ToastUtils.success(this.$t("contacts.contact_updated"));
                 await this.getContacts();
+                if (this.editingContact?.id === contact.id) this.editingContact = { ...this.editingContact, name };
             } catch {
-                ToastUtils.error(this.$t("contacts.failed_update_contact"));
+                if (generation === this.editingGeneration) ToastUtils.error(this.$t("contacts.failed_update_contact"));
+            } finally {
+                if (generation === this.editingGeneration) this.editingBusy = false;
             }
         },
         openConversation(contact) {

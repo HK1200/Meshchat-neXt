@@ -107,6 +107,8 @@
                 >
                     <MapSearchBar
                         v-model="searchQuery"
+                        v-model:scope="searchScope"
+                        :node-search-enabled="Boolean(appFeatures.meshcore)"
                         :results="searchResults"
                         :error="searchError"
                         :searching="isSearching"
@@ -203,6 +205,8 @@
             >
                 <MapSearchBar
                     v-model="searchQuery"
+                    v-model:scope="searchScope"
+                    :node-search-enabled="Boolean(appFeatures.meshcore)"
                     :results="searchResults"
                     :error="searchError"
                     :searching="isSearching"
@@ -1151,6 +1155,7 @@ import { getCurrentInstance, markRaw } from "vue";
 import "ol/ol.css";
 import "../../js/mapVectorWebFonts.js";
 import { apply as applyMapboxStyle } from "ol-mapbox-style";
+import { searchMeshcoreNodes } from "../../js/meshcoreNodeSearch";
 import MeshCoreMessageRoute from "./internal/MeshCoreMessageRoute.vue";
 import MeshCoreMapTools from "./internal/MeshCoreMapTools.vue";
 import OlMap from "ol/Map";
@@ -1394,6 +1399,7 @@ export default {
 
             // search
             searchQuery: "",
+            searchScope: "nodes",
             searchResults: [],
             isSearching: false,
             searchGeneration: 0,
@@ -1669,6 +1675,12 @@ export default {
         },
     },
     watch: {
+        searchScope() {
+            this.searchGeneration++;
+            this.isSearching = false;
+            this.searchResults = [];
+            this.searchError = null;
+        },
         isSettingsOpen(open) {
             if (open) {
                 this.$nextTick(() => this.clampSettingsPanelIntoView());
@@ -1693,7 +1705,12 @@ export default {
         },
         "$route.query": {
             handler() {
-                if (this.$route.query.meshcoreFence || this.$route.query.meshcoreItem || this.$route.query.mcMessage)
+                if (
+                    this.$route.query.meshcoreFence ||
+                    this.$route.query.meshcoreItem ||
+                    this.$route.query.mcMessage ||
+                    this.$route.query.meshcoreNode
+                )
                     this.showOnboardingTooltip = false;
                 const name = this.$route.name;
                 if (name !== "map" && name !== "map-popout") {
@@ -3606,7 +3623,12 @@ export default {
         },
         checkOnboardingTooltip() {
             // A boundary alert should open unobstructed; keep tips for a later manual visit.
-            if (this.$route?.query?.meshcoreFence || this.$route?.query?.meshcoreItem || this.$route?.query?.mcMessage)
+            if (
+                this.$route?.query?.meshcoreFence ||
+                this.$route?.query?.meshcoreItem ||
+                this.$route?.query?.mcMessage ||
+                this.$route?.query?.meshcoreNode
+            )
                 return;
             const hasSeenOnboarding = localStorage.getItem(STORAGE_KEYS.MAP_ONBOARDING_SEEN);
             if (!hasSeenOnboarding && !this.offlineEnabled) {
@@ -3614,7 +3636,8 @@ export default {
                     if (
                         this.$route?.query?.meshcoreFence ||
                         this.$route?.query?.meshcoreItem ||
-                        this.$route?.query?.mcMessage
+                        this.$route?.query?.mcMessage ||
+                        this.$route?.query?.meshcoreNode
                     )
                         return;
                     this.showOnboardingTooltip = true;
@@ -3718,6 +3741,21 @@ export default {
             this.searchResults = [];
 
             try {
+                if (this.appFeatures.meshcore && this.searchScope === "nodes") {
+                    const { data } = await window.api.get(apiPath("/meshcore/map"), {
+                        params: { radio: this.$route?.query?.meshcoreRadio },
+                    });
+                    if (gen !== this.searchGeneration) return;
+                    this.searchResults = searchMeshcoreNodes(data.result?.nodes, query).map((result) => ({
+                        ...result,
+                        owner: data.result?.owner,
+                        radio: data.result?.radio_id,
+                    }));
+                    if (!this.searchResults.length)
+                        this.searchError =
+                            "No matching MeshCore nodes with reported positions in this companion's saved history. Use Places / coordinates for geographic search.";
+                    return;
+                }
                 await ensureGeoCoordsReady();
                 if (gen !== this.searchGeneration) return;
 
@@ -3817,6 +3855,17 @@ export default {
             if (!this.map) return;
             if (!isValidLatLon(result.lat, result.lon)) return;
 
+            if (result.node && result.owner) {
+                void this.$router.push({
+                    name: "map",
+                    query: {
+                        meshcoreNode: result.node.peer,
+                        meshcoreOwner: result.owner,
+                        meshcoreFocus: String(Date.now()),
+                        ...(result.radio ? { meshcoreRadio: result.radio } : {}),
+                    },
+                });
+            }
             const view = this.map.getView();
             const center = fromLonLat([Number(result.lon), Number(result.lat)]);
 

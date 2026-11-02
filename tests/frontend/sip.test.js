@@ -45,7 +45,10 @@ it("keeps SIP contacts separate until an explicit link and supports unlink/remov
     const contact = { id: 12, remote_identity_hash: "a".repeat(32) };
     const wrapper = mount(SipContactLink, { props: { contact }, global: { mocks: { $router: { push: vi.fn() } } } });
     expect(wrapper.text()).not.toContain("Call via SIP");
-    await wrapper.find("button").trigger("click");
+    await wrapper
+        .findAll("button")
+        .find((button) => button.text() === "Link SIP contact…")
+        .trigger("click");
     await wrapper.find("select").setValue(row.id);
     await wrapper.find("form").trigger("submit");
     expect(sipContacts[0].linked_contact).toBe(sipContactKey(contact));

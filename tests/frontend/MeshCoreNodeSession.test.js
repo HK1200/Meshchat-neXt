@@ -285,4 +285,28 @@ describe("MeshCore node sessions", () => {
         expect(button("Reconnect MeshCore")).toBeUndefined();
         expect(button("Run server action").attributes("disabled")).toBeUndefined();
     });
+    it("discards an administrator response after switching the selected radio", async () => {
+        setup(2);
+        const snapshot = {
+            owner,
+            radio_id: "first",
+            connected: true,
+            messages: [],
+            node_sessions: { [peer]: { state: "verified", is_admin: true } },
+        };
+        await wrapper.setProps({ snapshot });
+        let finish;
+        window.api.post.mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    finish = resolve;
+                })
+        );
+        await button("Run server action").trigger("submit");
+        await wrapper.setProps({ snapshot: { ...snapshot, radio_id: "second" } });
+        finish({ data: { result: { state: "admin_response", text: "Old radio private response" } } });
+        await flushPromises();
+        expect(wrapper.text()).not.toContain("Old radio private response");
+        expect(window.api.post).toHaveBeenCalledTimes(1);
+    });
 });
