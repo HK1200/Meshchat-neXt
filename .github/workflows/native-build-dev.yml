@@ -274,23 +274,56 @@ jobs:
                   path: temp-tests/windows-release-review/source/dist
                   run-id: ${{ inputs.release_artifact_run }}
                   github-token: ${{ github.token }}
-            - name: Verify inputs and native installer profile lifecycle
+            - name: Set up fixed Node and pnpm for corrected packaging
+              uses: ./.github/actions/setup-node-pnpm
+              with:
+                  node-version: "24"
+                  pnpm-version: "12.7.0"
+            - name: Install frozen release packaging dependencies
+              working-directory: temp-tests/windows-release-review/source
+              shell: bash
+              run: pnpm install --frozen-lockfile
+            - name: Verify and stage immutable inputs for corrected packaging
               shell: pwsh
               run: |
                   $ErrorActionPreference = "Stop"
                   $python = Join-Path $env:MESHCHAT_RELEASE_REVIEW_ROOT "source/.venv/Scripts/python.exe"
                   & $python tests/release/windows_package_review.py prepare
                   if ($LASTEXITCODE -ne 0) { throw "Release input verification failed" }
+                  & $python tests/release/windows_package_review.py stage
+                  if ($LASTEXITCODE -ne 0) { throw "Immutable backend staging failed" }
+            - name: Package Windows with the established neXt publisher
+              working-directory: temp-tests/windows-release-review/source
+              shell: pwsh
+              run: |
+                  pnpm exec electron-builder --win portable nsis --x64 --publish=never --config.extraMetadata.author.name=HK1200
+                  if ($LASTEXITCODE -ne 0) { throw "Corrected Windows packaging failed" }
+            - name: Verify the actual corrected packaged UI in both isolation modes
+              working-directory: temp-tests/windows-release-review/source
+              shell: pwsh
+              run: |
+                  node tests/agentic/packaged-node-pages.cjs
+                  if ($LASTEXITCODE -ne 0) { throw "Corrected actual Windows UI verification failed" }
+            - name: Verify corrected package inputs and native installer profile lifecycle
+              shell: pwsh
+              run: |
+                  $ErrorActionPreference = "Stop"
+                  $python = Join-Path $env:MESHCHAT_RELEASE_REVIEW_ROOT "source/.venv/Scripts/python.exe"
+                  & $python tests/release/windows_package_review.py record
+                  if ($LASTEXITCODE -ne 0) { throw "Corrected package verification failed" }
                   & $python tests/release/windows_upgrade.py
                   if ($LASTEXITCODE -ne 0) { throw "Native installer/profile verification failed" }
                   & $python tests/release/windows_update_staging.py
                   if ($LASTEXITCODE -ne 0) { throw "Native signed updater staging verification failed" }
                   & $python tests/release/windows_package_review.py collect
                   if ($LASTEXITCODE -ne 0) { throw "Release report verification failed" }
-            - name: Upload only the approved public source and hash report
+            - name: Upload only the approved installers and public source/hash report
               uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
               with:
                   name: next-windows-verified-263b07538d4fcfd58e7020453f9d53fbef19d0d8
-                  path: temp-tests/windows-release-review/verified-report/SOURCE-PACKAGES.json
+                  path: |
+                      temp-tests/windows-release-review/verified-report/MeshchatNext-v0.1.7-win-portable.exe
+                      temp-tests/windows-release-review/verified-report/MeshchatNext-v0.1.7-win-x64-installer.exe
+                      temp-tests/windows-release-review/verified-report/SOURCE-PACKAGES.json
                   if-no-files-found: error
                   retention-days: 14

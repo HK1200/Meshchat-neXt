@@ -96,6 +96,98 @@ def prepare():
     (ROOT / "input-proof.json").write_text(json.dumps(proof, indent=2))
 
 
+def tree_hashes(base):
+    result = {}
+    for path in sorted(base.rglob("*")):
+        assert not path.is_symlink(), "Unexpected symlink in fixed backend payload"
+        if path.is_file():
+            result[str(path.relative_to(base))] = sha(path)
+    return result
+
+
+def stage_repackage():
+    # The verified backend and frontend stay byte-identical to source 263b075.
+    # Only standard generated Windows publisher metadata is corrected, using
+    # the same extraMetadata.author.name argument as the shipped 0.1.6 recipe.
+    assert (
+        subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=ROOT / "source", text=True
+        ).strip()
+        == SOURCE
+    )
+    old = ROOT / "superseded-quad4"
+    old.mkdir()
+    for name in NAMES | {"SOURCE-PACKAGES.json"}:
+        shutil.move(str(DIST / name), old / name)
+    unpacked = ROOT / "original-win-unpacked"
+    shutil.move(str(DIST / "win-unpacked"), unpacked)
+    subprocess.run(
+        ["node", "scripts/ci/github-verify-backend-manifest.mjs", str(unpacked)],
+        cwd=ROOT / "source",
+        check=True,
+        timeout=180,
+    )
+    hashes = tree_hashes(unpacked / "resources/backend")
+    assert hashes
+    (ROOT / "backend-input-hashes.json").write_text(json.dumps(hashes, sort_keys=True))
+    shutil.copytree(unpacked / "resources/backend", ROOT / "source/build/exe/win32-x64")
+    public = ROOT / "source/meshchatnext/public"
+    if public.exists():
+        assert not subprocess.check_output(
+            ["git", "ls-files", "meshchatnext/public"], cwd=ROOT / "source"
+        ).strip()
+        shutil.rmtree(public)
+    shutil.copytree(unpacked / "resources/backend/public", public)
+
+
+def record_repackage():
+    proof = json.loads((ROOT / "input-proof.json").read_text())
+    before = json.loads((ROOT / "backend-input-hashes.json").read_text())
+    after = tree_hashes(DIST / "win-unpacked/resources/backend")
+    assert before == after, "Repackaging changed the verified immutable backend"
+    ui = json.loads((ROOT / "source/reports/windows-node-ui.json").read_text())
+    assert ui["source"] == SOURCE and ui["passed"]
+    assert {r["mode"] for r in ui["results"]} == {"default", "forced"}
+    assert all(r["actual_packaged_ui"] and r["normal_quit"] for r in ui["results"])
+    assert next(r for r in ui["results"] if r["mode"] == "forced")[
+        "appcontainer_active"
+    ]
+    proof["superseded_quad4_assets"] = proof["assets"]
+    proof["superseded_quad4_native_ui"] = proof["native_ui"]
+    proof["native_ui"] = ui
+    proof["assets"] = []
+    for name in sorted(NAMES):
+        path = DIST / name
+        assert path.is_file()
+        status = subprocess.check_output(
+            [
+                "pwsh",
+                "-NoProfile",
+                "-Command",
+                "(Get-AuthenticodeSignature -LiteralPath $env:MESHCHAT_REVIEW_ASSET).Status.ToString()",
+            ],
+            env={**os.environ, "MESHCHAT_REVIEW_ASSET": str(path)},
+            text=True,
+        ).strip()
+        assert status == "NotSigned", (name, status)
+        proof["assets"].append(
+            {"file": name, "size": path.stat().st_size, "sha256": sha(path)}
+        )
+    proof["expected_installed_shell_sha256"] = sha(
+        DIST / "win-unpacked/Meshchat neXt.exe"
+    )
+    proof["build_configuration"] = {
+        "extraMetadata.author.name": "HK1200",
+        "upstream_source_author_unchanged": True,
+        "backend_files_unchanged": len(before),
+        "backend_tree_sha256": hashlib.sha256(
+            json.dumps(before, sort_keys=True).encode()
+        ).hexdigest(),
+        "fresh_repackaged_native_ui": True,
+    }
+    (ROOT / "input-proof.json").write_text(json.dumps(proof, indent=2))
+
+
 def collect():
     proof = json.loads((ROOT / "input-proof.json").read_text())
     upgrade = json.loads((ROOT / "upgrade-validation.json").read_text())
@@ -116,8 +208,15 @@ def collect():
     proof["genuine_windows_release_checks_passed"] = True
     out = ROOT / "verified-report"
     out.mkdir()
+    for name in NAMES:
+        shutil.copy2(DIST / name, out / name)
     (out / "SOURCE-PACKAGES.json").write_text(json.dumps(proof, indent=2))
 
 
 if __name__ == "__main__":
-    {"prepare": prepare, "collect": collect}[sys.argv[1]]()
+    {
+        "prepare": prepare,
+        "stage": stage_repackage,
+        "record": record_repackage,
+        "collect": collect,
+    }[sys.argv[1]]()
