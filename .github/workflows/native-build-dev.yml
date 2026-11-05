@@ -316,7 +316,8 @@ jobs:
                   $review = Join-Path $env:GITHUB_WORKSPACE "tests/release/windows_package_review.py"
                   & $python $review frozen
                   if ($LASTEXITCODE -ne 0) { throw "Frozen source/channel verification failed" }
-                  pnpm exec electron-builder --win portable nsis --x64 --publish=never --config.extraMetadata.author.name=HK1200
+                  $hook = Join-Path $env:GITHUB_WORKSPACE "tests/release/windows_restore_markers.cjs"
+                  pnpm exec electron-builder --win portable nsis --x64 --publish=never --config.extraMetadata.author.name=HK1200 --config.afterPack=$hook
                   if ($LASTEXITCODE -ne 0) { throw "Corrected Windows packaging failed" }
             - name: Verify the actual corrected packaged UI in both isolation modes
               working-directory: temp-tests/windows-release-review/source
