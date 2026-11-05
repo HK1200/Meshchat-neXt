@@ -239,7 +239,9 @@ def record_repackage():
     differences = {
         "removed": sorted(before.keys() - after.keys()),
         "added": sorted(after.keys() - before.keys()),
-        "modified": sorted(k for k in before.keys() & after.keys() if before[k] != after[k]),
+        "modified": sorted(
+            k for k in before.keys() & after.keys() if before[k] != after[k]
+        ),
     }
     if before != after:
         print(json.dumps({"backend_integrity_differences": differences}), flush=True)
