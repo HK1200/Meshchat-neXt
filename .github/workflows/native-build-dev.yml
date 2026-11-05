@@ -17,6 +17,12 @@ on:
         branches:
             - main
     workflow_dispatch:
+        inputs:
+            release_artifact_run:
+                description: "Existing merged 0.1.7 Windows artifact run to verify without rebuilding"
+                type: string
+                required: false
+                default: ""
 
 permissions:
     contents: read
@@ -96,6 +102,7 @@ env:
 
 jobs:
     frontend:
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.release_artifact_run == '' }}
         name: Build frontend artifact
         uses: ./.github/workflows/frontend-build.yml
         permissions:
@@ -105,6 +112,7 @@ jobs:
             retention_days: 1
 
     native-build:
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.release_artifact_run == '' }}
         name: Native build (${{ matrix.label }})
         needs: frontend
         permissions:
@@ -216,5 +224,73 @@ jobs:
               with:
                   name: next-windows-${{ github.sha }}
                   path: release-artifacts/
+                  if-no-files-found: error
+                  retention-days: 14
+
+    verify-release-windows:
+        name: Verify existing Windows 0.1.7 release packages
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.release_artifact_run != '' }}
+        runs-on: windows-latest
+        timeout-minutes: 30
+        permissions:
+            contents: read
+            actions: read
+        env:
+            MESHCHAT_RELEASE_REVIEW_ROOT: ${{ github.workspace }}/temp-tests/windows-release-review
+            MESHCHAT_REVIEW_RUN_ID: ${{ inputs.release_artifact_run }}
+        steps:
+            - name: Harden runner
+              uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+              with:
+                  egress-policy: audit
+                  allowed-endpoints: ${{ env.HARDEN_ENDPOINTS }}
+            - name: Assert the fixed release artifact run
+              shell: pwsh
+              run: |
+                  if ($env:MESHCHAT_REVIEW_RUN_ID -ne "42029624165") { throw "Only the immutable 0.1.7 main build is permitted" }
+            - name: Checkout verification tooling
+              uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+              with:
+                  persist-credentials: false
+            - name: Checkout immutable release source
+              uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+              with:
+                  ref: 263b07538d4fcfd58e7020453f9d53fbef19d0d8
+                  path: temp-tests/windows-release-review/source
+                  persist-credentials: false
+            - name: Set up fixed Python and uv
+              uses: ./.github/actions/setup-python-uv
+              with:
+                  python-version: "3.14.10"
+                  uv-version: "0.13.6"
+            - name: Install frozen release-source dependencies
+              shell: bash
+              working-directory: temp-tests/windows-release-review/source
+              run: uv sync --frozen --no-dev
+            - name: Download only the existing approved Windows artifact
+              uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+              with:
+                  name: next-windows-263b07538d4fcfd58e7020453f9d53fbef19d0d8
+                  path: temp-tests/windows-release-review/source/dist
+                  run-id: ${{ inputs.release_artifact_run }}
+                  github-token: ${{ github.token }}
+            - name: Verify inputs and native installer profile lifecycle
+              shell: pwsh
+              run: |
+                  $ErrorActionPreference = "Stop"
+                  $python = Join-Path $env:MESHCHAT_RELEASE_REVIEW_ROOT "source/.venv/Scripts/python.exe"
+                  & $python tests/release/windows_package_review.py prepare
+                  if ($LASTEXITCODE -ne 0) { throw "Release input verification failed" }
+                  & $python tests/release/windows_upgrade.py
+                  if ($LASTEXITCODE -ne 0) { throw "Native installer/profile verification failed" }
+                  & $python tests/release/windows_update_staging.py
+                  if ($LASTEXITCODE -ne 0) { throw "Native signed updater staging verification failed" }
+                  & $python tests/release/windows_package_review.py collect
+                  if ($LASTEXITCODE -ne 0) { throw "Release report verification failed" }
+            - name: Upload only the approved public source and hash report
+              uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+              with:
+                  name: next-windows-verified-263b07538d4fcfd58e7020453f9d53fbef19d0d8
+                  path: temp-tests/windows-release-review/verified-report/SOURCE-PACKAGES.json
                   if-no-files-found: error
                   retention-days: 14
