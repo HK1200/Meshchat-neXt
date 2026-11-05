@@ -264,7 +264,20 @@ function createBackendProcessManager(deps) {
             maintenanceProcess && maintenanceProcess.exitCode === null && maintenanceProcess.signalCode === null
                 ? maintenanceProcess.pid
                 : null;
-        const removed = await killOrphanBackendProcesses(maintenancePid);
+        const backendArgs = buildBackendArgs();
+        const scopedArgument = (flag) => {
+            const values = [];
+            for (let i = 0; i < backendArgs.length; i += 1) {
+                if (backendArgs[i] === flag) values.push(backendArgs[i + 1]);
+                else if (backendArgs[i].startsWith(`${flag}=`)) values.push(backendArgs[i].slice(flag.length + 1));
+            }
+            return values.length === 1 ? values[0] : null;
+        };
+        const removed = await killOrphanBackendProcesses(maintenancePid, {
+            executablePath: exePath,
+            storageDir: scopedArgument("--storage-dir"),
+            reticulumConfigDir: scopedArgument("--reticulum-config-dir"),
+        });
         if (removed > 0) {
             log(`Removed ${removed} orphan backend process(es) before startup.`);
         }
