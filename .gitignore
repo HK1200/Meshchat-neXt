@@ -223,3 +223,7 @@ tests/ui/baseline.json
 
 # Generated backend coverage report (retained in review evidence).
 /coverage.xml
+
+# Generated interpreter-build and isolated runtime verification reports.
+/reports/freezer-source.json
+/reports/frozen-python-*.json

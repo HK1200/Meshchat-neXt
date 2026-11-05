@@ -1,0 +1,205 @@
+# SPDX-License-Identifier: 0BSD
+# Runtime checks remain enforced under python -O.
+"""Check the actual frozen interpreter through a disposable, isolated API."""
+
+import argparse
+import http.client
+import json
+import os
+import signal
+import socket
+import ssl
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--arch", choices=["x64", "arm64"], required=True)
+    parser.add_argument(
+        "--expected-python", default=os.getenv("PYTHON_VERSION", "3.14.10")
+    )
+    parser.add_argument("--inside", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--fixture", type=Path, help=argparse.SUPPRESS)
+    args = parser.parse_args()
+    if not sys.platform.startswith("linux"):
+        raise RuntimeError("Build invariant failed: sys.platform.startswith('linux')")
+    root = Path(__file__).resolve().parents[2]
+    build = root / f"build/exe/linux-{args.arch}"
+    candidates = [
+        build / n
+        for n in ("MeshchatNext", "ReticulumMeshChatX")
+        if (build / n).is_file()
+    ]
+    if not len(candidates) == 1:
+        raise RuntimeError(candidates)
+    binary = candidates[0].resolve()
+    temp = root / "temp-tests"
+    temp.mkdir(exist_ok=True)
+    if not args.inside:
+        with tempfile.TemporaryDirectory(
+            prefix="frozen-python-", dir=temp
+        ) as directory:
+            fixture = Path(directory).resolve()
+            (fixture / "home").mkdir()
+            (fixture / "tmp").mkdir(mode=448)
+            (fixture / "reticulum").mkdir()
+            (fixture / "reticulum/config").write_text(
+                "[reticulum]\nshare_instance=No\nenable_transport=No\n\n[interfaces]\n"
+            )
+            env = {
+                **os.environ,
+                "FROZEN_PROBE_PARENT_NETNS": os.readlink("/proc/self/ns/net"),
+                "MESHCHAT_FORCE_WEB_AUDIO": "1",
+            }
+            for key in (
+                "DBUS_SESSION_BUS_ADDRESS",
+                "DISPLAY",
+                "WAYLAND_DISPLAY",
+                "PULSE_SERVER",
+            ):
+                env.pop(key, None)
+            command = [
+                "bwrap",
+                "--ro-bind",
+                "/",
+                "/",
+                "--bind",
+                str(fixture),
+                str(fixture),
+                "--proc",
+                "/proc",
+                "--dev",
+                "/dev",
+                "--tmpfs",
+                "/run",
+                "--unshare-pid",
+                "--unshare-net",
+                "--die-with-parent",
+                "--setenv",
+                "TMPDIR",
+                str(fixture / "tmp"),
+                "--setenv",
+                "TMP",
+                str(fixture / "tmp"),
+                "--setenv",
+                "TEMP",
+                str(fixture / "tmp"),
+                "--setenv",
+                "HOME",
+                str(fixture / "home"),
+                sys.executable,
+                str(Path(__file__).resolve()),
+                "--inside",
+                "--fixture",
+                str(fixture),
+                "--arch",
+                args.arch,
+                "--expected-python",
+                args.expected_python,
+            ]
+            try:
+                subprocess.run(command, env=env, cwd=root, check=True, timeout=120)
+            except subprocess.CalledProcessError:
+                log = fixture / "backend.log"
+                if log.exists():
+                    print(log.read_text(errors="replace")[-10000:], file=sys.stderr)
+                raise
+            report = json.loads((fixture / "result.json").read_text())
+            output = root / f"reports/frozen-python-{args.arch}.json"
+            output.parent.mkdir(exist_ok=True)
+            output.write_text(json.dumps(report, indent=2) + "\n")
+            print(json.dumps(report))
+        return
+    fixture = args.fixture.resolve()
+    if not (
+        fixture.is_relative_to(temp.resolve())
+        and fixture.name.startswith("frozen-python-")
+    ):
+        raise RuntimeError(
+            "Build invariant failed: fixture.is_relative_to(temp.resolve()) and fixture.name.startswith('frozen-python-')"
+        )
+    parent_net = os.environ.get("FROZEN_PROBE_PARENT_NETNS")
+    if not (parent_net and parent_net != os.readlink("/proc/self/ns/net")):
+        raise RuntimeError(
+            "Build invariant failed: parent_net and parent_net != os.readlink('/proc/self/ns/net')"
+        )
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        port = listener.getsockname()[1]
+    command = [
+        str(binary),
+        "--headless",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        str(port),
+        "--storage-dir",
+        str(fixture / "storage"),
+        "--reticulum-config-dir",
+        str(fixture / "reticulum"),
+    ]
+    with (fixture / "backend.log").open("w") as log:
+        process = subprocess.Popen(
+            command, stdout=log, stderr=subprocess.STDOUT, start_new_session=True
+        )
+        try:
+            deadline = time.monotonic() + 90
+            last = "backend not ready"
+            while time.monotonic() < deadline:
+                if process.poll() is not None:
+                    raise RuntimeError("Frozen backend exited before metadata")
+                try:
+                    certificate = fixture / "storage/ssl/cert.pem"
+                    context = ssl.create_default_context(cafile=str(certificate))
+                    connection = http.client.HTTPSConnection(
+                        "localhost", port, context=context, timeout=3
+                    )
+                    try:
+                        connection.request(
+                            "GET",
+                            "/api/v1/app/info",
+                            headers={"Origin": f"https://localhost:{port}"},
+                        )
+                        response = connection.getresponse()
+                        if response.status != 200:
+                            raise ConnectionError(
+                                f"Metadata returned HTTP {response.status}"
+                            )
+                        info = json.loads(response.read())["app_info"]
+                    finally:
+                        connection.close()
+                    break
+                except (OSError, http.client.HTTPException) as error:
+                    last = str(error)
+                    time.sleep(0.25)
+            else:
+                raise AssertionError(last)
+            actual = info["python_version"]
+            if not actual == args.expected_python:
+                raise RuntimeError(
+                    {"expected": args.expected_python, "actual_frozen_python": actual}
+                )
+            report = {
+                "passed": True,
+                "expected_python": args.expected_python,
+                "actual_frozen_python": actual,
+                "source": info.get("git_commit"),
+                "private_network_and_devices": True,
+                "fixture_certificate_verified": True,
+            }
+            (fixture / "result.json").write_text(json.dumps(report))
+        finally:
+            try:
+                process.send_signal(signal.SIGINT)
+                process.wait(timeout=15)
+            except subprocess.TimeoutExpired:
+                os.killpg(process.pid, signal.SIGTERM)
+                process.wait(timeout=5)
+
+
+if __name__ == "__main__":
+    main()
