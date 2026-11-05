@@ -2,6 +2,10 @@
 
 ## 0.1.7
 
+- Initialize frozen desktop worker support before application imports, preventing propagation-stamp workers from failing during RNS startup. Packaged runtime checks now execute a real synthetic LXMF validation task.
+
+- Prevent desktop startup and tests from terminating another running profile. Linux orphan cleanup requires verified same-user, executable and profile ownership; automatic cleanup stays disabled where ownership cannot be proven.
+
 - Simplify MeshCore repeater and room-server pages with task tabs, grouped administrator actions and collapsed identity details. Room messages open first, and drafts survive tab changes.
 - Show saved MeshCore contact names for unique room-author prefix matches, retaining the unverified prefix and avoiding ambiguous matches.
 - Apply the shared blocked-phrase and regex rules to incoming MeshCore direct messages, channel posts and room posts before history, unread counts or notifications. Room and channel author hints do not grant contact status, and matching posts never automatically ban a room server.
