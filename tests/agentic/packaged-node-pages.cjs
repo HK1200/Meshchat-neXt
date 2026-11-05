@@ -121,14 +121,6 @@ async function run(mode) {
                 JSON.stringify({ windows_screen_security: 1 })
             );
         });
-        await context.route("**/api/v1/app/info", async (route) => {
-            const response = await route.fetch();
-            const data = await response.json();
-            if (data.app_info?.version !== expectedVersion) throw Error("Unexpected packaged backend version");
-            data.app_info.tutorial_seen = true;
-            data.app_info.changelog_seen_version = expectedVersion;
-            await route.fulfill({ response, json: data });
-        });
         await context.route("**/api/v1/meshcore/**", async (route) => {
             if (new URL(route.request().url()).pathname.endsWith("/ui")) {
                 await route.fulfill({
@@ -169,8 +161,16 @@ async function run(mode) {
         });
         const page = context.pages()[0] || (await context.waitForEvent("page", { timeout: 30000 }));
         await page.waitForURL(/^https?:\/\//, { timeout: 120000 });
-        // Reload after installing fixtures so even a fast backend cannot race
-        // the first-run prompt interception. This is not onboarding coverage.
+        await page.waitForFunction(() => Boolean(window.api), {}, { timeout: 120000 });
+        const backendVersion = await page.evaluate(async (version) => {
+            const info = (await window.api.get("/api/v1/app/info")).data.app_info;
+            await window.api.post("/api/v1/app/tutorial/seen", {});
+            await window.api.post("/api/v1/app/changelog/seen", { version });
+            return info.version;
+        }, expectedVersion);
+        if (backendVersion !== expectedVersion) throw Error("Unexpected packaged backend version");
+        // Fixture preparation uses the real app API and its normal loopback TLS
+        // handling. Reload into that saved fixture state; not onboarding coverage.
         await page.reload();
         await page.waitForFunction(() => Boolean(window.api), {}, { timeout: 120000 });
         const security = await page.evaluate(async () => (await window.api.get("/api/v1/server/security")).data);
