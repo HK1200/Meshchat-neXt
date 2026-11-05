@@ -9,6 +9,7 @@ import os
 import signal
 import socket
 import ssl
+import stat
 import subprocess
 import sys
 import tempfile
@@ -144,13 +145,37 @@ def main():
                 "--expected-python",
                 args.expected_python,
             ]
+            search_modes = []
             try:
+                if args.ci_privileged_setup:
+                    # Namespace root has no DAC override for runner-owned
+                    # ancestors. Grant search only, never file access, and
+                    # restore each mode before leaving this disposable job.
+                    directories = {
+                        parent
+                        for path in (
+                            fixture,
+                            binary,
+                            Path(__file__),
+                            Path(sys.executable),
+                        )
+                        for parent in path.parents
+                    }
+                    for directory in sorted(directories, key=lambda p: len(p.parts)):
+                        metadata = directory.stat()
+                        mode = stat.S_IMODE(metadata.st_mode)
+                        if metadata.st_uid != 0 and not mode & stat.S_IXOTH:
+                            search_modes.append((directory, mode))
+                            directory.chmod(mode | stat.S_IXOTH)
                 subprocess.run(command, env=env, cwd=root, check=True, timeout=120)
             except subprocess.CalledProcessError:
                 log = fixture / "backend.log"
                 if log.exists():
                     print(log.read_text(errors="replace")[-10000:], file=sys.stderr)
                 raise
+            finally:
+                for directory, mode in reversed(search_modes):
+                    directory.chmod(mode)
             report = json.loads((fixture / "result.json").read_text())
             output = root / f"reports/frozen-python-{args.arch}.json"
             output.parent.mkdir(exist_ok=True)
