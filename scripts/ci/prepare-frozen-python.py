@@ -14,6 +14,7 @@ import ssl
 import subprocess
 import sys
 import sysconfig
+import tarfile
 import tempfile
 import tomllib
 from pathlib import Path
@@ -68,6 +69,32 @@ def main():
         ):
             raise RuntimeError("Freezer source differs from the signed lockfile hash")
         archive.write_bytes(data)
+        source_root = Path(folder) / "source"
+        source_root.mkdir()
+        with tarfile.open(archive) as package_archive:
+            package_archive.extractall(source_root, filter="data")
+        projects = list(source_root.iterdir())
+        if len(projects) != 1 or not (projects[0] / "setup.py").is_file():
+            raise RuntimeError("The pinned source archive has an unexpected layout")
+        wheelhouse = Path(folder) / "wheels"
+        subprocess.run(
+            [
+                sys.executable,
+                "setup.py",
+                "build_ext",
+                "--force",
+                "bdist_wheel",
+                "--dist-dir",
+                str(wheelhouse),
+            ],
+            cwd=projects[0],
+            check=True,
+        )
+        wheels = list(wheelhouse.glob("freeze_core-*.whl"))
+        if len(wheels) != 1:
+            raise RuntimeError(
+                "Expected exactly one locally source-built freezer wheel"
+            )
         subprocess.run(
             [
                 uv,
@@ -79,9 +106,7 @@ def main():
                 "--no-build-isolation",
                 "--no-cache",
                 "--reinstall",
-                "--no-binary",
-                ":all:",
-                str(archive),
+                str(wheels[0]),
             ],
             cwd=root,
             check=True,
@@ -99,6 +124,7 @@ def main():
         "freeze_core": package["version"],
         "locked_sdist": source,
         "source_build_without_binary_or_build_cache": True,
+        "explicit_locked_source_build_ext_and_bdist_wheel": True,
         "build_dependencies_from_frozen_environment": True,
         "base_hashes": {
             p.name: hashlib.file_digest(p.open("rb"), "sha256").hexdigest()
