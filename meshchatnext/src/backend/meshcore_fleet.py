@@ -8,6 +8,7 @@ import json
 import os
 import threading
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 
 from meshchatnext.src.backend.meshcore_service import (
@@ -29,7 +30,7 @@ class MeshCoreFleet:
         *,
         notification_sink=None,
         service_factory=MeshCoreService,
-        store_factory=MeshCoreStore,
+        store_factory: Callable[[Path], MeshCoreStore] = MeshCoreStore,
     ):
         self.folder = Path(folder)
         self._path = self.folder / "radios.json"
