@@ -3,6 +3,7 @@
 
 import hashlib
 import json
+import marshal
 import os
 import shutil
 import subprocess
@@ -29,9 +30,57 @@ def sha(path):
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
+def verify_source_tree():
+    from RNS.Utilities.rnid import extract_signed_rsg_data, validate_rsg
+
+    source = ROOT / "source"
+    raw = (source / "meshchatnext.rsm").read_bytes()
+    body = extract_signed_rsg_data(raw)["message"]
+    valid, _, identity = validate_rsg(
+        raw, message=body, required_signer=bytes.fromhex(PIN)
+    )
+    assert valid and identity.hash.hex() == PIN
+    lines = body.decode().splitlines()
+    assert lines[0] == "# meshchatnext tree manifest v1"
+    names = set()
+    for line in lines[1:]:
+        if not line:
+            continue
+        digest, name = line.split("  ", 1)
+        assert name not in names and sha(source / name) == digest, name
+        names.add(name)
+    tracked = (
+        subprocess.check_output(["git", "ls-files", "-z"], cwd=source)
+        .decode()
+        .split("\0")
+    )
+    expected = {
+        n
+        for n in tracked
+        if n
+        and n != "meshchatnext.rsm"
+        and not (n.startswith("vendor/") or "/vendor/" in n or n.endswith("/vendor"))
+    }
+    assert names == expected
+    assert (
+        subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=source, text=True
+        ).strip()
+        == SOURCE
+    )
+    return {
+        "signer": PIN,
+        "rsm_sha256": sha(source / "meshchatnext.rsm"),
+        "all_tracked_files": len(names),
+        "passed": True,
+    }
+
+
 def prepare():
     from meshchatnext.src.update_rsm import verify_rsm
 
+    assert sys.version_info[:3] == (3, 14, 10)
+    source_proof = verify_source_tree()
     proof = json.loads((DIST / "SOURCE-PACKAGES.json").read_text(encoding="utf-8-sig"))
     assert proof["source"] == SOURCE and proof["version"] == "0.1.7"
     assert {a["file"] for a in proof["assets"]} == NAMES
@@ -91,6 +140,7 @@ def prepare():
         timeout=180,
     )
     assert (unpacked / "Meshchat neXt.exe").is_file()
+    proof["source_signature_before_build"] = source_proof
     proof["baseline"] = {"pin": PIN, "version": "0.1.6", "artifact": entries[0]}
     proof["expected_installed_shell_sha256"] = sha(unpacked / "Meshchat neXt.exe")
     (ROOT / "input-proof.json").write_text(json.dumps(proof, indent=2))
@@ -106,9 +156,9 @@ def tree_hashes(base):
 
 
 def stage_repackage():
-    # The verified backend and frontend stay byte-identical to source 263b075.
-    # Only standard generated Windows publisher metadata is corrected, using
-    # the same extraMetadata.author.name argument as the shipped 0.1.6 recipe.
+    # Native inputs and frontend come from the verified source-263 artifact.
+    # Freeze Python afresh with explicit stable/source metadata; ordinary CI
+    # previews have local-channel metadata and are not release installables.
     assert (
         subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=ROOT / "source", text=True
@@ -129,8 +179,18 @@ def stage_repackage():
     )
     hashes = tree_hashes(unpacked / "resources/backend")
     assert hashes
-    (ROOT / "backend-input-hashes.json").write_text(json.dumps(hashes, sort_keys=True))
-    shutil.copytree(unpacked / "resources/backend", ROOT / "source/build/exe/win32-x64")
+    (ROOT / "original-backend-input-hashes.json").write_text(
+        json.dumps(hashes, sort_keys=True)
+    )
+    native = ROOT / "source/.local/windows-sip"
+    native.mkdir(parents=True)
+    shutil.copy2(
+        unpacked / "resources/backend/bin/meshchatnext-sip.exe",
+        native / "meshchatnext-sip.exe",
+    )
+    shutil.copytree(
+        unpacked / "resources/backend/licenses/windows-sip", native / "licenses"
+    )
     public = ROOT / "source/meshchatnext/public"
     if public.exists():
         assert not subprocess.check_output(
@@ -138,6 +198,38 @@ def stage_repackage():
         ).strip()
         shutil.rmtree(public)
     shutil.copytree(unpacked / "resources/backend/public", public)
+    # Reuse byte-verified current signed license artifacts; mtime only changes.
+    for name in [
+        "THIRD_PARTY_NOTICES.txt",
+        "licenses_frontend.json",
+        "licenses_backend.json",
+    ]:
+        path = ROOT / "source/meshchatnext/src/backend/data" / name
+        assert path.is_file()
+        path.touch()
+    verify_source_tree()
+
+
+def record_frozen():
+    source_proof = verify_source_tree()
+    backend = ROOT / "source/build/exe/win32-x64"
+    baked = marshal.loads(
+        (backend / "lib/meshchatnext/src/_build_meta_baked.pyc").read_bytes()[16:]
+    )
+    assert SOURCE in baked.co_consts and "stable" in baked.co_consts
+    assert any(c is False for c in baked.co_consts)
+    original = ROOT / "original-win-unpacked/resources/backend"
+    assert sha(backend / "bin/meshchatnext-sip.exe") == sha(
+        original / "bin/meshchatnext-sip.exe"
+    )
+    assert tree_hashes(backend / "public") == tree_hashes(original / "public")
+    hashes = tree_hashes(backend)
+    assert hashes
+    (ROOT / "backend-input-hashes.json").write_text(json.dumps(hashes, sort_keys=True))
+    proof = json.loads((ROOT / "input-proof.json").read_text())
+    proof["source_signature_after_freeze"] = source_proof
+    proof["fresh_stable_backend_metadata_verified"] = True
+    (ROOT / "input-proof.json").write_text(json.dumps(proof, indent=2))
 
 
 def record_repackage():
@@ -179,7 +271,10 @@ def record_repackage():
     proof["build_configuration"] = {
         "extraMetadata.author.name": "HK1200",
         "upstream_source_author_unchanged": True,
-        "backend_files_unchanged": len(before),
+        "backend_files_unchanged_during_packaging": len(before),
+        "MESHCHATNEXT_BUILD_CHANNEL": "stable",
+        "MESHCHATNEXT_GIT_COMMIT": SOURCE,
+        "fresh_frozen_backend": True,
         "backend_tree_sha256": hashlib.sha256(
             json.dumps(before, sort_keys=True).encode()
         ).hexdigest(),
@@ -202,6 +297,11 @@ def collect():
         update["synthetic_signer_in_memory_only"]
         and not update["production_signer_used"]
     )
+    assert (
+        upgrade["installed_stable_channel"]
+        and upgrade["installed_is_dev_build"] is False
+    )
+    proof["source_signature_after_native_checks"] = verify_source_tree()
     proof["native_installer_upgrade"] = upgrade
     proof["native_signed_update_staging"] = update
     proof["verification_commit"] = os.environ["GITHUB_SHA"]
@@ -217,6 +317,7 @@ if __name__ == "__main__":
     {
         "prepare": prepare,
         "stage": stage_repackage,
+        "frozen": record_frozen,
         "record": record_repackage,
         "collect": collect,
     }[sys.argv[1]]()

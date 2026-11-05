@@ -238,6 +238,9 @@ jobs:
         env:
             MESHCHAT_RELEASE_REVIEW_ROOT: ${{ github.workspace }}/temp-tests/windows-release-review
             MESHCHAT_REVIEW_RUN_ID: ${{ inputs.release_artifact_run }}
+            MESHCHATNEXT_BUILD_CHANNEL: stable
+            MESHCHATNEXT_GIT_COMMIT: 263b07538d4fcfd58e7020453f9d53fbef19d0d8
+            PYTHON_CMD: uv run --frozen --all-extras --group dev python
         steps:
             - name: Harden runner
               uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
@@ -248,6 +251,9 @@ jobs:
               shell: pwsh
               run: |
                   if ($env:MESHCHAT_REVIEW_RUN_ID -ne "42029624165") { throw "Only the immutable 0.1.7 main build is permitted" }
+            - name: Preserve exact signed source line endings
+              shell: pwsh
+              run: git config --global core.autocrlf false
             - name: Checkout verification tooling
               uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
               with:
@@ -266,7 +272,7 @@ jobs:
             - name: Install frozen release-source dependencies
               shell: bash
               working-directory: temp-tests/windows-release-review/source
-              run: uv sync --frozen --group dev
+              run: uv sync --frozen --all-extras --group dev
             - name: Download only the existing approved Windows artifact
               uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
               with:
@@ -298,6 +304,18 @@ jobs:
               run: |
                   pnpm run electron-postinstall
                   if ($LASTEXITCODE -ne 0) { throw "Electron packaging dependency setup failed" }
+                  pnpm run build-meta:bake
+                  if ($LASTEXITCODE -ne 0) { throw "Stable source metadata baking failed" }
+                  pnpm run build-backend
+                  if ($LASTEXITCODE -ne 0) { throw "Fresh stable backend freeze failed" }
+                  foreach ($guard in @("sandbox", "runtime", "codec2", "umsgpack", "bleak")) {
+                      bash "scripts/ci/github-verify-frozen-$guard.sh" "build/exe/win32-x64"
+                      if ($LASTEXITCODE -ne 0) { throw "Frozen runtime guard failed: $guard" }
+                  }
+                  $python = Join-Path $env:MESHCHAT_RELEASE_REVIEW_ROOT "source/.venv/Scripts/python.exe"
+                  $review = Join-Path $env:GITHUB_WORKSPACE "tests/release/windows_package_review.py"
+                  & $python $review frozen
+                  if ($LASTEXITCODE -ne 0) { throw "Frozen source/channel verification failed" }
                   pnpm exec electron-builder --win portable nsis --x64 --publish=never --config.extraMetadata.author.name=HK1200
                   if ($LASTEXITCODE -ne 0) { throw "Corrected Windows packaging failed" }
             - name: Verify the actual corrected packaged UI in both isolation modes

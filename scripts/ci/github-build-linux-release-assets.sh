@@ -25,6 +25,8 @@ require_node_min() {
 
 require_node_min 24
 
+pnpm run version:sync
+
 mkdir -p release-assets
 
 HOST_ARCH="$(uname -m)"

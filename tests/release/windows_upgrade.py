@@ -222,6 +222,10 @@ try:
         api("GET", "app/info").json()["app_info"]["git_commit"]
         == "263b07538d4fcfd58e7020453f9d53fbef19d0d8"
     )
+    assert api("GET", "app/info").json()["app_info"]["build_channel"] == "stable"
+    assert api("GET", "app/info").json()["app_info"]["is_dev_build"] is False
+    report["installed_stable_channel"] = True
+    report["installed_is_dev_build"] = False
     report["installed_patched_python_version"] = "3.14.10"
     assert marker in api("GET", "telephone/contacts").text
     report["contact_persisted_after_upgrade"] = True
