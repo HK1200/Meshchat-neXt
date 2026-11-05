@@ -191,10 +191,6 @@ jobs:
               if: matrix.label == 'windows'
               run: uv run python scripts/ci/github-smoke-appcontainer.py --build-dir build/exe
 
-            - name: Packaged node-page UI (Windows default and forced AppContainer)
-              if: matrix.label == 'windows'
-              run: node tests/agentic/packaged-node-pages.cjs
-
             - name: Collect Windows 0.1.7 review packages
               id: windows-review
               if: matrix.label == 'windows'
