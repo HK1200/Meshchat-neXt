@@ -236,6 +236,13 @@ def record_repackage():
     proof = json.loads((ROOT / "input-proof.json").read_text())
     before = json.loads((ROOT / "backend-input-hashes.json").read_text())
     after = tree_hashes(DIST / "win-unpacked/resources/backend")
+    differences = {
+        "removed": sorted(before.keys() - after.keys()),
+        "added": sorted(after.keys() - before.keys()),
+        "modified": sorted(k for k in before.keys() & after.keys() if before[k] != after[k]),
+    }
+    if before != after:
+        print(json.dumps({"backend_integrity_differences": differences}), flush=True)
     assert before == after, "Repackaging changed the verified immutable backend"
     ui = json.loads((ROOT / "source/reports/windows-node-ui.json").read_text())
     assert ui["source"] == SOURCE and ui["passed"]
