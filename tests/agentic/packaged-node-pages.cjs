@@ -90,12 +90,13 @@ async function run(mode) {
     const env = { ...process.env };
     delete env.MESHCHAT_APPCONTAINER;
     if (mode === "forced") env.MESHCHAT_APPCONTAINER = "1";
-    let process, browser;
+    let appProcess, browser;
+    let diagnostic = "";
     const debugPort = await freePort();
     try {
         // Keep hardened Node-inspector fuses disabled. Only the renderer CDP
         // endpoint is enabled, on loopback in this disposable CI fixture.
-        process = cp.spawn(
+        appProcess = cp.spawn(
             exe,
             [
                 `--storage-dir=${storage}`,
@@ -106,13 +107,12 @@ async function run(mode) {
             ],
             { env, stdio: ["ignore", "pipe", "pipe"] }
         );
-        let diagnostic = "";
-        for (const stream of [process.stdout, process.stderr])
+        for (const stream of [appProcess.stdout, appProcess.stderr])
             stream.on("data", (chunk) => {
                 diagnostic = (diagnostic + chunk.toString()).slice(-64000);
             });
         process.on("error", (error) => console.error("Packaged launch error", error.message));
-        browser = await connectRenderer(debugPort, process);
+        browser = await connectRenderer(debugPort, appProcess);
         const context = browser.contexts()[0];
         context.setDefaultTimeout(30000);
         await context.addInitScript(() => {
@@ -169,6 +169,9 @@ async function run(mode) {
         });
         const page = context.pages()[0] || (await context.waitForEvent("page", { timeout: 30000 }));
         await page.waitForURL(/^https?:\/\//, { timeout: 120000 });
+        // Reload after installing fixtures so even a fast backend cannot race
+        // the first-run prompt interception. This is not onboarding coverage.
+        await page.reload();
         await page.waitForFunction(() => Boolean(window.api), {}, { timeout: 120000 });
         const security = await page.evaluate(async () => (await window.api.get("/api/v1/server/security")).data);
         if (mode === "forced" && !security.appcontainer_active) throw Error("Forced AppContainer was not active");
@@ -214,7 +217,7 @@ async function run(mode) {
         );
         const closing = new Promise((resolve, reject) => {
             const timer = setTimeout(() => reject(Error("Packaged app did not exit after normal Quit")), 30000);
-            process.once("exit", (code) => {
+            appProcess.once("exit", (code) => {
                 clearTimeout(timer);
                 if (code !== 0) reject(Error(`Packaged app exited abnormally: ${code}`));
                 else resolve();
@@ -250,11 +253,14 @@ async function run(mode) {
             profile_preserved: true,
         });
         console.log(JSON.stringify(results.at(-1)));
+    } catch (error) {
+        console.error("Synthetic packaged fixture diagnostics:", diagnostic);
+        throw error;
     } finally {
         if (browser) await browser.close();
-        if (process && process.exitCode === null) {
+        if (appProcess && appProcess.exitCode === null) {
             console.error("Failure cleanup: terminating only the owned synthetic fixture process");
-            process.kill();
+            appProcess.kill();
         }
         fs.rmSync(base, { recursive: true, force: true });
     }
