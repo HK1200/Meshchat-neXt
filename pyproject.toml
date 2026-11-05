@@ -221,6 +221,7 @@ also_copy = [
     "meshchatnext/android_opus.py",
     "meshchatnext/android_tts.py",
     "meshchatnext/android_push_bridge.py",
+    "meshchatnext/desktop_entry.py",
     "meshchatnext/meshchat.py",
     "meshchatnext/pycodec2_ctypes.py",
     "meshchatnext/repository_http_standalone.py",
