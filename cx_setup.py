@@ -147,7 +147,7 @@ setup(
     description="A simple mesh network communications app powered by the Reticulum Network Stack",
     executables=[
         Executable(
-            script="meshchatnext/meshchat.py",
+            script="meshchatnext/desktop_entry.py",
             base=None,
             target_name=target_name,
             shortcut_name="MeshchatNext",

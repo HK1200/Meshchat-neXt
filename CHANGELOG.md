@@ -2,6 +2,8 @@
 
 ## 0.1.7
 
+- Initialize frozen desktop worker support before application imports, preventing propagation-stamp workers from failing during RNS startup. Packaged runtime checks now execute a real synthetic LXMF validation task.
+
 - Prevent desktop startup and tests from terminating another running profile. Linux orphan cleanup requires verified same-user, executable and profile ownership; automatic cleanup stays disabled where ownership cannot be proven.
 
 - Simplify MeshCore repeater and room-server pages with task tabs, grouped administrator actions and collapsed identity details. Room messages open first, and drafts survive tab changes.
