@@ -60,6 +60,7 @@ async function run(mode) {
     try {
         app = await electron.launch({
             executablePath: exe,
+            chromiumSandbox: true,
             args: [`--storage-dir=${storage}`, `--reticulum-config-dir=${rns}`],
             env,
             timeout: 120000,
@@ -123,7 +124,25 @@ async function run(mode) {
         await page.waitForFunction(() => Boolean(window.api), {}, { timeout: 120000 });
         const security = await page.evaluate(async () => (await window.api.get("/api/v1/server/security")).data);
         if (mode === "forced" && !security.appcontainer_active) throw Error("Forced AppContainer was not active");
-        const packaged = await app.evaluate(({ app }) => ({ packaged: app.isPackaged, version: app.getVersion() }));
+        const packaged = await app.evaluate(({ app, BrowserWindow }) => {
+            const window = BrowserWindow.getAllWindows().find((item) => /^https?:/.test(item.webContents.getURL()));
+            const preferences = window?.webContents.getLastWebPreferences();
+            return {
+                packaged: app.isPackaged,
+                version: app.getVersion(),
+                noSandboxSwitch: app.commandLine.hasSwitch("no-sandbox"),
+                rendererSandbox: preferences?.sandbox,
+                contextIsolation: preferences?.contextIsolation,
+                nodeIntegration: preferences?.nodeIntegration,
+            };
+        });
+        if (
+            packaged.noSandboxSwitch ||
+            packaged.rendererSandbox !== true ||
+            packaged.contextIsolation !== true ||
+            packaged.nodeIntegration !== false
+        )
+            throw Error("Packaged renderer security settings were weakened");
         if (!packaged.packaged || packaged.version !== expectedVersion)
             throw Error("Not the actual packaged 0.1.7 application");
         const origin = new URL(page.url()).origin,
@@ -166,6 +185,8 @@ async function run(mode) {
             packaged_version: packaged.version,
             appcontainer_active: Boolean(security.appcontainer_active),
             actual_packaged_ui: true,
+            chromium_sandbox: true,
+            renderer_context_isolation: true,
             synthetic_meshcore_only: true,
             task_tabs: true,
             room_contact_name: true,
