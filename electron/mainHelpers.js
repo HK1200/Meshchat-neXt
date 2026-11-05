@@ -9,6 +9,7 @@ const IGNORED_CLI_ARGUMENTS = new Set([
     "--disable-gpu-sandbox",
     "--disable-gpu-compositing",
     "--disable-software-rasterizer",
+    "--enable-automation",
     "--enable-logging",
     "--enable-logging=stderr",
 ]);

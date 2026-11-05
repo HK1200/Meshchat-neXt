@@ -87,7 +87,7 @@ async function run(mode) {
         path.join(storage, "desktop-close-settings.json"),
         JSON.stringify({ closeBehavior: "quit", trayEnabled: false })
     );
-    const env = { ...process.env };
+    const env = { ...process.env, MESHCHAT_FORCE_STDOUT_LOG: "1" };
     delete env.MESHCHAT_APPCONTAINER;
     if (mode === "forced") env.MESHCHAT_APPCONTAINER = "1";
     let appProcess, browser;
@@ -255,6 +255,24 @@ async function run(mode) {
         console.log(JSON.stringify(results.at(-1)));
     } catch (error) {
         console.error("Synthetic packaged fixture diagnostics:", diagnostic);
+        if (browser) {
+            for (const page of browser.contexts()[0].pages()) {
+                console.error("Synthetic renderer URL:", page.url());
+                console.error(
+                    "Synthetic startup state:",
+                    await page
+                        .evaluate(async () => {
+                            const info = await window.electron?.backendStartupDiagnostics?.();
+                            return {
+                                runtime: info?.runtime,
+                                exitCode: info?.crash?.code,
+                                stderr: info?.crash?.stderr?.slice(-6000),
+                            };
+                        })
+                        .catch(() => "Trusted startup diagnostics unavailable")
+                );
+            }
+        }
         throw error;
     } finally {
         if (browser) await browser.close();
