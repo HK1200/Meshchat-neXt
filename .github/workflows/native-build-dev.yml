@@ -296,6 +296,8 @@ jobs:
               working-directory: temp-tests/windows-release-review/source
               shell: pwsh
               run: |
+                  pnpm run electron-postinstall
+                  if ($LASTEXITCODE -ne 0) { throw "Electron packaging dependency setup failed" }
                   pnpm exec electron-builder --win portable nsis --x64 --publish=never --config.extraMetadata.author.name=HK1200
                   if ($LASTEXITCODE -ne 0) { throw "Corrected Windows packaging failed" }
             - name: Verify the actual corrected packaged UI in both isolation modes
