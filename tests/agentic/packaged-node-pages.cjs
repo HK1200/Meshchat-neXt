@@ -111,7 +111,7 @@ async function run(mode) {
             stream.on("data", (chunk) => {
                 diagnostic = (diagnostic + chunk.toString()).slice(-64000);
             });
-        process.on("error", (error) => console.error("Packaged launch error", error.message));
+        appProcess.on("error", (error) => console.error("Packaged launch error", error.message));
         browser = await connectRenderer(debugPort, appProcess);
         const context = browser.contexts()[0];
         context.setDefaultTimeout(30000);
