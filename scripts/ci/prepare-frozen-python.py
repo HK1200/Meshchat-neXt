@@ -13,6 +13,7 @@ import shutil
 import ssl
 import subprocess
 import sys
+import sysconfig
 import tempfile
 import tomllib
 from pathlib import Path
@@ -105,6 +106,15 @@ def main():
             if p.is_file()
         },
     }
+    report["base_names"] = sorted(p.name for p in bases.iterdir())
+    report["python_soabi"] = sysconfig.get_config_var("SOABI")
+    report["python_exe_suffix"] = sysconfig.get_config_var("EXE")
+    print(json.dumps(report, sort_keys=True), flush=True)
+    from cx_Freeze import Executable
+
+    probe = Executable(script=str(root / "scripts/ci/prepare-frozen-python.py"))
+    if not Path(probe.base).is_file():
+        raise RuntimeError("Source-built console base is missing")
     output = root / "reports/freezer-source.json"
     output.parent.mkdir(exist_ok=True)
     output.write_text(json.dumps(report, indent=2) + "\n")
