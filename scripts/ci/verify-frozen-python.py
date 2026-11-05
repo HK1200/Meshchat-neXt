@@ -53,6 +53,7 @@ def main():
             env = {
                 **os.environ,
                 "FROZEN_PROBE_PARENT_NETNS": os.readlink("/proc/self/ns/net"),
+                "FROZEN_PROBE_PARENT_USERNS": os.readlink("/proc/self/ns/user"),
                 "MESHCHAT_FORCE_WEB_AUDIO": "1",
             }
             for key in (
@@ -76,6 +77,7 @@ def main():
                 "/dev",
                 "--tmpfs",
                 "/run",
+                "--unshare-user",
                 "--unshare-pid",
                 "--unshare-net",
                 "--die-with-parent",
@@ -127,6 +129,9 @@ def main():
         raise RuntimeError(
             "Build invariant failed: parent_net and parent_net != os.readlink('/proc/self/ns/net')"
         )
+    parent_user = os.environ.get("FROZEN_PROBE_PARENT_USERNS")
+    if not (parent_user and parent_user != os.readlink("/proc/self/ns/user")):
+        raise RuntimeError("Frozen runtime probe requires a separate user namespace")
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
         port = listener.getsockname()[1]
@@ -189,6 +194,7 @@ def main():
                 "actual_frozen_python": actual,
                 "source": info.get("git_commit"),
                 "private_network_and_devices": True,
+                "private_user_namespace": True,
                 "fixture_certificate_verified": True,
             }
             (fixture / "result.json").write_text(json.dumps(report))
