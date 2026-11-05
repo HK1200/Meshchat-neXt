@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: 0BSD
 // Actual packaged Windows renderer + backend. MeshCore responses are synthetic;
 // all MeshCore requests are intercepted, so this never operates a radio.
-const { _electron: electron, expect } = require("@playwright/test");
+const { chromium, expect } = require("@playwright/test");
 const fs = require("node:fs");
 const path = require("node:path");
 const net = require("node:net");
@@ -37,6 +37,40 @@ async function portClosed(port) {
     }
     throw new Error("Packaged backend listener remained after Quit");
 }
+async function freePort() {
+    const server = net.createServer();
+    await new Promise((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(0, "127.0.0.1", resolve);
+    });
+    const port = server.address().port;
+    await new Promise((resolve) => server.close(resolve));
+    return port;
+}
+async function connectRenderer(port, process) {
+    const deadline = Date.now() + 120000;
+    while (Date.now() < deadline) {
+        if (process.exitCode !== null) throw Error(`Packaged app exited during startup: ${process.exitCode}`);
+        try {
+            return await chromium.connectOverCDP(`http://127.0.0.1:${port}`, { timeout: 2000 });
+        } catch {
+            await new Promise((resolve) => setTimeout(resolve, 500));
+        }
+    }
+    throw Error("Packaged renderer did not expose the loopback-only CI connection within startup timeout");
+}
+async function verifyFuses() {
+    const { getCurrentFuseWire, FuseV1Options, FuseState } = await import("@electron/fuses");
+    const wire = await getCurrentFuseWire(exe);
+    for (const option of [
+        FuseV1Options.RunAsNode,
+        FuseV1Options.EnableNodeOptionsEnvironmentVariable,
+        FuseV1Options.EnableNodeCliInspectArguments,
+    ])
+        if (wire[option] !== FuseState.DISABLE) throw Error("Packaged Electron execution fuse was weakened");
+    for (const option of [FuseV1Options.EnableEmbeddedAsarIntegrityValidation, FuseV1Options.OnlyLoadAppFromAsar])
+        if (wire[option] !== FuseState.ENABLE) throw Error("Packaged ASAR integrity fuse was weakened");
+}
 async function run(mode) {
     const base = fs.mkdtempSync(path.join(root, "temp-tests", "windows-node-ui-"));
     const storage = path.join(base, "storage"),
@@ -56,16 +90,30 @@ async function run(mode) {
     const env = { ...process.env };
     delete env.MESHCHAT_APPCONTAINER;
     if (mode === "forced") env.MESHCHAT_APPCONTAINER = "1";
-    let app;
+    let process, browser;
+    const debugPort = await freePort();
     try {
-        app = await electron.launch({
-            executablePath: exe,
-            chromiumSandbox: true,
-            args: [`--storage-dir=${storage}`, `--reticulum-config-dir=${rns}`],
-            env,
-            timeout: 120000,
-        });
-        const context = app.context();
+        // Keep hardened Node-inspector fuses disabled. Only the renderer CDP
+        // endpoint is enabled, on loopback in this disposable CI fixture.
+        process = cp.spawn(
+            exe,
+            [
+                `--storage-dir=${storage}`,
+                `--reticulum-config-dir=${rns}`,
+                `--remote-debugging-port=${debugPort}`,
+                "--remote-debugging-address=127.0.0.1",
+                "--enable-automation",
+            ],
+            { env, stdio: ["ignore", "pipe", "pipe"] }
+        );
+        let diagnostic = "";
+        for (const stream of [process.stdout, process.stderr])
+            stream.on("data", (chunk) => {
+                diagnostic = (diagnostic + chunk.toString()).slice(-64000);
+            });
+        process.on("error", (error) => console.error("Packaged launch error", error.message));
+        browser = await connectRenderer(debugPort, process);
+        const context = browser.contexts()[0];
         context.setDefaultTimeout(30000);
         await context.addInitScript(() => {
             localStorage.setItem(
@@ -119,32 +167,27 @@ async function run(mode) {
                 });
             } else await route.fulfill({ json: { result: [], status: { available: false } } });
         });
-        const page = await app.firstWindow();
+        const page = context.pages()[0] || (await context.waitForEvent("page", { timeout: 30000 }));
         await page.waitForURL(/^https?:\/\//, { timeout: 120000 });
         await page.waitForFunction(() => Boolean(window.api), {}, { timeout: 120000 });
         const security = await page.evaluate(async () => (await window.api.get("/api/v1/server/security")).data);
         if (mode === "forced" && !security.appcontainer_active) throw Error("Forced AppContainer was not active");
-        const packaged = await app.evaluate(({ app, BrowserWindow }) => {
-            const window = BrowserWindow.getAllWindows().find((item) => /^https?:/.test(item.webContents.getURL()));
-            const preferences = window?.webContents.getLastWebPreferences();
-            return {
-                packaged: app.isPackaged,
-                version: app.getVersion(),
-                noSandboxSwitch: app.commandLine.hasSwitch("no-sandbox"),
-                rendererSandbox: preferences?.sandbox,
-                contextIsolation: preferences?.contextIsolation,
-                nodeIntegration: preferences?.nodeIntegration,
-            };
-        });
+        const version = await page.evaluate(async () => window.electron.appVersion());
+        if (version !== expectedVersion) throw Error("Unexpected packaged frontend version");
+        const renderer = await page.evaluate(() => ({
+            nodeGlobalsAbsent: typeof require === "undefined" && typeof process === "undefined",
+            trustedPreloadBridge: typeof window.electron?.appVersion === "function",
+        }));
+        if (!renderer.nodeGlobalsAbsent || !renderer.trustedPreloadBridge)
+            throw Error("Packaged renderer isolation was weakened");
+        const browserSession = await browser.newBrowserCDPSession();
+        const commandLine = await browserSession.send("Browser.getBrowserCommandLine");
         if (
-            packaged.noSandboxSwitch ||
-            packaged.rendererSandbox !== true ||
-            packaged.contextIsolation !== true ||
-            packaged.nodeIntegration !== false
+            commandLine.arguments.some(
+                (argument) => argument === "--no-sandbox" || argument === "--disable-gpu-sandbox"
+            )
         )
-            throw Error("Packaged renderer security settings were weakened");
-        if (!packaged.packaged || packaged.version !== expectedVersion)
-            throw Error("Not the actual packaged 0.1.7 application");
+            throw Error("Packaged Chromium sandbox was disabled");
         const origin = new URL(page.url()).origin,
             port = Number(new URL(page.url()).port);
         await page.goto(`${origin}/#/meshcore/nodes/${peer}`);
@@ -169,24 +212,33 @@ async function run(mode) {
         await page.evaluate(async () =>
             window.electron.setCloseSettings({ closeBehavior: "quit", trayEnabled: false })
         );
-        const closing = app.waitForEvent("close", { timeout: 30000 });
+        const closing = new Promise((resolve, reject) => {
+            const timer = setTimeout(() => reject(Error("Packaged app did not exit after normal Quit")), 30000);
+            process.once("exit", (code) => {
+                clearTimeout(timer);
+                if (code !== 0) reject(Error(`Packaged app exited abnormally: ${code}`));
+                else resolve();
+            });
+        });
         await page
             .evaluate(() => window.close())
             .catch((error) => {
                 if (!/closed/i.test(error.message)) throw error;
             });
         await closing;
-        app = null;
         await portClosed(port);
+        await portClosed(debugPort);
         if (!fs.readFileSync(path.join(storage, "profile-sentinel")).equals(sentinel))
             throw Error("Profile sentinel changed");
         results.push({
             mode,
-            packaged_version: packaged.version,
+            packaged_version: version,
             appcontainer_active: Boolean(security.appcontainer_active),
             actual_packaged_ui: true,
-            chromium_sandbox: true,
-            renderer_context_isolation: true,
+            normal_chromium_commandline: true,
+            hardened_execution_and_asar_fuses: true,
+            renderer_node_globals_absent: true,
+            trusted_preload_bridge: true,
             synthetic_meshcore_only: true,
             task_tabs: true,
             room_contact_name: true,
@@ -199,7 +251,11 @@ async function run(mode) {
         });
         console.log(JSON.stringify(results.at(-1)));
     } finally {
-        if (app) await app.close();
+        if (browser) await browser.close();
+        if (process && process.exitCode === null) {
+            console.error("Failure cleanup: terminating only the owned synthetic fixture process");
+            process.kill();
+        }
         fs.rmSync(base, { recursive: true, force: true });
     }
 }
@@ -207,6 +263,7 @@ async function run(mode) {
     if (process.platform !== "win32")
         throw Error("This native package check must run on Windows; Linux is not equivalent evidence");
     if (!fs.existsSync(exe)) throw Error(`Missing packaged executable: ${exe}`);
+    await verifyFuses();
     fs.mkdirSync(path.join(root, "temp-tests"), { recursive: true });
     for (const mode of ["default", "forced"]) await run(mode);
     fs.mkdirSync(path.join(root, "reports"), { recursive: true });
