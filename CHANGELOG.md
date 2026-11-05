@@ -1,5 +1,12 @@
 # Meshchat neXt changelog
 
+## 0.1.7
+
+- Simplify MeshCore repeater and room-server pages with task tabs, grouped administrator actions and collapsed identity details. Room messages open first, and drafts survive tab changes.
+- Show saved MeshCore contact names for unique room-author prefix matches, retaining the unverified prefix and avoiding ambiguous matches.
+- Apply the shared blocked-phrase and regex rules to incoming MeshCore direct messages, channel posts and room posts before history, unread counts or notifications. Room and channel author hints do not grant contact status, and matching posts never automatically ban a room server.
+- Preserve repeater terminal, MediaMesh / Radio2, multi-radio routing and existing Reticulum automatic banishment.
+
 ## 0.1.6
 
 - Update Android certificate trust bundles and the packaged Python runtime to address the compromised eMudhra certificate authorities.

@@ -56,7 +56,8 @@ def _json(value):
 
 
 class MeshCoreStore:
-    def __init__(self, path):
+    def __init__(self, path, *, message_blocklist=None):
+        self.message_blocklist = message_blocklist
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
@@ -427,6 +428,16 @@ class MeshCoreStore:
             self._reconcile(db, owner)
 
     def receive(self, owner, kind, payload):
+        if self.message_blocklist is not None:
+            from meshchatnext.src.backend.meshcore_blocklist import (
+                blocks_meshcore_message,
+            )
+
+            rules = self.message_blocklist()
+            if rules is not None and blocks_meshcore_message(
+                rules, kind, payload, self.contacts(owner)
+            ):
+                return None  # No history, unread marker or notification for a match.
         encoded = _json(payload)
         # Path/SNR can change on repeated reception; they are not message identity.
         identity = {

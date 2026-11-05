@@ -11,6 +11,7 @@ afterEach(() => {
 function setup(kind = 3) {
     window.api = { post: vi.fn().mockResolvedValue({ data: { result: { state: "verified", is_admin: false } } }) };
     wrapper = mount(MeshCoreNodeSession, {
+        attachTo: document.body,
         props: {
             node: { peer, kind, name: "Test node" },
             snapshot: { owner, connected: true, messages: [], node_sessions: {} },
@@ -118,7 +119,7 @@ describe("MeshCore node sessions", () => {
             snapshot: { ...snapshot, node_sessions: { [peer]: { state: "verified", is_admin: true } } },
         });
         expect(wrapper.text()).toContain("Administrator login verified");
-        await wrapper.find("select").setValue("reboot");
+        await button("Restart server").trigger("click");
         expect(button("Run server action").attributes("disabled")).toBeDefined();
         await wrapper.find('input[type="checkbox"]').setValue(true);
         window.api.post.mockResolvedValueOnce({ data: { result: { state: "submitted", text: "Restart submitted" } } });
@@ -214,7 +215,7 @@ describe("MeshCore node sessions", () => {
                 node_sessions: { [peer]: { state: "verified", is_admin: true } },
             },
         });
-        await wrapper.find("select").setValue("set-room-password");
+        await button("Change room password (non-administrator)").trigger("click");
         const value = wrapper.find('[aria-label="Administrator setting value"]');
         const confirm = wrapper.find('[aria-label="Confirm room password"]');
         expect(value.attributes("type")).toBe("password");
@@ -246,7 +247,7 @@ describe("MeshCore node sessions", () => {
         await confirm.setValue("x".repeat(16));
         expect(button("Run server action").attributes("disabled")).toBeDefined();
         await wrapper.setProps({ node: { peer, kind: 2, name: "Repeater" } });
-        expect(wrapper.findAll("option").some((x) => x.element.value === "set-room-password")).toBe(false);
+        expect(button("Change room password (non-administrator)")).toBeUndefined();
     });
 
     it("clears stale timeout blocks when reconnect occurs between UI polls", async () => {
@@ -308,5 +309,62 @@ describe("MeshCore node sessions", () => {
         await flushPromises();
         expect(wrapper.text()).not.toContain("Old radio private response");
         expect(window.api.post).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe("Task-based node navigation and room author names", () => {
+    it("opens rooms on Messages and repeaters on Overview without sending commands", async () => {
+        setup();
+        const panel = (name) => wrapper.find(`[aria-label="${name}"]`);
+        expect(panel("Room conversation").isVisible()).toBe(true);
+        expect(panel("Node access").isVisible()).toBe(false);
+        expect(panel("Manage node").isVisible()).toBe(false);
+        await button("Access").trigger("click");
+        expect(panel("Node access").isVisible()).toBe(true);
+        expect(panel("Room conversation").isVisible()).toBe(false);
+        expect(window.api.post).not.toHaveBeenCalled();
+        await wrapper.setProps({ node: { peer: "cc".repeat(32), kind: 2, name: "Repeater" } });
+        expect(button("Overview").attributes("aria-pressed")).toBe("true");
+        expect(panel("Node status").isVisible()).toBe(true);
+        expect(panel("Room conversation").exists()).toBe(false);
+    });
+    it("keeps a room draft across tab changes and exposes admin login without sending anything", async () => {
+        setup();
+        await wrapper.setProps({
+            snapshot: { owner, connected: true, messages: [], node_sessions: { [peer]: { state: "verified" } } },
+        });
+        await wrapper.find("textarea").setValue("Draft for later");
+        await button("Manage").trigger("click");
+        expect(wrapper.find('[aria-label="Manage node"]').text()).toContain("Administrator access required");
+        await button("Open Access").trigger("click");
+        expect(wrapper.find('[aria-label="Node access"]').isVisible()).toBe(true);
+        await button("Messages").trigger("click");
+        expect(wrapper.find("textarea").element.value).toBe("Draft for later");
+        expect(window.api.post).not.toHaveBeenCalled();
+    });
+    it("updates saved author names reactively and clears them when the active identity changes", async () => {
+        setup();
+        const message = {
+            id: "author-post",
+            peer,
+            text: "Hello room",
+            direction: "in",
+            created: 1,
+            payload: JSON.stringify({ event: { txt_type: 2, signature: "abcd1234" } }),
+        };
+        const snapshot = {
+            owner,
+            connected: true,
+            messages: [message],
+            contacts: [{ peer: "abcd1234" + "11".repeat(28), name: "Alice" }],
+        };
+        await wrapper.setProps({ snapshot });
+        expect(wrapper.find("article").text()).toContain("Alice");
+        expect(wrapper.find("article").text()).toContain("abcd1234 · contact match");
+        await wrapper.setProps({ snapshot: { ...snapshot, contacts: [{ ...snapshot.contacts[0], name: "Alicia" }] } });
+        expect(wrapper.find("article").text()).toContain("Alicia");
+        await wrapper.setProps({ snapshot: { ...snapshot, owner: "ee".repeat(32), contacts: [] } });
+        expect(wrapper.find("article").text()).toContain("Author abcd1234");
+        expect(wrapper.find("article").text()).not.toContain("Alice");
     });
 });

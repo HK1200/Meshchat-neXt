@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: 0BSD
 
-"""LXMF message blocklist: match spam phrases (substring or regex) and auto-banish."""
+"""Shared message phrase rules; Reticulum auto-banishes, MeshCore filters text."""
 
 from __future__ import annotations
 

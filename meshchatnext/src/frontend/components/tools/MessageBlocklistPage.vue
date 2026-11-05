@@ -10,6 +10,11 @@
         />
         <div class="flex-1 overflow-y-auto w-full pb-[max(1rem,env(safe-area-inset-bottom))]">
             <div class="p-3 sm:p-4 md:p-6 max-w-4xl mx-auto w-full space-y-4 min-w-0">
+                <p class="text-sm text-sem-fg-muted">{{ $t("tools.message_blocklist.network_scope_hint") }}</p>
+                <details class="text-sm text-sem-fg-muted">
+                    <summary class="cursor-pointer">{{ $t("tools.message_blocklist.scope_label") }} · MeshCore</summary>
+                    <p class="mt-2">{{ $t("tools.message_blocklist.meshcore_scope_hint") }}</p>
+                </details>
                 <div
                     class="rounded-xl border border-sem-warning dark:border-sem-warning bg-sem-warning/15 dark:bg-sem-warning/15 px-4 py-3 flex items-start gap-3"
                 >

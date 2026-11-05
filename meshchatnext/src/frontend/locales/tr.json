@@ -3410,7 +3410,9 @@
             "import_merge_confirm": "Geçerli listenle birleştirilsin mi? Listeni tamamen değiştirmek için İptal'i seç.",
             "imported_merge": "Engelleme listesi birleştirildi",
             "imported_replace": "Engelleme listesi değiştirildi",
-            "import_failed": "Engelleme listesi içe aktarılamadı"
+            "import_failed": "Engelleme listesi içe aktarılamadı",
+            "network_scope_hint": "Applies to new Reticulum messages and MeshCore direct messages, channel posts and room posts. MeshCore filters matching text without automatically banning contacts or room servers.",
+            "meshcore_scope_hint": "MeshCore channel names and room-author prefixes are unverified, so these messages count as non-contacts for scope rules. Direct messages use uniquely resolved saved MeshCore contacts. Binary packets and administrator replies are not phrase-filtered."
         },
         "repository_server": {
             "title": "Depo sunucusu",

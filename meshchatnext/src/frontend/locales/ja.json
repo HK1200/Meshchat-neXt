@@ -3410,7 +3410,9 @@
             "import_merge_confirm": "現在のリストに結合しますか？キャンセルを選ぶと、リストを完全に置き換えます。",
             "imported_merge": "ブロックリストを結合しました",
             "imported_replace": "ブロックリストを置き換えました",
-            "import_failed": "ブロックリストをインポートできませんでした"
+            "import_failed": "ブロックリストをインポートできませんでした",
+            "network_scope_hint": "Applies to new Reticulum messages and MeshCore direct messages, channel posts and room posts. MeshCore filters matching text without automatically banning contacts or room servers.",
+            "meshcore_scope_hint": "MeshCore channel names and room-author prefixes are unverified, so these messages count as non-contacts for scope rules. Direct messages use uniquely resolved saved MeshCore contacts. Binary packets and administrator replies are not phrase-filtered."
         },
         "repository_server": {
             "title": "リポジトリサーバー",

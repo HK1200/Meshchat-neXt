@@ -3410,7 +3410,9 @@
             "import_merge_confirm": "현재 목록과 병합하시겠습니까? 목록 전체를 교체하려면 취소를 선택하세요.",
             "imported_merge": "차단 목록이 병합되었습니다",
             "imported_replace": "차단 목록이 교체되었습니다",
-            "import_failed": "차단 목록을 가져올 수 없습니다"
+            "import_failed": "차단 목록을 가져올 수 없습니다",
+            "network_scope_hint": "Applies to new Reticulum messages and MeshCore direct messages, channel posts and room posts. MeshCore filters matching text without automatically banning contacts or room servers.",
+            "meshcore_scope_hint": "MeshCore channel names and room-author prefixes are unverified, so these messages count as non-contacts for scope rules. Direct messages use uniquely resolved saved MeshCore contacts. Binary packets and administrator replies are not phrase-filtered."
         },
         "repository_server": {
             "title": "저장소 서버",

@@ -4,62 +4,78 @@
             {{ snapshot.connected ? "MeshCore radio connected" : "Disconnected · saved history" }} ·
             {{ administrator ? "Administrator login verified" : verified ? "Member login verified" : "Not logged in" }}
         </p>
-        <p class="text-xs text-sem-fg-muted">
-            {{
-                node.kind === 3
-                    ? "Room login remains active for this MeshCore connection, until logout or a confirmed disconnection."
-                    : "Repeater login is remembered for five minutes in this app session."
-            }}
-            Passwords are only saved when you explicitly choose secure storage below.
-        </p>
-        <form class="flex flex-wrap items-end gap-2" @submit.prevent="login">
-            <label v-if="!verified" class="text-sm w-full min-w-0"
-                >Server password
-                <input
-                    v-model="password"
-                    :type="showPassword ? 'text' : 'password'"
-                    autocomplete="off"
-                    class="bg-sem-surface-muted border border-sem-border text-sm rounded-2xl focus:ring-2 focus:ring-sem-focus block w-full p-2.5 text-sem-fg mt-1"
+        <nav class="flex flex-wrap gap-2 border-b border-sem-border pb-3" aria-label="Node sections">
+            <button
+                v-for="item in nodeTabs"
+                :key="item.id"
+                type="button"
+                :class="activeTab === item.id ? 'primary-chip' : 'secondary-chip'"
+                :aria-pressed="activeTab === item.id"
+                :aria-controls="panelId(item.id)"
+                @click="activeTab = item.id"
+            >
+                {{ item.label }}
+            </button>
+        </nav>
+        <section v-show="activeTab === 'access'" :id="panelId('access')" class="space-y-4" aria-label="Node access">
+            <h3 class="font-semibold">Access &amp; passwords</h3>
+            <p class="text-xs text-sem-fg-muted">
+                {{
+                    node.kind === 3
+                        ? "Room login remains active for this MeshCore connection, until logout or a confirmed disconnection."
+                        : "Repeater login is remembered for five minutes in this app session."
+                }}
+                Passwords are only saved when you explicitly choose secure storage below.
+            </p>
+            <form class="flex flex-wrap items-end gap-2" @submit.prevent="login">
+                <label v-if="!verified" class="text-sm w-full min-w-0"
+                    >Server password
+                    <input
+                        v-model="password"
+                        :type="showPassword ? 'text' : 'password'"
+                        autocomplete="off"
+                        class="bg-sem-surface-muted border border-sem-border text-sm rounded-2xl focus:ring-2 focus:ring-sem-focus block w-full p-2.5 text-sem-fg mt-1"
+                        :disabled="busy || needsRecovery || !snapshot.connected"
+                        aria-label="MeshCore server password"
+                    />
+                </label>
+                <button
+                    v-if="!verified"
+                    type="button"
+                    class="secondary-chip"
+                    :aria-pressed="showPassword"
                     :disabled="busy || needsRecovery || !snapshot.connected"
-                    aria-label="MeshCore server password"
-                />
-            </label>
-            <button
-                v-if="!verified"
-                type="button"
-                class="secondary-chip"
-                :aria-pressed="showPassword"
-                :disabled="busy || needsRecovery || !snapshot.connected"
-                @click="showPassword = !showPassword"
+                    @click="showPassword = !showPassword"
+                >
+                    {{ showPassword ? "Hide password" : "Show password" }}
+                </button>
+                <button v-if="!verified" class="primary-chip" :disabled="busy || needsRecovery || !snapshot.connected">
+                    {{ busy ? "Working…" : "Log in" }}
+                </button>
+                <button
+                    v-if="verified"
+                    type="button"
+                    class="secondary-chip"
+                    :disabled="busy || needsRecovery || !snapshot.connected || !verified"
+                    @click="operate('node-logout')"
+                >
+                    Log out
+                </button>
+            </form>
+            <MeshCoreNodePasswords
+                :owner="snapshot.owner"
+                :peer="node.peer"
+                :disabled="busy || !snapshot.connected"
+                :can-login="!verified && !needsRecovery"
+                :refresh-key="passwordRefresh"
+                @use-saved="operate('node-login', { use_saved_role: $event })"
+                @available="vaultAvailable = $event"
+            />
+            <label v-if="!verified && vaultAvailable" class="flex items-center gap-2 text-sm"
+                ><input v-model="rememberPassword" type="checkbox" :disabled="busy" />Save password securely after
+                successful login</label
             >
-                {{ showPassword ? "Hide password" : "Show password" }}
-            </button>
-            <button v-if="!verified" class="primary-chip" :disabled="busy || needsRecovery || !snapshot.connected">
-                {{ busy ? "Working…" : "Log in" }}
-            </button>
-            <button
-                v-if="verified"
-                type="button"
-                class="secondary-chip"
-                :disabled="busy || needsRecovery || !snapshot.connected || !verified"
-                @click="operate('node-logout')"
-            >
-                Log out
-            </button>
-        </form>
-        <MeshCoreNodePasswords
-            :owner="snapshot.owner"
-            :peer="node.peer"
-            :disabled="busy || !snapshot.connected"
-            :can-login="!verified && !needsRecovery"
-            :refresh-key="passwordRefresh"
-            @use-saved="operate('node-login', { use_saved_role: $event })"
-            @available="vaultAvailable = $event"
-        />
-        <label v-if="!verified && vaultAvailable" class="flex items-center gap-2 text-sm"
-            ><input v-model="rememberPassword" type="checkbox" :disabled="busy" />Save password securely after
-            successful login</label
-        >
+        </section>
         <p v-if="notice" role="status" class="text-sm text-sem-fg-muted">{{ notice }}</p>
         <p v-if="!needsRecovery && snapshot.node_operations?.[node.peer]" class="text-xs text-sem-fg-muted">
             Last request: {{ operationLabel(snapshot.node_operations[node.peer].stage) }}
@@ -79,143 +95,185 @@
                 Reconnect MeshCore
             </button>
         </div>
-        <button
-            class="secondary-chip"
-            :disabled="busy || needsRecovery || !snapshot.connected || !verified"
-            @click="operate('node-status')"
-        >
-            Request status
-        </button>
-        <button
-            class="secondary-chip"
-            :disabled="busy || needsRecovery || !snapshot.connected"
-            @click="operate('node-route')"
-        >
-            Check route
-        </button>
-        <dl v-if="status" class="grid grid-cols-2 gap-2 text-sm">
-            <template v-for="(value, key) in status.values" :key="key"
-                ><dt class="text-sem-fg-muted">{{ label(key) }}</dt>
-                <dd>{{ value }}</dd></template
+        <section v-show="activeTab === 'status'" :id="panelId('status')" class="space-y-4" aria-label="Node status">
+            <h3 class="font-semibold">Last reported status</h3>
+            <p class="text-sm text-sem-fg-muted">
+                {{
+                    status
+                        ? "Received during this visit. A previous report does not confirm current reachability."
+                        : "No status requested during this visit."
+                }}
+            </p>
+            <p v-if="!verified" class="text-sm text-sem-fg-muted">
+                Log in under Access to request status. Route checks do not require login.
+            </p>
+            <button
+                class="secondary-chip"
+                :disabled="busy || needsRecovery || !snapshot.connected || !verified"
+                @click="operate('node-status')"
             >
-        </dl>
-        <section
-            v-if="administrator"
-            class="space-y-3 border-t border-sem-border pt-4"
-            aria-label="MeshCore administrator controls"
-        >
-            <h3 class="font-semibold">Administrator · MeshCore</h3>
-            <p class="text-xs text-sem-fg-muted">Manage this server using your verified administrator login.</p>
-            <form class="space-y-3" @submit.prevent="administer">
-                <label class="block text-sm"
-                    >Server action
-                    <select
-                        v-model="adminAction"
-                        class="block w-full bg-sem-surface-muted text-sem-fg border border-sem-border rounded-2xl p-2.5 mt-1"
-                        :disabled="busy || needsRecovery"
-                    >
-                        <option v-for="item in adminOptions" :key="item[0]" :value="item[0]">{{ item[1] }}</option>
-                    </select>
-                </label>
-                <label v-if="adminNeedsValue" class="block text-sm"
-                    >{{ adminValueLabel }}
-                    <select
-                        v-if="adminAction === 'set-read-only'"
-                        v-model="adminValue"
-                        aria-label="Room read-only guest access"
-                        class="block w-full bg-sem-surface-muted text-sem-fg border border-sem-border rounded-2xl p-2.5 mt-1"
-                        :disabled="busy || needsRecovery"
-                    >
-                        <option value="">Choose access</option>
-                        <option value="on">Allow read-only guests</option>
-                        <option value="off">Require the member password</option>
-                    </select>
-                    <input
-                        v-else
-                        v-model="adminValue"
-                        :type="adminSecret && !showAdminPassword ? 'password' : 'text'"
-                        autocomplete="off"
-                        aria-label="Administrator setting value"
-                        class="block w-full bg-sem-surface-muted text-sem-fg border border-sem-border rounded-2xl p-2.5 mt-1"
-                        :disabled="busy || needsRecovery"
-                    />
-                </label>
-                <template v-if="adminSecret">
-                    <p class="text-xs text-sem-fg-muted">
-                        This password is for member logins. The administrator password is separate. Maximum 15 UTF-8
-                        bytes.
-                    </p>
-                    <label class="block text-sm"
-                        >Confirm new room password
+                Request status
+            </button>
+            <button
+                class="secondary-chip"
+                :disabled="busy || needsRecovery || !snapshot.connected"
+                @click="operate('node-route')"
+            >
+                Check route
+            </button>
+            <dl v-if="status" class="grid grid-cols-2 gap-2 text-sm">
+                <template v-for="(value, key) in status.values" :key="key"
+                    ><dt class="text-sem-fg-muted">{{ label(key) }}</dt>
+                    <dd>{{ value }}</dd></template
+                >
+            </dl>
+        </section>
+        <section v-show="activeTab === 'manage'" :id="panelId('manage')" class="space-y-4" aria-label="Manage node">
+            <template v-if="!administrator">
+                <h3 class="font-semibold">Administrator access required</h3>
+                <p class="text-sm text-sem-fg-muted">
+                    Log in with this node’s administrator password under Access to manage settings.
+                </p>
+                <button type="button" class="primary-chip" @click="activeTab = 'access'">Open Access</button>
+            </template>
+            <section v-if="administrator" class="space-y-3" aria-label="MeshCore administrator controls">
+                <h3 class="font-semibold">Administrator · MeshCore</h3>
+                <p class="text-xs text-sem-fg-muted">Manage this server using your verified administrator login.</p>
+                <div class="space-y-2" aria-label="Administrator settings">
+                    <details v-for="group in adminGroups" :key="group.label" class="border-b border-sem-border py-3">
+                        <summary class="cursor-pointer text-sm font-semibold">{{ group.label }}</summary>
+                        <div class="flex flex-wrap gap-2 pt-3">
+                            <button
+                                v-for="item in group.options"
+                                :key="item[0]"
+                                type="button"
+                                class="secondary-chip"
+                                :aria-pressed="adminAction === item[0]"
+                                :disabled="busy || needsRecovery"
+                                @click="adminAction = item[0]"
+                            >
+                                {{ item[1] }}
+                            </button>
+                        </div>
+                    </details>
+                </div>
+                <form class="space-y-3 border-t border-sem-border pt-4" @submit.prevent="administer">
+                    <h4 class="font-semibold">{{ adminOptions.find(([action]) => action === adminAction)?.[1] }}</h4>
+                    <label v-if="adminNeedsValue" class="block text-sm"
+                        >{{ adminValueLabel }}
+                        <select
+                            v-if="adminAction === 'set-read-only'"
+                            v-model="adminValue"
+                            aria-label="Room read-only guest access"
+                            class="block w-full bg-sem-surface-muted text-sem-fg border border-sem-border rounded-2xl p-2.5 mt-1"
+                            :disabled="busy || needsRecovery"
+                        >
+                            <option value="">Choose access</option>
+                            <option value="on">Allow read-only guests</option>
+                            <option value="off">Require the member password</option>
+                        </select>
                         <input
-                            v-model="adminPasswordConfirm"
-                            :type="showAdminPassword ? 'text' : 'password'"
+                            v-else
+                            v-model="adminValue"
+                            :type="adminSecret && !showAdminPassword ? 'password' : 'text'"
                             autocomplete="off"
-                            aria-label="Confirm room password"
+                            aria-label="Administrator setting value"
                             class="block w-full bg-sem-surface-muted text-sem-fg border border-sem-border rounded-2xl p-2.5 mt-1"
                             :disabled="busy || needsRecovery"
                         />
                     </label>
+                    <template v-if="adminSecret">
+                        <p class="text-xs text-sem-fg-muted">
+                            This password is for member logins. The administrator password is separate. Maximum 15 UTF-8
+                            bytes.
+                        </p>
+                        <label class="block text-sm"
+                            >Confirm new room password
+                            <input
+                                v-model="adminPasswordConfirm"
+                                :type="showAdminPassword ? 'text' : 'password'"
+                                autocomplete="off"
+                                aria-label="Confirm room password"
+                                class="block w-full bg-sem-surface-muted text-sem-fg border border-sem-border rounded-2xl p-2.5 mt-1"
+                                :disabled="busy || needsRecovery"
+                            />
+                        </label>
+                        <button
+                            type="button"
+                            class="secondary-chip"
+                            :disabled="busy || needsRecovery"
+                            :aria-pressed="showAdminPassword"
+                            @click="showAdminPassword = !showAdminPassword"
+                        >
+                            {{ showAdminPassword ? "Hide new password" : "Show new password" }}
+                        </button>
+                    </template>
+                    <label v-if="adminDisruptive" class="flex items-start gap-2 text-sm">
+                        <input v-model="adminConfirmed" type="checkbox" class="mt-1" />
+                        {{
+                            adminSecret
+                                ? "Change the room member password."
+                                : adminAction === "reboot"
+                                  ? "Restart this server and disconnect its users."
+                                  : "Changing the radio profile can make this server unreachable. A restart is needed to apply it."
+                        }}
+                    </label>
+                    <p v-if="adminAction === 'sync-clock'" class="text-xs text-sem-fg-muted">
+                        Uses the connected MeshCore radio’s clock. The server will refuse to move its clock backwards.
+                    </p>
+                    <p v-if="['set-latitude', 'set-longitude'].includes(adminAction)" class="text-xs text-sem-fg-muted">
+                        Updates the server’s saved position. Its firmware and location-sharing settings control which
+                        position appears in adverts.
+                    </p>
+                    <p v-if="adminAction === 'set-read-only'" class="text-xs text-sem-fg-muted">
+                        When enabled, guests without the member password may read room posts.
+                    </p>
+                    <p v-if="adminAction === 'set-hash'" class="text-xs text-sem-fg-muted">
+                        Enter 1, 2, or 3 bytes. The app converts this to the firmware mode.
+                    </p>
                     <button
-                        type="button"
                         class="secondary-chip"
-                        :disabled="busy || needsRecovery"
-                        :aria-pressed="showAdminPassword"
-                        @click="showAdminPassword = !showAdminPassword"
+                        :disabled="
+                            busy ||
+                            needsRecovery ||
+                            (adminNeedsValue && !adminValue.trim()) ||
+                            (adminDisruptive && !adminConfirmed) ||
+                            (adminSecret && (!adminPasswordValid || adminPasswordConfirm !== adminValue))
+                        "
                     >
-                        {{ showAdminPassword ? "Hide new password" : "Show new password" }}
+                        Run server action
                     </button>
-                </template>
-                <label v-if="adminDisruptive" class="flex items-start gap-2 text-sm">
-                    <input v-model="adminConfirmed" type="checkbox" class="mt-1" />
-                    {{
-                        adminSecret
-                            ? "Change the room member password."
-                            : adminAction === "reboot"
-                              ? "Restart this server and disconnect its users."
-                              : "Changing the radio profile can make this server unreachable. A restart is needed to apply it."
-                    }}
-                </label>
-                <p v-if="adminAction === 'sync-clock'" class="text-xs text-sem-fg-muted">
-                    Uses the connected MeshCore radio’s clock. The server will refuse to move its clock backwards.
+                </form>
+                <p v-if="adminResult" role="status" class="whitespace-pre-wrap break-words text-sm">
+                    {{ adminResult }}
                 </p>
-                <p v-if="['set-latitude', 'set-longitude'].includes(adminAction)" class="text-xs text-sem-fg-muted">
-                    Updates the server’s saved position. Its firmware and location-sharing settings control which
-                    position appears in adverts.
-                </p>
-                <p v-if="adminAction === 'set-read-only'" class="text-xs text-sem-fg-muted">
-                    When enabled, guests without the member password may read room posts.
-                </p>
-                <p v-if="adminAction === 'set-hash'" class="text-xs text-sem-fg-muted">
-                    Enter 1, 2, or 3 bytes. The app converts this to the firmware mode.
-                </p>
-                <button
-                    class="secondary-chip"
-                    :disabled="
-                        busy ||
-                        needsRecovery ||
-                        (adminNeedsValue && !adminValue.trim()) ||
-                        (adminDisruptive && !adminConfirmed) ||
-                        (adminSecret && (!adminPasswordValid || adminPasswordConfirm !== adminValue))
-                    "
-                >
-                    Run server action
-                </button>
-            </form>
-            <p v-if="adminResult" role="status" class="whitespace-pre-wrap break-words text-sm">{{ adminResult }}</p>
-            <MeshCoreRepeaterConsole
-                :key="`${snapshot.owner}:${snapshot.radio_id}:${snapshot.connection_id}:${node.peer}`"
-                :request="repeaterRequest"
-                :disabled="busy || needsRecovery || !snapshot.connected"
-            />
+                <MeshCoreRepeaterConsole
+                    :key="`${snapshot.owner}:${snapshot.radio_id}:${snapshot.connection_id}:${node.peer}`"
+                    :request="repeaterRequest"
+                    :disabled="busy || needsRecovery || !snapshot.connected"
+                />
+            </section>
         </section>
-        <template v-if="node.kind === 3">
+        <section
+            v-if="node.kind === 3"
+            v-show="activeTab === 'messages'"
+            :id="panelId('messages')"
+            class="space-y-4"
+            aria-label="Room conversation"
+        >
             <h3 class="font-semibold">Room messages · MeshCore</h3>
+            <button v-if="!verified" type="button" class="primary-chip" @click="activeTab = 'access'">
+                Log in to post
+            </button>
             <p v-if="roomPositionError" role="alert" class="text-sm text-sem-danger">{{ roomPositionError }}</p>
-            <p class="text-xs text-sem-fg-muted">
-                Posts are shared with room members. Received posts identify their author by a short key prefix supplied
-                by the server.
-            </p>
+            <p class="text-xs text-sem-fg-muted">Shared with room members.</p>
+            <details class="text-xs text-sem-fg-muted">
+                <summary class="cursor-pointer">About author names</summary>
+                <p class="mt-2">
+                    The server supplies a short author key prefix. A unique saved MeshCore contact match shows its name.
+                    This is a display hint, not verified identity; ambiguous matches keep the prefix.
+                </p>
+            </details>
             <div
                 ref="roomList"
                 class="space-y-3 max-h-96 overflow-y-auto"
@@ -232,7 +290,12 @@
                     class="border border-sem-border rounded-2xl p-3"
                     :class="row.direction === 'out' ? 'ml-6 bg-sem-bubble-outbound/10' : 'mr-6 bg-sem-surface'"
                 >
-                    <p class="text-xs text-sem-fg-muted">{{ row.direction === "out" ? "You" : author(row) }}</p>
+                    <p class="text-xs text-sem-fg-muted">
+                        {{ row.direction === "out" ? "You" : author(row).label }}
+                        <span v-if="row.direction !== 'out' && author(row).matched">
+                            · {{ author(row).prefix }} · contact match</span
+                        >
+                    </p>
                     <p v-if="row.id === roomFirstUnreadId" class="text-xs font-semibold text-sem-accent mb-2">
                         New messages
                     </p>
@@ -248,7 +311,8 @@
             </button>
             <form class="space-y-2" @submit.prevent="send">
                 <label class="text-sm"
-                    >Post to {{ node.name }} via MeshCore<textarea
+                    >Post to {{ node.name
+                    }}<textarea
                         v-model="draft"
                         rows="3"
                         class="bg-sem-surface-muted border border-sem-border text-sm rounded-2xl focus:ring-2 focus:ring-sem-focus block w-full p-2.5 text-sem-fg mt-1"
@@ -267,11 +331,12 @@
                     </button>
                 </div>
             </form>
-        </template>
+        </section>
     </div>
 </template>
 <script setup>
 import MeshCoreRepeaterConsole from "./MeshCoreRepeaterConsole.vue";
+import { roomAuthor } from "../../js/meshcoreRoomAuthor";
 import { useMeshCoreMessagePosition } from "../../js/meshcoreMessagePosition";
 import { computed, ref, watch, onBeforeUnmount } from "vue";
 import MeshCoreNodePasswords from "./MeshCoreNodePasswords.vue";
@@ -285,6 +350,20 @@ const props = defineProps({
     visit: { type: String, default: "" },
 });
 const emit = defineEmits(["changed", "busy"]);
+const activeTab = ref(props.node.kind === 3 ? "messages" : "status");
+const nodeTabs = computed(() => [
+    ...(props.node.kind === 3 ? [{ id: "messages", label: "Messages" }] : []),
+    { id: "status", label: props.node.kind === 3 ? "Status" : "Overview" },
+    { id: "access", label: "Access" },
+    { id: "manage", label: "Manage" },
+]);
+const panelId = (tab) => `meshcore-node-${props.node.peer}-${tab}`;
+watch(
+    () => [props.node.peer, props.node.kind, props.snapshot.owner, props.snapshot.radio_id],
+    () => {
+        activeTab.value = props.node.kind === 3 ? "messages" : "status";
+    }
+);
 const showPassword = ref(false);
 const adminAction = ref("version"),
     adminValue = ref(""),
@@ -333,6 +412,37 @@ const adminOptions = computed(() => [
         : []),
     ["reboot", "Restart server"],
 ]);
+const adminGroups = computed(() =>
+    [
+        {
+            label: "Identity & location",
+            actions: ["version", "board", "name", "set-name", "latitude", "longitude", "set-latitude", "set-longitude"],
+        },
+        { label: "Radio & routing", actions: ["radio", "tx", "hash", "set-radio", "set-tx", "set-hash"] },
+        {
+            label: "Advertisements & clock",
+            actions: [
+                "clock",
+                "sync-clock",
+                "local-interval",
+                "set-local-interval",
+                "flood-interval",
+                "set-flood-interval",
+                "advert",
+            ],
+        },
+        {
+            label: "Room access & announcements",
+            actions: ["room-post", "set-room-password", "room-access", "set-read-only"],
+        },
+        { label: "Restart", actions: ["reboot"] },
+    ]
+        .map((group) => ({
+            label: group.label,
+            options: adminOptions.value.filter(([action]) => group.actions.includes(action)),
+        }))
+        .filter((group) => group.options.length)
+);
 const adminNeedsValue = computed(() => adminAction.value.startsWith("set-") || adminAction.value === "room-post");
 const adminDisruptive = computed(() => ["set-radio", "reboot", "set-room-password"].includes(adminAction.value));
 const adminValueLabel = computed(
@@ -356,6 +466,13 @@ function clearAdminPassword() {
     adminPasswordConfirm.value = "";
     showAdminPassword.value = false;
 }
+watch(activeTab, (tab, previous) => {
+    if (previous === "access") {
+        password.value = "";
+        showPassword.value = false;
+    }
+    if (previous === "manage" && adminSecret.value) clearAdminPassword();
+});
 watch(adminAction, () => {
     clearAdminPassword();
     adminConfirmed.value = false;
@@ -437,8 +554,7 @@ function payload(row) {
     }
 }
 function author(row) {
-    const key = payload(row).signature;
-    return /^[a-f0-9]{8}$/i.test(key || "") ? `Author ${key}` : "Unknown author";
+    return roomAuthor(payload(row).signature, props.snapshot.contacts);
 }
 function operationLabel(stage) {
     return (
