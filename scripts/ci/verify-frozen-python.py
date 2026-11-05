@@ -23,10 +23,49 @@ def main():
         "--expected-python", default=os.getenv("PYTHON_VERSION", "3.14.10")
     )
     parser.add_argument("--inside", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--ci-privileged-setup", action="store_true", help=argparse.SUPPRESS
+    )
     parser.add_argument("--fixture", type=Path, help=argparse.SUPPRESS)
     args = parser.parse_args()
     if not sys.platform.startswith("linux"):
         raise RuntimeError("Build invariant failed: sys.platform.startswith('linux')")
+    hosted_ci = (
+        os.environ.get("GITHUB_ACTIONS") == "true"
+        and os.environ.get("RUNNER_ENVIRONMENT") == "github-hosted"
+    )
+    if args.ci_privileged_setup and (not hosted_ci or os.geteuid() != 0 or args.inside):
+        raise RuntimeError("Privileged namespace setup is restricted to hosted CI")
+    if hosted_ci and os.geteuid() != 0 and not args.inside:
+        # Ubuntu restricts unprivileged namespace capabilities. Only the
+        # disposable hosted fixture uses privileged setup; no host policy changes.
+        clean_env = [
+            "PATH=/usr/sbin:/usr/bin:/sbin:/bin",
+            "LANG=C.UTF-8",
+            "GITHUB_ACTIONS=true",
+            "RUNNER_ENVIRONMENT=github-hosted",
+        ]
+        if os.environ.get("LD_LIBRARY_PATH"):
+            clean_env.append("LD_LIBRARY_PATH=" + os.environ["LD_LIBRARY_PATH"])
+        subprocess.run(
+            [
+                "/usr/bin/sudo",
+                "-n",
+                "/usr/bin/env",
+                "-i",
+                *clean_env,
+                sys.executable,
+                str(Path(__file__).resolve()),
+                "--ci-privileged-setup",
+                "--arch",
+                args.arch,
+                "--expected-python",
+                args.expected_python,
+            ],
+            check=True,
+            timeout=120,
+        )
+        return
     root = Path(__file__).resolve().parents[2]
     build = root / f"build/exe/linux-{args.arch}"
     candidates = [
@@ -80,6 +119,8 @@ def main():
                 "--unshare-user",
                 "--unshare-pid",
                 "--unshare-net",
+                "--cap-drop",
+                "ALL",
                 "--die-with-parent",
                 "--setenv",
                 "TMPDIR",
@@ -132,6 +173,15 @@ def main():
     parent_user = os.environ.get("FROZEN_PROBE_PARENT_USERNS")
     if not (parent_user and parent_user != os.readlink("/proc/self/ns/user")):
         raise RuntimeError("Frozen runtime probe requires a separate user namespace")
+    status = dict(
+        line.split(":", 1)
+        for line in Path("/proc/self/status").read_text().splitlines()
+        if ":" in line
+    )
+    if any(int(status[key].strip(), 16) != 0 for key in ("CapEff", "CapBnd")):
+        raise RuntimeError(
+            "Frozen runtime payload must have no effective or bounding capabilities"
+        )
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
         port = listener.getsockname()[1]
@@ -195,6 +245,11 @@ def main():
                 "source": info.get("git_commit"),
                 "private_network_and_devices": True,
                 "private_user_namespace": True,
+                "payload_capabilities_dropped": True,
+                "payload_uid": os.geteuid(),
+                "namespace_setup": "privileged-hosted-ci"
+                if hosted_ci
+                else "unprivileged-local",
                 "fixture_certificate_verified": True,
             }
             (fixture / "result.json").write_text(json.dumps(report))
