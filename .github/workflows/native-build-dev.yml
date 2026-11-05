@@ -239,7 +239,7 @@ jobs:
             MESHCHAT_RELEASE_REVIEW_ROOT: ${{ github.workspace }}/temp-tests/windows-release-review
             MESHCHAT_REVIEW_RUN_ID: ${{ inputs.release_artifact_run }}
             MESHCHATNEXT_BUILD_CHANNEL: stable
-            MESHCHATNEXT_GIT_COMMIT: 263b07538d4fcfd58e7020453f9d53fbef19d0d8
+            MESHCHATNEXT_GIT_COMMIT: c73b4e0b5f5376f9e4e6a0e9b752bf00a76f67f1
             PYTHON_CMD: uv run --frozen --all-extras --group dev python
         steps:
             - name: Harden runner
@@ -250,7 +250,7 @@ jobs:
             - name: Assert the fixed release artifact run
               shell: pwsh
               run: |
-                  if ($env:MESHCHAT_REVIEW_RUN_ID -ne "42029624165") { throw "Only the immutable 0.1.7 main build is permitted" }
+                  if ($env:MESHCHAT_REVIEW_RUN_ID -ne "42102913490") { throw "Only the immutable 0.1.7 main build is permitted" }
             - name: Preserve exact signed source line endings
               shell: pwsh
               run: git config --global core.autocrlf false
@@ -261,7 +261,7 @@ jobs:
             - name: Checkout immutable release source
               uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
               with:
-                  ref: 263b07538d4fcfd58e7020453f9d53fbef19d0d8
+                  ref: c73b4e0b5f5376f9e4e6a0e9b752bf00a76f67f1
                   path: temp-tests/windows-release-review/source
                   persist-credentials: false
             - name: Set up fixed Python and uv
@@ -276,7 +276,7 @@ jobs:
             - name: Download only the existing approved Windows artifact
               uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
               with:
-                  name: next-windows-263b07538d4fcfd58e7020453f9d53fbef19d0d8
+                  name: next-windows-c73b4e0b5f5376f9e4e6a0e9b752bf00a76f67f1
                   path: temp-tests/windows-release-review/source/dist
                   run-id: ${{ inputs.release_artifact_run }}
                   github-token: ${{ github.token }}
@@ -341,7 +341,7 @@ jobs:
             - name: Upload only the approved installers and public source/hash report
               uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
               with:
-                  name: next-windows-verified-263b07538d4fcfd58e7020453f9d53fbef19d0d8
+                  name: next-windows-verified-c73b4e0b5f5376f9e4e6a0e9b752bf00a76f67f1
                   path: |
                       temp-tests/windows-release-review/verified-report/MeshchatNext-v0.1.7-win-portable.exe
                       temp-tests/windows-release-review/verified-report/MeshchatNext-v0.1.7-win-x64-installer.exe

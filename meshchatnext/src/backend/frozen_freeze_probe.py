@@ -162,6 +162,17 @@ def main() -> None:
             ):
                 raise SystemExit("frozen-freeze-probe: Codec2 resolved outside bundle")
 
+    # Import-only checks do not exercise frozen spawn dispatch. Use the actual
+    # LXMF validation target so RNS/LXMF circular imports fail this build gate.
+    import multiprocessing
+
+    from LXMF.LXStamper import validate_pn_stamp
+
+    with multiprocessing.get_context("spawn").Pool(1) as pool:
+        result = pool.apply_async(validate_pn_stamp, (b"short", 1)).get(timeout=15)
+    if result != (None, None, None, None):
+        raise SystemExit("frozen-freeze-probe: unexpected LXMF worker result")
+
     print("frozen-freeze-probe ok", flush=True)
 
 

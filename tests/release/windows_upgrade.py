@@ -220,13 +220,32 @@ try:
     assert api("GET", "app/info").json()["app_info"]["python_version"] == "3.14.10"
     assert (
         api("GET", "app/info").json()["app_info"]["git_commit"]
-        == "263b07538d4fcfd58e7020453f9d53fbef19d0d8"
+        == "c73b4e0b5f5376f9e4e6a0e9b752bf00a76f67f1"
     )
     assert api("GET", "app/info").json()["app_info"]["build_channel"] == "stable"
     assert api("GET", "app/info").json()["app_info"]["is_dev_build"] is False
     report["installed_stable_channel"] = True
     report["installed_is_dev_build"] = False
     report["installed_patched_python_version"] = "3.14.10"
+    worker_env = {
+        k: v for k, v in os.environ.items() if k not in {"PYTHONHOME", "PYTHONPATH"}
+    }
+    worker = subprocess.run(
+        [
+            str(APP / "resources/backend/MeshchatNext.exe"),
+            "--meshchatnext-run-module",
+            "meshchatnext.src.backend.frozen_freeze_probe",
+        ],
+        cwd=TEST,
+        env=worker_env,
+        capture_output=True,
+        text=True,
+        timeout=90,
+    )
+    assert worker.returncode == 0, (worker.stdout, worker.stderr)
+    assert "frozen-freeze-probe ok" in worker.stdout
+    assert not worker.stderr.strip(), worker.stderr
+    report["installed_frozen_worker_probe"] = {"passed": True, "stderr_empty": True}
     assert marker in api("GET", "telephone/contacts").text
     report["contact_persisted_after_upgrade"] = True
     newbackup = TEST / "corrected-backup.zip"

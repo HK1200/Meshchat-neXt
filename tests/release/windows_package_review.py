@@ -13,7 +13,7 @@ from pathlib import Path
 
 import requests
 
-SOURCE = "263b07538d4fcfd58e7020453f9d53fbef19d0d8"
+SOURCE = "c73b4e0b5f5376f9e4e6a0e9b752bf00a76f67f1"
 PIN = "87b2973e252645589a1543010e9fcda1"
 NAMES = {
     "MeshchatNext-v0.1.7-win-portable.exe",
@@ -157,7 +157,7 @@ def tree_hashes(base):
 
 
 def stage_repackage():
-    # Native inputs and frontend come from the verified source-263 artifact.
+    # Native inputs and frontend come from the verified immutable source artifact.
     # Freeze Python afresh with explicit stable/source metadata; ordinary CI
     # previews have local-channel metadata and are not release installables.
     assert (
@@ -303,6 +303,8 @@ def collect():
     update = json.loads((ROOT / "update-staging-validation.json").read_text())
     assert upgrade["status"] == update["status"] == "passed"
     assert upgrade["upgraded_version"] == "0.1.7"
+    assert upgrade["installed_frozen_worker_probe"]["passed"]
+    assert upgrade["installed_frozen_worker_probe"]["stderr_empty"]
     assert upgrade["in_place_upgrade_preserves_all_profile_bytes"]
     assert upgrade["uninstall_preserves_profile_bytes"]
     assert upgrade["synthetic_message_restored_from_backup"]
