@@ -191,6 +191,10 @@ jobs:
               if: matrix.label == 'windows'
               run: uv run python scripts/ci/github-smoke-appcontainer.py --build-dir build/exe
 
+            - name: Packaged node-page UI (Windows default and forced AppContainer)
+              if: matrix.label == 'windows'
+              run: node tests/agentic/packaged-node-pages.cjs
+
             - name: Collect Windows 0.1.7 review packages
               id: windows-review
               if: matrix.label == 'windows'
@@ -207,7 +211,7 @@ jobs:
                       $item = Get-Item -LiteralPath $file
                       $assets += @{ file = $item.Name; size = $item.Length; sha256 = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant() }
                   }
-                  @{ source = (git rev-parse HEAD); version = $version; authenticode = "unsigned"; assets = $assets } | ConvertTo-Json -Depth 5 | Set-Content release-artifacts/SOURCE-PACKAGES.json
+                  @{ source = (git rev-parse HEAD); version = $version; authenticode = "unsigned"; assets = $assets; native_ui = (Get-Content reports/windows-node-ui.json -Raw | ConvertFrom-Json) } | ConvertTo-Json -Depth 5 | Set-Content release-artifacts/SOURCE-PACKAGES.json
                   "ready=true" >> $env:GITHUB_OUTPUT
 
             - name: Upload approved Windows 0.1.7 review packages
