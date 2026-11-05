@@ -2,6 +2,7 @@
 """Review fixed 0.1.7 package bytes on Windows, using only disposable profiles."""
 
 import hashlib
+import importlib.util
 import json
 import marshal
 import os
@@ -213,9 +214,13 @@ def stage_repackage():
 def record_frozen():
     source_proof = verify_source_tree()
     backend = ROOT / "source/build/exe/win32-x64"
-    baked = marshal.loads(
-        (backend / "lib/meshchatnext/src/_build_meta_baked.pyc").read_bytes()[16:]
-    )
+    # Read constants from our freshly compiled, source-pinned metadata only.
+    # This is not a downloaded/user-supplied pickle and no code object is run.
+    compiled_metadata = (
+        backend / "lib/meshchatnext/src/_build_meta_baked.pyc"
+    ).read_bytes()
+    assert compiled_metadata[:4] == importlib.util.MAGIC_NUMBER
+    baked = marshal.loads(compiled_metadata[16:])
     assert SOURCE in baked.co_consts and "stable" in baked.co_consts
     assert any(c is False for c in baked.co_consts)
     original = ROOT / "original-win-unpacked/resources/backend"
