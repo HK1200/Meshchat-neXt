@@ -75,3 +75,8 @@ JS-008 scripts/export-field-guide.cjs
 # against a temporary directory and an injected list.append instead of a shell.
 # It verifies dangling symlinks do not trigger duplicate link creation.
 AST-PY-005 tests/test_android_wheel_soname_links.py
+
+# Native release UI fixture launches only the fixed repository-built EXE with
+# argument arrays and no shell; git provenance reads also use execFileSync argv.
+# No command or executable is accepted from user input or intercepted responses.
+AST-JS-004 tests/agentic/packaged-node-pages.cjs

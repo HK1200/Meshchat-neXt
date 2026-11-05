@@ -3375,11 +3375,11 @@
         },
         "message_blocklist": {
             "title": "Message blocklist",
-            "description": "Auto-banish senders when their message or name matches a word or regex from your shared blocklist.",
+            "description": "Filter incoming messages on Reticulum and MeshCore using shared words or regex patterns.",
             "beta_notice_title": "Beta (work in progress)",
-            "beta_notice_body": "This tool is off until you turn it on. Words match regardless of case. Regex uses normal patterns. If something matches, the sender gets banished right away. Export a list to share with your group, or import one to merge or replace yours.",
+            "beta_notice_body": "This tool is off until you turn it on. Words match regardless of case. Reticulum matches auto-banish the sender; MeshCore matches are filtered before history and notifications. Export a list to share, or import one to merge or replace yours.",
             "enable_label": "Enable message blocklist",
-            "enable_hint": "When disabled, entries are saved but no automatic banish runs.",
+            "enable_hint": "When disabled, entries are saved but no phrase filtering or automatic banishment runs.",
             "entries_heading": "Blocked phrases",
             "add_entry": "Add phrase",
             "empty_entries": "No phrases yet. Add entries or import a shared list.",
@@ -3410,7 +3410,9 @@
             "import_merge_confirm": "Merge with your current list? Choose Cancel to replace your list entirely.",
             "imported_merge": "Blocklist merged",
             "imported_replace": "Blocklist replaced",
-            "import_failed": "Could not import blocklist"
+            "import_failed": "Could not import blocklist",
+            "network_scope_hint": "Applies to new Reticulum messages and MeshCore direct messages, channel posts and room posts. MeshCore filters matching text without automatically banning contacts or room servers.",
+            "meshcore_scope_hint": "MeshCore channel names and room-author prefixes are unverified, so these messages count as non-contacts for scope rules. Direct messages use uniquely resolved saved MeshCore contacts. Binary packets and administrator replies are not phrase-filtered."
         },
         "repository_server": {
             "title": "Repository server",

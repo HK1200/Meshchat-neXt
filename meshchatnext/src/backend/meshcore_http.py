@@ -635,8 +635,18 @@ def install_meshcore_lifecycle(web_app, owner):
         async def notify(event):
             await deliver_notification(owner, event)
 
+        from meshchatnext.src.backend.meshcore_blocklist import active_blocklist
+        from meshchatnext.src.backend.meshcore_store import MeshCoreStore
+
+        def make_store(path):
+            return MeshCoreStore(
+                path, message_blocklist=lambda: active_blocklist(owner)
+            )
+
         owner.meshcore_service = MeshCoreFleet(
-            Path(owner.storage_dir) / "meshcore", notification_sink=notify
+            Path(owner.storage_dir) / "meshcore",
+            notification_sink=notify,
+            store_factory=make_store,
         )
         await owner.meshcore_service.start()
 

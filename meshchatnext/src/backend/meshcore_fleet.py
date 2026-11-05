@@ -8,6 +8,7 @@ import json
 import os
 import threading
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 
 from meshchatnext.src.backend.meshcore_service import (
@@ -24,11 +25,17 @@ class MeshCoreFleet:
     MAX_RADIOS = 8
 
     def __init__(
-        self, folder, *, notification_sink=None, service_factory=MeshCoreService
+        self,
+        folder,
+        *,
+        notification_sink=None,
+        service_factory=MeshCoreService,
+        store_factory: Callable[[Path], MeshCoreStore] = MeshCoreStore,
     ):
         self.folder = Path(folder)
         self._path = self.folder / "radios.json"
         self._factory = service_factory
+        self._store_factory = store_factory
         self._sink = notification_sink
         self._radios = {}
         self._labels = {}
@@ -49,7 +56,7 @@ class MeshCoreFleet:
     def _shared_store(self, path):
         with self._store_lock:
             if self._store is None:
-                self._store = MeshCoreStore(path)
+                self._store = self._store_factory(path)
             return self._store
 
     def _create(self, radio_id, label):

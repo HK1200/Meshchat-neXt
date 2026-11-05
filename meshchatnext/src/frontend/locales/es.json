@@ -3410,7 +3410,9 @@
             "import_merge_confirm": "¿Fusionar con tu lista actual? Elige Cancelar para reemplazar tu lista por completo.",
             "imported_merge": "Lista de bloqueo fusionada",
             "imported_replace": "Lista de bloqueo reemplazada",
-            "import_failed": "No se pudo importar la lista de bloqueo"
+            "import_failed": "No se pudo importar la lista de bloqueo",
+            "network_scope_hint": "Applies to new Reticulum messages and MeshCore direct messages, channel posts and room posts. MeshCore filters matching text without automatically banning contacts or room servers.",
+            "meshcore_scope_hint": "MeshCore channel names and room-author prefixes are unverified, so these messages count as non-contacts for scope rules. Direct messages use uniquely resolved saved MeshCore contacts. Binary packets and administrator replies are not phrase-filtered."
         },
         "repository_server": {
             "title": "Servidor de repositorio",

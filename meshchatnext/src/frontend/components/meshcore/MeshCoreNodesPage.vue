@@ -4,7 +4,7 @@
         aria-label="MeshCore nodes"
     >
         <div class="max-w-4xl mx-auto space-y-5">
-            <header class="border-b border-sem-border pb-4">
+            <header v-if="!selected" class="border-b border-sem-border pb-4">
                 <h1 class="text-2xl font-bold">MeshCore Nodes</h1>
                 <p class="text-sm text-sem-fg-muted">Saved repeaters, room servers and sensors</p>
             </header>
@@ -21,39 +21,42 @@
                 <div class="flex items-center gap-3">
                     <MaterialDesignIcon :icon-name="nodeIcon(selected.kind)" class="size-10 text-sem-fg-muted" />
                     <div>
-                        <h2 class="text-xl font-semibold">{{ selected.name || "MeshCore node" }}</h2>
+                        <h1 class="text-xl font-semibold">{{ selected.name || "MeshCore node" }}</h1>
                         <p class="text-sm text-sem-fg-muted">MeshCore · {{ nodeType(selected.kind) }}</p>
                     </div>
                 </div>
-                <dl class="space-y-3 text-sm">
-                    <div>
-                        <dt class="text-sem-fg-muted">Public key</dt>
-                        <dd class="font-mono break-all">{{ selected.peer }}</dd>
-                    </div>
-                    <div>
-                        <dt class="text-sem-fg-muted">{{ selected.heard ? "Last heard" : "Advertised" }}</dt>
-                        <dd>
-                            {{
-                                selected.heard || selected.advertised
-                                    ? new Date((selected.heard || selected.advertised) * 1000).toLocaleString()
-                                    : "Unknown"
-                            }}
-                        </dd>
-                    </div>
-                    <div v-if="selected.path_len != null">
-                        <dt class="text-sem-fg-muted">Route</dt>
-                        <dd>
-                            {{
-                                selected.path_len === -1
-                                    ? "Flood route"
-                                    : selected.path_len === 0
-                                      ? "Direct connection · no repeaters"
-                                      : `${selected.path_len} repeater hops`
-                            }}<span v-if="selected.path_bytes"> · {{ selected.path_bytes }}-byte hashes</span>
-                        </dd>
-                    </div>
-                </dl>
-                <MeshCorePeerRadio2 :report="selected.radio2" />
+                <details class="text-sm border-t border-sem-border pt-3">
+                    <summary class="cursor-pointer">Identity &amp; route details</summary>
+                    <dl class="space-y-3 text-sm">
+                        <div>
+                            <dt class="text-sem-fg-muted">Public key</dt>
+                            <dd class="font-mono break-all">{{ selected.peer }}</dd>
+                        </div>
+                        <div>
+                            <dt class="text-sem-fg-muted">{{ selected.heard ? "Last heard" : "Advertised" }}</dt>
+                            <dd>
+                                {{
+                                    selected.heard || selected.advertised
+                                        ? new Date((selected.heard || selected.advertised) * 1000).toLocaleString()
+                                        : "Unknown"
+                                }}
+                            </dd>
+                        </div>
+                        <div v-if="selected.path_len != null">
+                            <dt class="text-sem-fg-muted">Route</dt>
+                            <dd>
+                                {{
+                                    selected.path_len === -1
+                                        ? "Flood route"
+                                        : selected.path_len === 0
+                                          ? "Direct connection · no repeaters"
+                                          : `${selected.path_len} repeater hops`
+                                }}<span v-if="selected.path_bytes"> · {{ selected.path_bytes }}-byte hashes</span>
+                            </dd>
+                        </div>
+                    </dl>
+                    <MeshCorePeerRadio2 :report="selected.radio2" />
+                </details>
                 <p v-if="selected.kind === 4" class="text-sm text-sem-fg-muted">
                     Sensor saved. Sensor telemetry controls are not available yet.
                 </p>
@@ -71,9 +74,13 @@
                     @changed="refresh"
                     @busy="busy = $event"
                 />
-                <button type="button" class="secondary-chip" :disabled="busy" @click="remove">
-                    Remove from saved nodes
-                </button>
+                <details class="text-sm border-t border-sem-border pt-3">
+                    <summary class="cursor-pointer">Saved node options</summary>
+                    <p class="text-sem-fg-muted my-3">Removing a saved node does not reset the server.</p>
+                    <button type="button" class="secondary-chip" :disabled="busy" @click="remove">
+                        Remove from saved nodes
+                    </button>
+                </details>
             </template>
             <template v-else>
                 <div class="space-y-3" aria-label="Discover MeshCore nodes">

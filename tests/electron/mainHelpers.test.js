@@ -20,6 +20,19 @@ describe("electron/mainHelpers", () => {
         expect(getUserProvidedArguments(argv)).toEqual(["--no-https", "--port", "1"]);
     });
 
+    it("keeps Chromium automation switches out of the strict backend parser", () => {
+        expect(
+            getUserProvidedArguments([
+                "app.exe",
+                "--enable-automation",
+                "--remote-debugging-port=12345",
+                "--remote-debugging-address=127.0.0.1",
+                "--storage-dir=D:/fixture",
+                "--unknown-backend-option",
+            ])
+        ).toEqual(["--storage-dir=D:/fixture", "--unknown-backend-option"]);
+    });
+
     it("getUserProvidedArguments drops chromium gpu flags so the backend never sees them", () => {
         const argv = [
             "/app/electron",

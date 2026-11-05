@@ -44,6 +44,9 @@ for unpacked in dist/win-unpacked dist/win-*-unpacked; do
     fi
 done
 
+# Verify the actual packaged renderer while its unpacked tree still exists.
+node tests/agentic/packaged-node-pages.cjs
+
 bash scripts/ci/github-prune-electron-dist-staging.sh
 bash scripts/ci/github-verify-electron-dist.sh win
 
@@ -56,7 +59,4 @@ if [[ -d "$backend_root" ]]; then
     bash scripts/ci/github-verify-frozen-bleak.sh "$backend_root"
 fi
 
-# Optional packaged smoke (manual / future CI job on a Windows runner):
-#   MESHCHAT_APPCONTAINER=1  start the portable exe and assert
-#   GET /api/v1/server/security reports appcontainer_active true.
-# Disable with MESHCHAT_APPCONTAINER=0 if LPAC DLL load fails on a given host.
+# Packaged UI checks above cover default and forced AppContainer before pruning.
