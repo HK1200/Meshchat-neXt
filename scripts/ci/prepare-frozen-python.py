@@ -77,6 +77,13 @@ def main():
         if len(projects) != 1 or not (projects[0] / "setup.py").is_file():
             raise RuntimeError("The pinned source archive has an unexpected layout")
         wheelhouse = Path(folder) / "wheels"
+        # The upstream launcher places LIBM before static libpython. Keep it
+        # linked on hosted interpreters; this affects only this source build.
+        build_env = dict(os.environ)
+        compiler = build_env.get("CC") or sysconfig.get_config_var("CC")
+        if not isinstance(compiler, str) or not compiler.strip():
+            raise RuntimeError("The selected Python has no configured C compiler")
+        build_env["CC"] = compiler + " -Wl,--no-as-needed"
         subprocess.run(
             [
                 sys.executable,
@@ -88,6 +95,7 @@ def main():
                 str(wheelhouse),
             ],
             cwd=projects[0],
+            env=build_env,
             check=True,
         )
         wheels = list(wheelhouse.glob("freeze_core-*.whl"))
@@ -125,6 +133,7 @@ def main():
         "locked_sdist": source,
         "source_build_without_binary_or_build_cache": True,
         "explicit_locked_source_build_ext_and_bdist_wheel": True,
+        "hosted_static_python_math_libraries_retained": True,
         "build_dependencies_from_frozen_environment": True,
         "base_hashes": {
             p.name: hashlib.file_digest(p.open("rb"), "sha256").hexdigest()
