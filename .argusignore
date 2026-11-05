@@ -80,3 +80,9 @@ AST-PY-005 tests/test_android_wheel_soname_links.py
 # argument arrays and no shell; git provenance reads also use execFileSync argv.
 # No command or executable is accepted from user input or intercepted responses.
 AST-JS-004 tests/agentic/packaged-node-pages.cjs
+
+# Host-safety regression loads only the fixed, checked-in cleanup module in a
+# bounded VM with fake filesystem, process enumeration and signals. No user or
+# network content is evaluated; unexpected imports throw. Runtime scanning and
+# the high-severity gate stay enabled. Direct require caused real host kills.
+JS-008 tests/electron/backendProcessOrphans.test.js

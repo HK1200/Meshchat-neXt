@@ -63,7 +63,7 @@ function fixture(overrides = {}, platform = "linux") {
             } };
             throw new Error(`Unexpected host dependency: ${name}`);
         },
-    });
+    }, { timeout: 1000 });
     return { api: module.exports, rows, signals, process: fakeProcess, enumerations: () => enumerations };
 }
 
