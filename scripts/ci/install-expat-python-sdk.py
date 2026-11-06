@@ -148,6 +148,25 @@ def verify_sdk(artifact: Path, entry: dict, target: str, output: Path) -> dict:
     return report
 
 
+def resolve_uv(explicit: Path | None) -> str:
+    """Use the exact checksum-verified installer path inside composite actions."""
+    executable = str(explicit.resolve()) if explicit is not None else shutil.which("uv")
+    if not executable or not Path(executable).is_file():
+        raise RuntimeError("Pinned UV is required")
+    if not subprocess.check_output([executable, "--version"], text=True).startswith(
+        "uv 0.13.6 "
+    ):
+        raise RuntimeError("The verified UV version must be 0.13.6")
+    return executable
+
+
+def installed_executable(managed: Path, os_name: str, arch: str, libc: str) -> Path:
+    # UV accepts Darwin download metadata but normalizes installation keys to macos.
+    canonical_os = "macos" if os_name == "darwin" else os_name
+    key = f"cpython-3.14.10-{canonical_os}-{arch}-{libc}"
+    return managed / key / ("python.exe" if os_name == "windows" else "bin/python3.14")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -161,6 +180,11 @@ def main() -> None:
         help="Use an already downloaded archive, still enforcing every pinned hash",
     )
     parser.add_argument("--output", type=Path)
+    parser.add_argument(
+        "--uv-executable",
+        type=Path,
+        help="Exact verified UV path handed off by the installer",
+    )
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[2]
     target, os_name, arch, libc = host_target()
@@ -168,13 +192,7 @@ def main() -> None:
     if inputs.get("schema") != 1 or target not in inputs.get("targets", {}):
         raise RuntimeError("No qualified pinned security SDK exists for this target")
     entry = inputs["targets"][target]
-    uv = shutil.which("uv")
-    if uv is None:
-        raise RuntimeError("Pinned UV is required")
-    if not subprocess.check_output([uv, "--version"], text=True).startswith(
-        "uv 0.13.6 "
-    ):
-        raise RuntimeError("The verified UV version must be 0.13.6")
+    uv = resolve_uv(args.uv_executable)
     cache = root / ".python-security-runtime" / entry["sdk_archive_sha256"][:20]
     cache.mkdir(parents=True, exist_ok=True)
     artifact = (
@@ -295,9 +313,7 @@ def main() -> None:
         env=env,
         check=True,
     )
-    executable = (
-        managed / key / ("python.exe" if os_name == "windows" else "bin/python3.14")
-    )
+    executable = installed_executable(managed, os_name, arch, libc)
     probe = "import sys,pyexpat,ssl,json;print(json.dumps({'python':sys.version.split()[0],'expat':pyexpat.EXPAT_VERSION,'openssl':ssl.OPENSSL_VERSION}))"
     actual = json.loads(
         subprocess.check_output(
