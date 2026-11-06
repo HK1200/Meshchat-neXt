@@ -18,6 +18,11 @@ on:
             - main
     workflow_dispatch:
         inputs:
+            runtime_sdk_only:
+                description: "Build only public Expat-fixed Python SDK inputs; never publish app releases"
+                type: boolean
+                required: false
+                default: false
             release_artifact_run:
                 description: "Existing merged 0.1.7 Windows artifact run to verify without rebuilding"
                 type: string
@@ -102,7 +107,7 @@ env:
 
 jobs:
     frontend:
-        if: ${{ github.event_name != 'workflow_dispatch' || inputs.release_artifact_run == '' }}
+        if: ${{ inputs.runtime_sdk_only != true && (github.event_name != 'workflow_dispatch' || inputs.release_artifact_run == '') }}
         name: Build frontend artifact
         uses: ./.github/workflows/frontend-build.yml
         permissions:
@@ -112,7 +117,7 @@ jobs:
             retention_days: 1
 
     native-build:
-        if: ${{ github.event_name != 'workflow_dispatch' || inputs.release_artifact_run == '' }}
+        if: ${{ inputs.runtime_sdk_only != true && (github.event_name != 'workflow_dispatch' || inputs.release_artifact_run == '') }}
         name: Native build (${{ matrix.label }})
         needs: frontend
         permissions:
@@ -229,7 +234,7 @@ jobs:
 
     verify-release-windows:
         name: Verify existing Windows 0.1.7 release packages
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.release_artifact_run != '' }}
+        if: ${{ inputs.runtime_sdk_only != true && github.event_name == 'workflow_dispatch' && inputs.release_artifact_run != '' }}
         runs-on: windows-latest
         timeout-minutes: 30
         permissions:
@@ -346,5 +351,67 @@ jobs:
                       temp-tests/windows-release-review/verified-report/MeshchatNext-v0.1.7-win-portable.exe
                       temp-tests/windows-release-review/verified-report/MeshchatNext-v0.1.7-win-x64-installer.exe
                       temp-tests/windows-release-review/verified-report/SOURCE-PACKAGES.json
+                  if-no-files-found: error
+                  retention-days: 14
+
+    security-python-sdk:
+        name: Build Expat-fixed Python SDK (${{ matrix.label }})
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.runtime_sdk_only == true && inputs.release_artifact_run == '' }}
+        runs-on: ${{ matrix.os }}
+        timeout-minutes: 120
+        permissions:
+            contents: read
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - { os: ubuntu-latest, label: linux-x64 }
+                    - { os: ubuntu-24.04-arm, label: linux-arm64 }
+                    - { os: windows-latest, label: windows-x64 }
+                    - { os: macos-latest, label: macos-arm64 }
+                    - { os: macos-15-intel, label: macos-x64 }
+        steps:
+            - name: Harden SDK builder
+              uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1
+              with:
+                  egress-policy: audit
+            - name: Preserve exact signed source line endings
+              if: runner.os == 'Windows'
+              shell: pwsh
+              run: git config --global core.autocrlf false
+            - name: Checkout reviewed SDK builder
+              uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+              with:
+                  persist-credentials: false
+            - name: Set up fixed bootstrap Python and UV
+              uses: ./.github/actions/setup-python-uv
+              with:
+                  python-version: "3.14.10"
+                  uv-version: "0.13.6"
+            - name: Install frozen builder dependencies
+              shell: bash
+              run: uv sync --frozen --all-extras --group dev
+            - name: Verify the reviewed SDK builder source
+              shell: bash
+              env:
+                  RNS_REQUIRED_SIGNER: 87b2973e252645589a1543010e9fcda1
+              run: sh scripts/ci/verify-tree-rsm.sh
+            - name: Build and verify the supported upstream security recipe
+              shell: bash
+              env:
+                  SDK_TARGET: ${{ matrix.label }}
+              run: uv run --frozen --all-extras --group dev python scripts/ci/build-expat-python-sdk.py --target "$SDK_TARGET"
+            - name: Verify the pinned source remains unchanged
+              shell: bash
+              env:
+                  RNS_REQUIRED_SIGNER: 87b2973e252645589a1543010e9fcda1
+              run: sh scripts/ci/verify-tree-rsm.sh
+            - name: Preserve only the public SDK and its source/hash report
+              uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+              with:
+                  name: next-expat-fixed-python-${{ matrix.label }}
+                  path: |
+                      temp-tests/security-python-sdk-report/python-sdk.tar.gz
+                      temp-tests/security-python-sdk-report/SDK-PROVENANCE.json
                   if-no-files-found: error
                   retention-days: 14
