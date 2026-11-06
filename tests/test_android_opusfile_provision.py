@@ -1,6 +1,8 @@
 """Safety checks for the Android OpusFile provisioner (no Android SDK required)."""
 
+import hashlib
 import importlib.util
+import io
 import struct
 import sys
 import tarfile
@@ -27,6 +29,86 @@ class OpusFileProvisionTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
+
+    def test_download_recovers_transport_failure_without_caching_partial_bytes(self):
+        payload = b"verified source fixture"
+        digest = hashlib.sha256(payload).hexdigest()
+        cache = self.root / "source.tar.gz"
+        calls = []
+        temporary_paths = []
+
+        def response(url, timeout):
+            calls.append((url, timeout))
+            self.assertFalse(cache.exists())
+            self.assertTrue(all(not p.exists() for p in temporary_paths))
+            current = list(self.root.iterdir())
+            self.assertEqual(len(current), 1)
+            self.assertEqual(current[0].stat().st_size, 0)
+            temporary_paths.append(current[0])
+            if len(calls) == 1:
+                raise opusfile.urllib.error.URLError("interrupted TLS fixture")
+            return io.BytesIO(payload)
+
+        with (
+            patch.object(opusfile.urllib.request, "urlopen", side_effect=response),
+            patch.object(opusfile.time, "sleep") as sleep,
+        ):
+            self.assertEqual(
+                opusfile.obtain(None, cache, opusfile.SOURCE_URL, digest), cache
+            )
+        self.assertEqual(cache.read_bytes(), payload)
+        self.assertEqual(calls, [(opusfile.SOURCE_URL, 60)] * 2)
+        sleep.assert_called_once_with(1)
+        self.assertEqual(list(self.root.iterdir()), [cache])
+
+    def test_download_checksum_failure_is_not_retried_or_cached(self):
+        cache = self.root / "source.tar.gz"
+        with (
+            patch.object(
+                opusfile.urllib.request,
+                "urlopen",
+                return_value=io.BytesIO(b"wrong bytes"),
+            ) as fetch,
+            patch.object(opusfile.time, "sleep") as sleep,
+        ):
+            with self.assertRaisesRegex(ValueError, "checksum mismatch"):
+                opusfile.obtain(None, cache, opusfile.SOURCE_URL, "0" * 64)
+        fetch.assert_called_once()
+        sleep.assert_not_called()
+        self.assertEqual(list(self.root.iterdir()), [])
+
+    def test_download_transport_retries_are_bounded_and_leave_no_cache(self):
+        cache = self.root / "source.tar.gz"
+        with (
+            patch.object(
+                opusfile.urllib.request,
+                "urlopen",
+                side_effect=opusfile.urllib.error.URLError("offline fixture"),
+            ) as fetch,
+            patch.object(opusfile.time, "sleep") as sleep,
+        ):
+            with self.assertRaises(opusfile.urllib.error.URLError):
+                opusfile.obtain(None, cache, opusfile.SOURCE_URL, "0" * 64)
+        self.assertEqual(fetch.call_count, 3)
+        self.assertEqual([call.args for call in sleep.call_args_list], [(1,), (2,)])
+        self.assertEqual(list(self.root.iterdir()), [])
+
+    def test_download_not_found_is_not_retried(self):
+        cache = self.root / "source.tar.gz"
+        error = opusfile.urllib.error.HTTPError(
+            opusfile.SOURCE_URL, 404, "not found", {}, None
+        )
+        with (
+            patch.object(
+                opusfile.urllib.request, "urlopen", side_effect=error
+            ) as fetch,
+            patch.object(opusfile.time, "sleep") as sleep,
+        ):
+            with self.assertRaises(opusfile.urllib.error.HTTPError):
+                opusfile.obtain(None, cache, opusfile.SOURCE_URL, "0" * 64)
+        fetch.assert_called_once()
+        sleep.assert_not_called()
+        self.assertEqual(list(self.root.iterdir()), [])
 
     def test_architectures_and_wrong_abi(self):
         path = self.root / "lib.so"
