@@ -17,6 +17,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import zipfile
 from pathlib import Path
 from typing import BinaryIO, cast
 
@@ -194,6 +195,89 @@ def package_install_only(sdk: Path, metadata_root: Path, output: Path):
     return inventory, links
 
 
+OFFICIAL_LINUX_ARTIFACTS = {
+    "linux-x64": (
+        13158523121,
+        125384255866,
+        "e46b48e17bf739369f9944bd75add9963b2e76f74706e53b763d6f018d9f7ac8",
+    ),
+    "linux-arm64": (
+        13159675821,
+        125384194159,
+        "7cc81e1ba05e109c141edee22b1865be646dcc2a92d811adbcc38653cdb74d95",
+    ),
+}
+
+
+def official_linux_archive(target: str, work: Path, triple: str, options: str):
+    """Qualify first-party CI bytes; never rebuild an unavailable historic sysroot."""
+    gh = shutil.which("gh")
+    if gh is None:
+        raise RuntimeError("GitHub CLI is required for pinned official SDK retrieval")
+    artifact_id, job_id, digest = OFFICIAL_LINUX_ARTIFACTS[target]
+    base = "repos/astral-sh/python-build-standalone/actions/"
+
+    def metadata(endpoint):
+        return json.loads(
+            subprocess.check_output([gh, "api", base + endpoint], text=True)
+        )
+
+    report = metadata("artifacts/" + str(artifact_id))
+    run_report = metadata("runs/41476367331")
+    job = metadata("jobs/" + str(job_id))
+    expected_name = "cpython-3.14-" + triple + "-" + options
+    if (
+        report["id"] != artifact_id
+        or report["name"] != expected_name
+        or report["expired"]
+        or report["digest"] != "sha256:" + digest
+        or report["workflow_run"]["id"] != 41476367331
+        or report["workflow_run"]["head_sha"] != SOURCE
+        or run_report["head_sha"] != SOURCE
+        or run_report["event"] != "push"
+        or run_report["head_branch"] != "main"
+        or job["run_id"] != 41476367331
+        or job["name"] != triple + " / 3.14 / " + options
+        or job["status"] != "completed"
+        or job["conclusion"] != "success"
+    ):
+        raise RuntimeError(
+            "Official Linux SDK source, target job or artifact identity mismatch"
+        )
+    artifact = work / "official-sdk.zip"
+    with artifact.open("wb") as stream:
+        subprocess.run(
+            [gh, "api", base + "artifacts/" + str(artifact_id) + "/zip"],
+            stdout=stream,
+            check=True,
+        )
+    if sha(artifact) != digest or artifact.stat().st_size != report["size_in_bytes"]:
+        raise RuntimeError("Official Linux SDK archive checksum or size mismatch")
+    with zipfile.ZipFile(artifact) as archive:
+        members = archive.infolist()
+        prefix = "cpython-3.14.10-" + triple + "-" + options + "-"
+        if (
+            len(members) != 1
+            or not members[0].filename.startswith(prefix)
+            or not members[0].filename.endswith(".tar.zst")
+            or Path(members[0].filename).name != members[0].filename
+        ):
+            raise RuntimeError("Unexpected official SDK artifact output")
+        original = work / "official-sdk.tar.zst"
+        with archive.open(members[0]) as source, original.open("wb") as destination:
+            shutil.copyfileobj(source, destination)
+    return original, {
+        "repository": "astral-sh/python-build-standalone",
+        "run_id": 41476367331,
+        "job_id": job_id,
+        "target_job_conclusion": "success",
+        "parent_conclusion": run_report["conclusion"],
+        "artifact_id": artifact_id,
+        "artifact_zip_sha256": digest,
+        "source": SOURCE,
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--target", choices=TARGETS, required=True)
@@ -285,40 +369,46 @@ def main():
             vendor,
             env,
         )
-    run(["cargo", "build", "--locked", "--release"], vendor, env)
-    helper = "pythonbuild.exe" if host == "win32" else "pythonbuild"
-    shutil.copy2(vendor / "target/release" / helper, vendor / helper)
+    official_provenance = None
     if host == "linux":
-        image_provenance = prepare_linux_image(vendor, args.target, uv, env)
-    command = [
-        uv,
-        "run",
-        "--frozen",
-        "--no-dev",
-        "build.py",
-        "--target-triple",
-        triple,
-        "--python",
-        "cpython-3.14",
-        "--options",
-        options,
-        "--compression",
-        "fast",
-    ]
-    if host == "win32":
-        command += ["--sh", "C:/cygwin/bin/sh.exe", "--vs", "2022"]
-    run(command, vendor, env)
-    if image_provenance is not None:
-        image_name, image_host, _ = LINUX_IMAGES[args.target]
-        image_file = vendor / "build" / ("image-" + image_name + "." + image_host)
-        if image_file.read_text().strip() != image_provenance["image_id"]:
-            raise RuntimeError("SDK build image changed after verified preparation")
-    archives = list(
-        (vendor / "dist").glob(f"cpython-3.14.10-{triple}-{options}-*.tar.zst")
-    )
-    if len(archives) != 1:
-        raise RuntimeError("Expected exactly one newly built SDK archive")
-    original = archives[0]
+        original, official_provenance = official_linux_archive(
+            args.target, work, triple, options
+        )
+    else:
+        run(["cargo", "build", "--locked", "--release"], vendor, env)
+        helper = "pythonbuild.exe" if host == "win32" else "pythonbuild"
+        shutil.copy2(vendor / "target/release" / helper, vendor / helper)
+        if host == "linux":
+            image_provenance = prepare_linux_image(vendor, args.target, uv, env)
+        command = [
+            uv,
+            "run",
+            "--frozen",
+            "--no-dev",
+            "build.py",
+            "--target-triple",
+            triple,
+            "--python",
+            "cpython-3.14",
+            "--options",
+            options,
+            "--compression",
+            "fast",
+        ]
+        if host == "win32":
+            command += ["--sh", "C:/cygwin/bin/sh.exe", "--vs", "2022"]
+        run(command, vendor, env)
+        if image_provenance is not None:
+            image_name, image_host, _ = LINUX_IMAGES[args.target]
+            image_file = vendor / "build" / ("image-" + image_name + "." + image_host)
+            if image_file.read_text().strip() != image_provenance["image_id"]:
+                raise RuntimeError("SDK build image changed after verified preparation")
+        archives = list(
+            (vendor / "dist").glob(f"cpython-3.14.10-{triple}-{options}-*.tar.zst")
+        )
+        if len(archives) != 1:
+            raise RuntimeError("Expected exactly one newly built SDK archive")
+        original = archives[0]
     install = work / "review"
     install.mkdir()
     from compression.zstd import ZstdFile
@@ -383,13 +473,14 @@ def main():
         "triple": triple,
         "actual_runtime": runtime,
         "linux_build_image": image_provenance,
+        "official_linux_artifact": official_provenance,
         "cpython_security_backport": cpython_backport,
         "full_vendor_archive_sha256": sha(original),
         "sdk_archive_sha256": sha(output),
         "sdk_archive_size": output.stat().st_size,
         "files": inventory,
         "symlinks": links,
-        "kind": "Owner-built SDK from the verified upstream security recipe, with the declared official CPython security backport on Windows; not an upstream tagged binary release",
+        "kind": "Native-verified install-only SDK from pinned first-party Linux CI bytes or owner-built vendor recipe with the declared official Windows backport; not an upstream tagged binary release",
     }
     (out / "SDK-PROVENANCE.json").write_text(json.dumps(report, indent=2) + "\n")
     if {p.name for p in out.iterdir()} != {"python-sdk.tar.gz", "SDK-PROVENANCE.json"}:

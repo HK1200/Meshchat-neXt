@@ -373,6 +373,7 @@ jobs:
         timeout-minutes: 120
         permissions:
             contents: read
+            actions: read
         env:
             UV_CACHE_DIR: ${{ github.workspace }}/temp-tests/security-sdk-uv-cache/${{ matrix.label }}
         strategy:
@@ -422,6 +423,7 @@ jobs:
             - name: Build and verify the supported upstream security recipe
               shell: bash
               env:
+                  GH_TOKEN: ${{ github.token }}
                   SDK_TARGET: ${{ matrix.label }}
               run: uv run --frozen --only-group source-verification python scripts/ci/build-expat-python-sdk.py --target "$SDK_TARGET"
             - name: Verify the pinned source remains unchanged
