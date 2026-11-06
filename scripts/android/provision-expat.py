@@ -137,7 +137,7 @@ def main() -> None:
             shutil.copyfile(cached, local)
         vendor_inputs[name] = fetch(
             local,
-            f"https://chaquo.com/maven/com/chaquo/python/target/{VERSION}/{name}",
+            f"https://repo.maven.apache.org/maven2/com/chaquo/python/target/{VERSION}/{name}",
             VENDOR[name],
         )
     reports = []

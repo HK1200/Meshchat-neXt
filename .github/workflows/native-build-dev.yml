@@ -395,6 +395,10 @@ jobs:
               with:
                   python-version: "3.14.10"
                   uv-version: "0.13.6"
+            - name: Install supported Intel Mac signer prerequisite
+              if: matrix.label == 'macos-x64'
+              shell: bash
+              run: bash scripts/ci/github-install-sdk-macos-x64-deps.sh
             - name: Install frozen builder dependencies
               shell: bash
               run: uv sync --frozen --only-group source-verification
@@ -404,6 +408,9 @@ jobs:
                   RNS_TREE_VERIFY_STRICT: "1"
                   RNS_REQUIRED_SIGNER: 87b2973e252645589a1543010e9fcda1
               run: uv run --frozen --only-group source-verification python scripts/ci/verify-pinned-source.py --kind next
+            - name: Set up the supported cached Linux SDK builder
+              if: runner.os == 'Linux'
+              uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
             - name: Build and verify the supported upstream security recipe
               shell: bash
               env:

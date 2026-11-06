@@ -33,6 +33,73 @@ TARGETS = {
 }
 
 
+LINUX_IMAGES = {
+    "linux-x64": (
+        "build.debian13-x86_64",
+        "linux_x86_64",
+        "sha256:d5d4394364f03b9ca1473983e8715f6907da00a29f80b36bb45dcdbd1ee4aee1",
+    ),
+    "linux-arm64": (
+        "build.debian13",
+        "linux_aarch64",
+        "sha256:0df7ef726abe37921e327ebbcc60176090c468f1fa5f636c045c8a375846e323",
+    ),
+}
+
+
+def prepare_linux_image(
+    vendor: Path, target: str, uv: str, env: dict[str, str]
+) -> dict[str, str]:
+    """Follow upstream CI's registry-cache/image export path without source edits."""
+    docker = shutil.which("docker")
+    if docker is None:
+        raise RuntimeError(
+            "Docker Buildx is required for the official Linux SDK recipe"
+        )
+    name, host, digest = LINUX_IMAGES[target]
+    cache = "ghcr.io/astral-sh/python-build-standalone@" + digest
+    run(
+        [uv, "run", "--frozen", "--no-dev", "build.py", "--make-target", "empty"],
+        vendor,
+        env,
+    )
+    dockerfile = vendor / "build" / (name + ".Dockerfile")
+    image_file = vendor / "build" / ("image-" + name + "." + host)
+    run(
+        [
+            docker,
+            "buildx",
+            "build",
+            "--progress=plain",
+            "--load",
+            "--cache-from",
+            "type=registry,ref=" + cache,
+            "--iidfile",
+            str(image_file),
+            "--file",
+            str(dockerfile),
+            ".",
+        ],
+        vendor,
+        env,
+    )
+    image_id = image_file.read_text().strip()
+    if not image_id.startswith("sha256:") or len(image_id) != 71:
+        raise RuntimeError("Invalid loaded SDK build image identity")
+    image_tar = Path(str(image_file) + ".tar")
+    run([docker, "image", "save", "--output", str(image_tar), image_id], vendor, env)
+    # Upstream performs this after --make-target empty, keeping image artifacts
+    # newer than its generated Dockerfiles/Makefiles so make reuses the image.
+    os.utime(image_file, None)
+    os.utime(image_tar, None)
+    return {
+        "registry_cache": cache,
+        "dockerfile_sha256": sha(dockerfile),
+        "image_id": image_id,
+        "method": "Official upstream CI cache import and image export; vendor source and authenticated dependency pins unchanged",
+    }
+
+
 def sha(path: Path) -> str:
     with path.open("rb") as stream:
         return hashlib.file_digest(stream, "sha256").hexdigest()
@@ -152,6 +219,7 @@ def main():
     }
     env["UV_PROJECT_ENVIRONMENT"] = str(vendor / ".venv")
     env["CARGO_TARGET_DIR"] = str(vendor / "target")
+    image_provenance = None
     if host == "win32":
         run(
             [
@@ -168,6 +236,8 @@ def main():
     run(["cargo", "build", "--locked", "--release"], vendor, env)
     helper = "pythonbuild.exe" if host == "win32" else "pythonbuild"
     shutil.copy2(vendor / "target/release" / helper, vendor / helper)
+    if host == "linux":
+        image_provenance = prepare_linux_image(vendor, args.target, uv, env)
     command = [
         uv,
         "run",
@@ -186,6 +256,11 @@ def main():
     if host == "win32":
         command += ["--sh", "C:/cygwin/bin/sh.exe", "--vs", "2022"]
     run(command, vendor, env)
+    if image_provenance is not None:
+        image_name, image_host, _ = LINUX_IMAGES[args.target]
+        image_file = vendor / "build" / ("image-" + image_name + "." + image_host)
+        if image_file.read_text().strip() != image_provenance["image_id"]:
+            raise RuntimeError("SDK build image changed after verified preparation")
     archives = list(
         (vendor / "dist").glob(f"cpython-3.14.10-{triple}-{options}-*.tar.zst")
     )
@@ -240,6 +315,7 @@ def main():
         "target": args.target,
         "triple": triple,
         "actual_runtime": runtime,
+        "linux_build_image": image_provenance,
         "full_vendor_archive_sha256": sha(original),
         "sdk_archive_sha256": sha(output),
         "sdk_archive_size": output.stat().st_size,

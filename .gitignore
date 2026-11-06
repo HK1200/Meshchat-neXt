@@ -230,3 +230,6 @@ tests/ui/baseline.json
 
 # Reproducible security-backported Android runtime inputs (never commit binaries).
 android/.expat-runtime-maven/
+
+# Hash-bound private Python SDK installations, outside disposable pytest fixtures.
+.python-security-runtime/

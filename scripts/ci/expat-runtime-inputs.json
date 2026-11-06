@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "repository": "HK1200/Meshchat-neXt",
+  "qualification": "partial; every build target must have a qualified input before enabling the consumer",
+  "targets": {
+    "macos-arm64": {
+      "artifact_id": 13481880820,
+      "artifact_zip_sha256": "47d42b0bc39fa7d3fd87dc37c10613e5129fb61a57bb1ef24e15285e0eb04211",
+      "sdk_archive_sha256": "3ed5d2ffd34eb9860c93cf24b50b463a914b7d6953954d40ea9fe6b262f961d0",
+      "sdk_archive_size": 71594528,
+      "producer_head": "412452b36d904c86c05f3d1a1e16f20e9b5aee0d",
+      "producer_run": 42169168560,
+      "producer_job": 127732689915,
+      "artifact_name": "next-expat-fixed-python-macos-arm64",
+      "distribution_build": "20261106"
+    }
+  }
+}
