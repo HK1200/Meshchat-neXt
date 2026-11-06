@@ -3,17 +3,20 @@
 
 import argparse
 import hashlib
+import http.client
 import importlib.util
 import os
 import tarfile
 import tempfile
+import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 VERSION = "0.12"
 SOURCE_SHA256 = "118d8601c12dd6a44f52423e68ca9083cc9f2bfe72da7a8c1acb22a80ae3550b"
-SOURCE_URL = f"https://github.com/xiph/opusfile/releases/download/v{VERSION}/opusfile-{VERSION}.tar.gz"
+SOURCE_URL = f"https://downloads.xiph.org/releases/opus/opusfile-{VERSION}.tar.gz"
 NDK_VERSION = "27.3.13750724"
 _spec = importlib.util.spec_from_file_location(
     "android_native_helpers", Path(__file__).with_name("provision-opus.py")
@@ -56,17 +59,35 @@ def obtain(supplied, cache, url, checksum):
     if not archive.exists():
         if supplied:
             raise ValueError(f"Source archive does not exist: {archive}")
-        with tempfile.NamedTemporaryFile(dir=cache.parent) as download:
-            with urllib.request.urlopen(url, timeout=60) as response:  # noqa: S310 - pinned HTTPS source, verified by SHA-256 before use.
-                import shutil
-
-                shutil.copyfileobj(response, download)
-            download.flush()
-            verify_source(Path(download.name), checksum)
+        for attempt in range(3):
             try:
-                os.link(download.name, cache)
-            except FileExistsError:
-                pass
+                with tempfile.NamedTemporaryFile(dir=cache.parent) as download:
+                    with urllib.request.urlopen(url, timeout=60) as response:  # noqa: S310 - pinned HTTPS source, verified by SHA-256 before use.
+                        import shutil
+
+                        shutil.copyfileobj(response, download)
+                    download.flush()
+                    verify_source(Path(download.name), checksum)
+                    try:
+                        os.link(download.name, cache)
+                    except FileExistsError:
+                        pass
+                break
+            except (
+                urllib.error.URLError,
+                TimeoutError,
+                ConnectionError,
+                http.client.IncompleteRead,
+            ) as error:
+                if (
+                    isinstance(error, urllib.error.HTTPError)
+                    and error.code < 500
+                    and error.code != 429
+                ):
+                    raise
+                if attempt == 2:
+                    raise
+                time.sleep(2**attempt)
     verify_source(archive, checksum)
     return archive
 
