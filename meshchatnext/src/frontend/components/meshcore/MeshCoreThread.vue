@@ -32,6 +32,14 @@
                 </p>
             </div>
         </header>
+        <MeshCorePrivateLocation
+            v-if="snapshot.contacts.some((c) => c.peer === peer && c.kind === 1 && c.active) && snapshot.owner"
+            :owner="snapshot.owner"
+            :peer="peer"
+            :radio-id="snapshot.radio_id"
+            :context-key="$route.query.meshcoreRadio || null"
+            :connected="snapshot.connected"
+        />
         <p class="meshcore-connection-hint px-4 py-2 text-xs text-sem-fg-muted">
             {{
                 snapshot.connected
@@ -146,6 +154,7 @@ import { navigateAppUp } from "../../js/androidBackNavigation";
 import { useRouter } from "vue-router";
 const router = useRouter();
 import MeshCoreMessageDetails from "./MeshCoreMessageDetails.vue";
+import MeshCorePrivateLocation from "./MeshCorePrivateLocation.vue";
 import MeshCoreAttachments from "./MeshCoreAttachments.vue";
 import MeshCoreVoiceMessage from "./MeshCoreVoiceMessage.vue";
 import { voiceEnvelope } from "../../js/meshcoreVoice";

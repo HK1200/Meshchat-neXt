@@ -645,6 +645,16 @@ class MeshCoreService:
             if owner and self._store
             else []
         )
+        private = (
+            await asyncio.to_thread(self._store.private_locations, owner)
+            if owner and self._store
+            else []
+        )
+        merged = {node["peer"]: node for node in nodes}
+        for node in private:
+            if node["updated"] >= merged.get(node["peer"], {}).get("updated", 0):
+                merged[node["peer"]] = node
+        nodes = list(merged.values())
         from meshchatnext.src.backend.meshcore_tactical import snapshot as team_snapshot
 
         tactical = (
@@ -668,6 +678,46 @@ class MeshCoreService:
         }
 
     async def call(self, component, method, *args, **kwargs):
+        if component == "messages" and method in (
+            "private_location_status",
+            "configure_private_location",
+        ):
+            # Consent is profile metadata. It remains readable/revocable offline,
+            # and revocation must not queue behind an in-flight radio send.
+            messages = self.messages
+            expected_owner = kwargs.pop("expected_owner", None)
+            owner = (
+                (self._selection or {}).get("owner")
+                or self._known_owner
+                or getattr(messages, "owner", None)
+            )
+            store = self._store or getattr(messages, "store", None)
+            if owner is None or expected_owner is None or owner != expected_owner:
+                raise ValueError(
+                    "MeshCore identity changed; refresh private location permissions"
+                )
+            if store is None:
+                raise ConnectionError(
+                    "Open the saved MeshCore profile before changing permissions"
+                )
+            target = (
+                "private_location_policy"
+                if method == "private_location_status"
+                else method
+            )
+            result = await asyncio.to_thread(
+                getattr(store, target), owner, *args, **kwargs
+            )
+            latest_owner = (
+                (self._selection or {}).get("owner")
+                or self._known_owner
+                or getattr(self.messages, "owner", None)
+            )
+            if owner != latest_owner:
+                raise ValueError(
+                    "MeshCore identity changed while reading private location permissions"
+                )
+            return result
         async with self._lock:
             if not self.status()["connected"]:
                 raise ConnectionError("MeshCore is disconnected")

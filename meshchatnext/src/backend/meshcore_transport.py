@@ -184,6 +184,12 @@ class AndroidConnection:
         async with self._write:
             if not self._connected or self._native is None:
                 raise ConnectionError("MeshCore transport is disconnected")
+            from meshchatnext.src.backend.meshcore_private_location import (
+                LocationPermissionChanged,
+                check_write_permission,
+            )
+
+            check_write_permission()
             self._written = asyncio.get_running_loop().create_future()
             packet = (
                 b"<" + len(payload).to_bytes(2, "little") + payload
@@ -191,8 +197,16 @@ class AndroidConnection:
                 else payload
             )
             try:
-                await asyncio.to_thread(self._native.send, packet)
+                native = self._native
+
+                def guarded_send():
+                    check_write_permission()
+                    native.send(packet)
+
+                await asyncio.to_thread(guarded_send)
                 await asyncio.wait_for(asyncio.shield(self._written), self.timeout)
+            except LocationPermissionChanged:
+                raise
             except BaseException as error:
                 # The command may already be on air. Never automatically replay a write.
                 session = self._native

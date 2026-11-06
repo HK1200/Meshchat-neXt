@@ -350,10 +350,10 @@ function age(updated) {
     return formatMeshcoreAge(updated);
 }
 function nodeTime(node) {
-    return node.heard || node.updated;
+    return node.private_location ? node.updated : node.heard || node.updated;
 }
 function nodeAge(node) {
-    return `${node.heard ? "Last heard" : "Position advertised"} · ${age(nodeTime(node))}`;
+    return `${node.private_location ? "Privately shared" : node.heard ? "Last heard" : "Position advertised"} · ${age(nodeTime(node))}`;
 }
 function draw() {
     if (!source) return;
@@ -381,7 +381,7 @@ function draw() {
                     stroke: new Stroke({ color: "#ffffff", width: 2 }),
                 }),
                 text: new Text({
-                    text: `${node.name || kinds[node.kind] || "Node"} · MeshCore`,
+                    text: `${node.name || kinds[node.kind] || "Node"} · ${node.private_location ? "Private location" : "MeshCore"}`,
                     offsetY: -17,
                     font: "12px sans-serif",
                     fill: new Fill({ color: "#0f766e" }),

@@ -1,5 +1,13 @@
 buildscript {
     repositories {
+        // Chaquopy resolves target archives through detached BUILDSCRIPT configurations.
+        // Restrict this resolver as well as settings.gradle: never fall back to the old parser.
+        exclusiveContent {
+            forRepository {
+                maven { url uri(".expat-runtime-maven") }
+            }
+            filter { includeModule("com.chaquo.python", "target") }
+        }
         google()
         mavenCentral()
         maven { url "https://chaquo.com/maven" }

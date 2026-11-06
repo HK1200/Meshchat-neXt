@@ -19,6 +19,11 @@ import unicodedata
 import uuid
 from pathlib import Path
 
+from meshchatnext.src.backend.meshcore_private_location import (
+    PrivateLocationStore,
+    create_tables,
+)
+
 
 def public_key(value):
     if not isinstance(value, str) or len(value) != 64:
@@ -55,13 +60,14 @@ def _json(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":"), default=binary)
 
 
-class MeshCoreStore:
+class MeshCoreStore(PrivateLocationStore):
     def __init__(self, path, *, message_blocklist=None):
         self.message_blocklist = message_blocklist
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         with self._connect() as db:
+            create_tables(db)
             db.executescript("""
                 PRAGMA journal_mode=WAL;
                 CREATE TABLE IF NOT EXISTS contact_links (
@@ -285,6 +291,11 @@ class MeshCoreStore:
         with self._lock, self._connect() as db:
             db.execute("UPDATE contacts SET active=0 WHERE owner=?", (owner,))
             db.executemany("INSERT OR REPLACE INTO contacts VALUES (?,?,?,?,?)", rows)
+            for table in ("private_locations", "private_location_policy"):
+                db.execute(
+                    f"DELETE FROM {table} WHERE owner=? AND peer NOT IN (SELECT c.peer FROM contacts c WHERE c.owner=? AND c.active=1 AND c.kind=1 AND NOT EXISTS (SELECT 1 FROM contacts x WHERE x.owner=c.owner AND x.peer!=c.peer AND substr(x.peer,1,12)=substr(c.peer,1,12)))",
+                    (owner, owner),
+                )
 
     def contacts(self, owner):
         with self._lock, self._connect() as db:
@@ -457,6 +468,8 @@ class MeshCoreStore:
                 rules, kind, payload, self.contacts(owner)
             ):
                 return None  # No history, unread marker or notification for a match.
+        if self.receive_private_location(owner, kind, payload):
+            return None
         encoded = _json(payload)
         # Path/SNR can change on repeated reception; they are not message identity.
         identity = {

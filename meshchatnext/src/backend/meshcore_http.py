@@ -156,6 +156,15 @@ async def _write(service, owner, request, action):
         else 16384,
     )
     specs: dict[str, tuple[set[str], set[str]]] = {
+        "private-location-status": ({"peer", "expected_owner"}, set()),
+        "private-location-configure": (
+            {"peer", "receive", "share", "generation", "expected_owner"},
+            set(),
+        ),
+        "private-location-send": (
+            {"peer", "fix", "request_id", "generation", "expected_owner"},
+            set(),
+        ),
         "config-preview": ({"text"}, {"password"}),
         "config-apply": (
             {
@@ -539,6 +548,9 @@ async def _write(service, owner, request, action):
             "backup": ("session", "backup_identity"),
             "settings": ("session", "apply_settings"),
             "radio2": ("session", "apply_radio2"),
+            "private-location-status": ("messages", "private_location_status"),
+            "private-location-configure": ("messages", "configure_private_location"),
+            "private-location-send": ("messages", "send_private_location"),
             "message": ("messages", "send_direct"),
             "contact-add": ("messages", "add_contact"),
             "channel-remove": ("channels", "remove"),

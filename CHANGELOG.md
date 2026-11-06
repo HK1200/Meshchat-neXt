@@ -2,6 +2,8 @@
 
 ## 0.1.7
 
+- Exchange Family-compatible private MeshCore locations with separately approved saved contacts. Share the device location once through an encrypted direct message, with explicit consent per companion and contact, stale/replay protection, prefix-collision rejection and private map labels. Received location frames do not create chat bubbles or notifications.
+
 - Use source-pinned desktop Python runtimes with Expat 2.10.0 security fixes, including the official CPython backport on Windows, and check the actual parser in frozen builds.
 
 - Build Android’s XML parser against Expat 2.10.0 security fixes, preserving the vendor Python kernel and all other target archive files.

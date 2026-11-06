@@ -89,3 +89,26 @@ After a verified administrator login, repeater administration includes MediaMesh
 Choose a local Radio2 profile, confirm the change, then Save and verify. Enabling first requests the firmware MediaMesh preset, which also enables its public #mediamesh forwarding region on compatible repeater builds, then applies your selected profile. Companion-only media transmit policy is configured separately on your connected radio. The app reads back the second-radio profile, crossing settings and checks that the primary profile is unchanged. If a response is missing or differs, inspect the repeater before continuing: some changes may already have applied, and the app does not retry them automatically. The preset is optional and must match your local network.
 
 The terminal sends one explicitly confirmed administrator command at a time and displays its response. Commands can change settings, erase data or disconnect a repeater. Command history is not saved; responses can be cleared and are removed when the repeater session changes.
+
+## Private contact locations
+
+Open a saved MeshCore user’s direct conversation and expand **Private location**. The two permissions start off and are separate from saving the contact:
+
+- **Show this contact’s private locations on my map** accepts their private location frames. Turn it off to remove their private position from the map.
+- **Allow one-time location sharing with this contact** enables **Share my location once**. Clicking that button requests device location permission and submits one encrypted direct message through the selected companion. There are no background private beacons or automatic retries. At most one private submission per contact and companion is allowed each minute, including after reconnecting or changing permissions.
+
+Permissions can be reviewed or withdrawn while offline. Sending requires a connected selected companion.
+
+Received positions appear in the MeshCore map layer as **Private location**. Positions are reported by the contact; they are not verified GPS measurements. They are not copied into public advertisements or team/channel records. Already sent coordinates cannot be recalled. A radio accepting a submission does not prove that the recipient received it.
+
+Permissions are bound to the companion’s full public identity and the saved user’s full public key. Switching identity, radio or contact, disconnecting, or changing consent discards an outstanding device-location callback. A fresh companion contact-table read and a permission-generation check precede transmission. Short-prefix collisions disable private sharing. Removing the contact clears permissions and received coordinates; replay timestamps remain so an old packet cannot restore a withdrawn position.
+
+The interoperable Family v1 frame is an encrypted MeshCore **direct chat** message:
+
+```text
+!NFLOC1:geo:48.7500000,-122.4800000,0.00;u=10.00;t=1793957816;s=0.00;b=0.00
+```
+
+Coordinates use seven decimal places; altitude, accuracy (`u`, metres), speed (`s`, metres/second) and bearing (`b`, degrees) use two. The timestamp (`t`) is integer UTC seconds. The entire frame must fit within 160 UTF-8 bytes. Parsing is a full match with finite values and bounded coordinates/measurements, no more than 24 hours old or five minutes in the future. Sending requires a fix no older than two minutes. Only a newer timestamp for the same full peer can replace an accepted position. Invalid or unapproved reserved `!NFLOC` direct-user frames are consumed without chat history, unread counts or notifications.
+
+This format is separate from Open TAK private **team-channel** position reports. These controls never select a room or channel. Keep using the existing team controls for deliberate team-channel sharing.
