@@ -7,6 +7,7 @@ import asyncio
 import configparser
 import os
 import platform
+import pyexpat
 import sys
 import time
 from pathlib import Path
@@ -341,6 +342,7 @@ def register_app_info_routes(routes, app):
                     "rns_version": RNS.__version__,
                     "lxst_version": app.get_lxst_version(),
                     "python_version": platform.python_version(),
+                    "expat_version": pyexpat.EXPAT_VERSION,
                     "dependencies": {
                         "aiohttp": app.get_package_version("aiohttp"),
                         "aiohttp_session": app.get_package_version(

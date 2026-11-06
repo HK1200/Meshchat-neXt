@@ -110,6 +110,8 @@ env:
 
 jobs:
     build:
+        # Owner release policy: source merges and tags must not invoke this legacy publisher.
+        if: ${{ github.event_name == 'workflow_dispatch' }}
         runs-on: ubuntu-latest
         timeout-minutes: 120
         permissions:

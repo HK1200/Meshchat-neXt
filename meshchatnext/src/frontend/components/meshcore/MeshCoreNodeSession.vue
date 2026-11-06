@@ -304,15 +304,35 @@
                         {{ new Date(row.created * 1000).toLocaleString() }} ·
                         {{ row.direction === "in" ? "Received via room server" : states[row.state] || row.state }}
                     </p>
+                    <button
+                        v-if="row.direction === 'in'"
+                        type="button"
+                        class="secondary-chip mt-2"
+                        :disabled="busy || needsRecovery || !verified"
+                        @click="reply(row)"
+                    >
+                        Reply
+                    </button>
                 </article>
             </div>
             <button v-if="roomHasNewer" class="secondary-chip" :disabled="roomLoading" @click="loadRoomNewer">
                 Show newer messages
             </button>
+            <p v-if="verified" class="text-xs text-sem-fg-muted">
+                Room stopped responding after a server restart?
+                <button type="button" class="underline" @click="activeTab = 'access'">Open login controls</button>
+                to log out and log in again. Check previous post receipts before repeating a post.
+            </p>
             <form class="space-y-2" @submit.prevent="send">
+                <div v-if="replyTo" class="border-l-2 border-sem-accent pl-3 text-sm" role="status">
+                    <p>Replying to {{ replyTo.label }} · visible to everyone in this room</p>
+                    <p class="whitespace-pre-wrap break-words text-sem-fg-muted">{{ replyTo.header }}</p>
+                    <button type="button" class="secondary-chip" @click="replyTo = null">Cancel reply</button>
+                </div>
                 <label class="text-sm"
                     >Post to {{ node.name
                     }}<textarea
+                        ref="composer"
                         v-model="draft"
                         rows="3"
                         class="bg-sem-surface-muted border border-sem-border text-sm rounded-2xl focus:ring-2 focus:ring-sem-focus block w-full p-2.5 text-sem-fg mt-1"
@@ -336,6 +356,7 @@
 </template>
 <script setup>
 import MeshCoreRepeaterConsole from "./MeshCoreRepeaterConsole.vue";
+import { roomReply, roomPostText } from "../../js/meshcoreRoomReply";
 import { roomAuthor } from "../../js/meshcoreRoomAuthor";
 import { useMeshCoreMessagePosition } from "../../js/meshcoreMessagePosition";
 import { computed, ref, watch, onBeforeUnmount } from "vue";
@@ -537,7 +558,32 @@ const {
             expected_owner: props.snapshot.owner,
         }),
 });
-const bytes = computed(() => new TextEncoder().encode(draft.value).length);
+const pendingPostId = ref(null);
+const replyTo = ref(null),
+    composer = ref(null);
+const postText = computed(() => roomPostText(draft.value, replyTo.value));
+const bytes = computed(() => new TextEncoder().encode(postText.value).length);
+function reply(row) {
+    replyTo.value = roomReply(row, author(row));
+    composer.value?.focus();
+}
+watch([() => props.snapshot.messages, uncertain], ([messages]) => {
+    if (!uncertain.value || !pendingPostId.value) return;
+    const row = (messages || []).find(
+        (item) => item.id === pendingPostId.value && item.peer === props.node.peer && item.direction === "out"
+    );
+    if (!row || !["accepted", "delivered", "unconfirmed", "rejected"].includes(row.state)) return;
+    uncertain.value = false;
+    pendingPostId.value = null;
+    problem.value = "";
+    if (row.state === "rejected") {
+        notice.value = "The radio rejected the previous post. Your draft is preserved.";
+    } else {
+        draft.value = "";
+        replyTo.value = null;
+        notice.value = "The previous post is recorded in room history. It was not sent again.";
+    }
+});
 const states = {
     accepted: "Accepted by radio · awaiting room receipt",
     delivered: "Acknowledged by room server",
@@ -632,6 +678,8 @@ async function operate(action, extra = {}) {
         } else if (result.state === "verified")
             notice.value = result.is_admin ? "Login verified · administrator." : "Login verified.";
         else if (result.state === "denied") problem.value = "The server denied this login.";
+        else if (action === "room-message" && result.state === "not_sent")
+            problem.value = `Post was not sent. ${result.reason || "Check the connection before trying again."}`;
         else if (result.state === "rejected") problem.value = "The radio rejected the request.";
         else if (result.state === "uncertain" || result.state === "unknown") {
             problem.value =
@@ -644,6 +692,7 @@ async function operate(action, extra = {}) {
             if (action === "room-message") uncertain.value = true;
         } else if (action === "room-message") {
             draft.value = "";
+            replyTo.value = null;
             notice.value = "Post accepted by radio. Check its room receipt below.";
         } else if (action === "node-logout") notice.value = "Logout submitted; local login cleared.";
         emit("changed");
@@ -728,7 +777,8 @@ async function administer() {
 }
 async function send() {
     if (!verified.value || uncertain.value || !draft.value.trim() || bytes.value > 160) return;
-    await operate("room-message", { text: draft.value, request_id: crypto.randomUUID() });
+    pendingPostId.value = crypto.randomUUID();
+    await operate("room-message", { text: postText.value, request_id: pendingPostId.value });
 }
 watch(
     [
@@ -745,6 +795,8 @@ watch(
         password.value = "";
         showPassword.value = false;
         draft.value = "";
+        replyTo.value = null;
+        pendingPostId.value = null;
         status.value = null;
         notice.value = "";
         problem.value = "";

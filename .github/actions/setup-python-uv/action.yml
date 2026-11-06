@@ -12,6 +12,10 @@ inputs:
         description: Allow pre-release Python versions via setup-python
         required: false
         default: "false"
+    security-runtime:
+        description: Install the source-pinned Expat-fixed runtime before creating app environments
+        required: false
+        default: "false"
     uv-version:
         description: UV version installed from GitHub releases
         required: false
@@ -31,6 +35,18 @@ runs:
           env:
               UV_VERSION: ${{ inputs.uv-version }}
           run: bash scripts/ci/github-install-uv.sh
+
+        - name: Install qualified security runtime
+          if: inputs.security-runtime == 'true'
+          shell: bash
+          env:
+              GH_TOKEN: ${{ github.token }}
+          run: |
+              uv_executable="${UV_INSTALL_DIR:-/usr/local/bin}/uv"
+              if [[ "${RUNNER_OS:-}" == Windows ]]; then
+                  uv_executable="$(cygpath -w "${UV_INSTALL_DIR:-/usr/local/bin}/uv.exe")"
+              fi
+              python scripts/ci/install-expat-python-sdk.py --uv-executable "$uv_executable"
 
         - name: Cache UV downloads
           uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9

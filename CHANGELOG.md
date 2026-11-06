@@ -2,6 +2,15 @@
 
 ## 0.1.7
 
+- Exchange Family-compatible private MeshCore locations with separately approved saved contacts. Share the device location once through an encrypted direct message, with explicit consent per companion and contact, stale/replay protection, prefix-collision rejection and private map labels. Received location frames do not create chat bubbles or notifications.
+
+- Use source-pinned desktop Python runtimes with Expat 2.10.0 security fixes, including the official CPython backport on Windows, and check the actual parser in frozen builds.
+
+- Build Android’s XML parser against Expat 2.10.0 security fixes, preserving the vendor Python kernel and all other target archive files.
+
+- Reply to MeshCore room posts with a short public quote and author hint, counting the complete reply against the existing 160-byte limit. Reply context and drafts are cleared when changing identity or radio.
+- Keep room drafts editable after a confirmed pre-send validation or clock failure. Restore the composer when the exact previous submission receives a definite stored outcome, without automatically transmitting it again.
+
 - Initialize frozen desktop worker support before application imports, preventing propagation-stamp workers from failing during RNS startup. Packaged runtime checks now execute a real synthetic LXMF validation task.
 
 - Prevent desktop startup and tests from terminating another running profile. Linux orphan cleanup requires verified same-user, executable and profile ownership; automatic cleanup stays disabled where ownership cannot be proven.

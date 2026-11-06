@@ -10,6 +10,10 @@ inputs:
         description: Allow pre-release Python versions via setup-python
         required: false
         default: "false"
+    security-runtime:
+        description: Use the qualified Expat-fixed runtime for application environments
+        required: false
+        default: "false"
     uv-version:
         description: UV version installed from GitHub releases
         required: false
@@ -57,6 +61,7 @@ runs:
               python-version: ${{ inputs.python-version }}
               python-allow-prereleases: ${{ inputs.python-allow-prereleases }}
               uv-version: ${{ inputs.uv-version }}
+              security-runtime: ${{ inputs.security-runtime }}
 
         - name: Set up Node and pnpm
           if: inputs.install-node == 'true'

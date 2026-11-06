@@ -81,6 +81,12 @@ AST-PY-005 tests/test_android_wheel_soname_links.py
 # No command or executable is accepted from user input or intercepted responses.
 AST-JS-004 tests/agentic/packaged-node-pages.cjs
 
+# Native review inspects constants in metadata freshly compiled by cx_Freeze
+# from the immediately signature-verified source. The fixed local path and
+# Python magic are checked; no downloaded/user bytecode is loaded or executed.
+# Actual installed source/channel/runtime values are checked separately too.
+AST-PY-003 tests/release/windows_package_review.py
+
 # Host-safety regression loads only the fixed, checked-in cleanup module in a
 # bounded VM with fake filesystem, process enumeration and signals. No user or
 # network content is evaluated; unexpected imports throw. Runtime scanning and

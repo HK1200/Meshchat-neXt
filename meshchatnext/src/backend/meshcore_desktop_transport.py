@@ -159,6 +159,11 @@ class DesktopConnection:
             native = self._native
             if not self._connected or native is None:
                 raise ConnectionError("MeshCore is disconnected")
+            from meshchatnext.src.backend.meshcore_private_location import (
+                check_write_permission,
+            )
+
+            check_write_permission()
             try:
                 async with asyncio.timeout(self.timeout):
                     result = await native.send(data)

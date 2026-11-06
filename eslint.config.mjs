@@ -23,6 +23,7 @@ export default [
             "**/storage/**",
             "**/__pycache__/**",
             "**/.venv/**",
+            "**/.python-security-runtime/**",
             "**/.local/**",
             "**/*.min.js",
             "**/pnpm-lock.yaml",

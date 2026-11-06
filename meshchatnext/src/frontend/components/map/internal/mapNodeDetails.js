@@ -26,15 +26,17 @@ export function mapNodeDetails(feature, pressedCoordinate) {
         props = object(feature.getProperties?.());
     const isTeam = Boolean(get("meshcoreTeam")),
         isMeshcore = Boolean(get("meshcore") || isTeam || get("meshcoreRouteNode"));
-    const source = isTeam
-        ? "MeshCore team"
-        : isMeshcore
-          ? "MeshCore"
-          : get("telemetry")
-            ? "Reticulum"
-            : get("discovered")
-              ? "Discovered interface"
-              : "Map point";
+    const source = meshcore.private_location
+        ? "MeshCore private location"
+        : isTeam
+          ? "MeshCore team"
+          : isMeshcore
+            ? "MeshCore"
+            : get("telemetry")
+              ? "Reticulum"
+              : get("discovered")
+                ? "Discovered interface"
+                : "Map point";
     const data = isTeam
         ? team
         : get("meshcore")

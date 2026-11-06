@@ -224,3 +224,20 @@ it("renders reported text safely, switches overlapping nodes, and closes on Back
     expect(wrapper.emitted("close")).toHaveLength(1);
     wrapper.unmount();
 });
+
+it("labels private MeshCore fixes separately from advertisements and team reports", () => {
+    const result = mapNodeDetails(
+        point({
+            meshcore: {
+                peer: "b2".repeat(32),
+                name: "Saved contact",
+                latitude: 49,
+                longitude: -122,
+                private_location: true,
+            },
+        })
+    );
+    expect(result.source).toBe("MeshCore private location");
+    expect(result.team).toBe(false);
+    expect(rows(result)["Public address"]).toBe("b2".repeat(32));
+});

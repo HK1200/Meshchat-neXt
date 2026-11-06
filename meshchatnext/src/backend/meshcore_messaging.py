@@ -404,25 +404,39 @@ class MeshCoreMessaging:
 
     async def send_direct(self, peer, text, *, request_id, room=False):
         """Submit once. Reusing a request ID reads its result; it never resends."""
+        if not room and isinstance(text, str) and text.startswith("!NFLOC"):
+            raise ValueError("Use the private location controls for location frames")
         async with self.session._lock:
             self._check()
-            timestamp_floor = 0
-            if room:
-                clock = self.session._payload(
-                    await self._client.commands.get_time()
-                ).get("time")
-                if type(clock) is not int or not 0 <= clock < 0xFFFFFFFF:
-                    raise ConnectionError("Invalid companion clock for room post")
-                timestamp_floor = clock + 1
-            row, fresh = await asyncio.to_thread(
-                self.store.prepare_send,
-                self.owner,
-                peer,
-                text,
-                request_id,
-                room=room,
-                timestamp_floor=timestamp_floor,
+            # A status read must never depend on another companion clock request.
+            existing = await asyncio.to_thread(
+                self.store.send_result, self.owner, peer, text, request_id
             )
+            if existing:
+                return existing
+            try:
+                timestamp_floor = 0
+                if room:
+                    clock = self.session._payload(
+                        await self._client.commands.get_time()
+                    ).get("time")
+                    if type(clock) is not int or not 0 <= clock < 0xFFFFFFFF:
+                        raise ConnectionError("Invalid companion clock for room post")
+                    timestamp_floor = clock + 1
+                row, fresh = await asyncio.to_thread(
+                    self.store.prepare_send,
+                    self.owner,
+                    peer,
+                    text,
+                    request_id,
+                    room=room,
+                    timestamp_floor=timestamp_floor,
+                )
+            except (ValueError, ConnectionError) as error:
+                # No send_msg call has occurred. Preserve the exception type for
+                # callers, but let room UI distinguish a safe preflight failure.
+                error.meshcore_not_sent = True
+                raise
             if not fresh:
                 return row
             try:
@@ -466,6 +480,101 @@ class MeshCoreMessaging:
                     )
                 )
                 raise
+
+    async def _verify_private_location_identity(self):
+        from meshchatnext.src.backend.meshcore_private_location import (
+            LocationPermissionChanged,
+        )
+
+        info = self.session._payload(await self._client.commands.send_appstart())
+        if public_key(info.get("public_key")) != self.owner:
+            raise LocationPermissionChanged(
+                "Companion identity changed; refresh before sharing a private location"
+            )
+
+    async def send_private_location(self, peer, fix, request_id, generation):
+        from meshchatnext.src.backend.meshcore_private_location import (
+            WRITE_GUARD,
+            LocationPermissionChanged,
+        )
+
+        async with self.session._lock:
+            self._check()
+            await self._verify_private_location_identity()
+            # The companion addresses text by six-byte prefixes. Refresh the full
+            # contact table before approving a private destination; collisions fail closed.
+            await self._sync_contacts()
+            row, fresh = await asyncio.to_thread(
+                self.store.reserve_private_location,
+                self.owner,
+                peer,
+                fix,
+                request_id,
+                generation,
+            )
+            if not fresh:
+                return {"request_id": request_id, "state": row["state"]}
+            owner, client = self.owner, self._client
+            denied_before_handoff = False
+
+            def guard():
+                nonlocal denied_before_handoff
+                try:
+                    self._check()
+                    if self.owner != owner or self._client is not client:
+                        raise LocationPermissionChanged(
+                            "MeshCore identity or connection changed"
+                        )
+                    self.store.check_private_location_send(owner, peer, generation)
+                except LocationPermissionChanged:
+                    denied_before_handoff = True
+                    raise
+
+            token = WRITE_GUARD.set(guard)
+            try:
+                guard()
+                event = await client.commands.send_msg(
+                    peer, row["frame"], timestamp=row["timestamp"], attempt=0
+                )
+                accepted = event is not None and event.type == self._types.MSG_SENT
+                rejected = (
+                    event is not None
+                    and event.is_error()
+                    and type(event.payload.get("error_code")) is int
+                )
+                # The pinned SDK converts transport exceptions to ERROR events.
+                # Our own guard proves a revoked request never reached native send.
+                state = (
+                    "rejected"
+                    if denied_before_handoff
+                    else "accepted"
+                    if accepted
+                    else "rejected"
+                    if rejected
+                    else "unknown"
+                )
+                return await asyncio.to_thread(
+                    self.store.private_location_result, owner, request_id, state
+                )
+            except LocationPermissionChanged:
+                await asyncio.shield(
+                    asyncio.to_thread(
+                        self.store.private_location_result,
+                        owner,
+                        request_id,
+                        "rejected",
+                    )
+                )
+                raise
+            except BaseException:
+                await asyncio.shield(
+                    asyncio.to_thread(
+                        self.store.private_location_result, owner, request_id, "unknown"
+                    )
+                )
+                raise
+            finally:
+                WRITE_GUARD.reset(token)
 
     async def start_receiving(self):
         self._check()

@@ -223,3 +223,13 @@ tests/ui/baseline.json
 
 # Generated backend coverage report (retained in review evidence).
 /coverage.xml
+
+# Generated interpreter-build and isolated runtime verification reports.
+/reports/freezer-source.json
+/reports/frozen-python-*.json
+
+# Reproducible security-backported Android runtime inputs (never commit binaries).
+android/.expat-runtime-maven/
+
+# Hash-bound private Python SDK installations, outside disposable pytest fixtures.
+.python-security-runtime/
