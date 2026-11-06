@@ -292,7 +292,7 @@ jobs:
             - name: Checkout immutable release source
               uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
               with:
-                  ref: ${{ inputs.release_source_sha }}
+                  ref: ${{ github.sha }}
                   path: temp-tests/windows-release-review/source
                   persist-credentials: false
             - name: Set up fixed Python and uv

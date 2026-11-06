@@ -31,6 +31,7 @@ temp-tests/
 .pre-commit-config.yaml
 __pycache__/
 .venv/
+.python-security-runtime/
 MagicMock/
 *.min.js
 *.wasm

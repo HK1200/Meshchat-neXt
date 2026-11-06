@@ -317,6 +317,22 @@ try {
         spawnArgs = ["-x86_64", cmd, ...args];
     }
 
+    if (process.platform === "linux" || process.platform === "darwin") {
+        const prepareArgs = [...baseArgs, "scripts/ci/prepare-frozen-python.py"];
+        const prepareResult = spawnSync(
+            rosettaX64 ? "arch" : cmd,
+            rosettaX64 ? ["-x86_64", cmd, ...prepareArgs] : prepareArgs,
+            { stdio: "inherit", shell: false, env, cwd: repoRoot }
+        );
+        failOnSpawnResult("Selected-runtime freezer preparation", prepareResult);
+        const prepared = JSON.parse(fs.readFileSync(path.join(repoRoot, "reports/freezer-source.json"), "utf8"));
+        if (!prepared.passed || !prepared.shared_library_directory) {
+            throw new Error("Selected-runtime freezer preparation report is incomplete");
+        }
+        const loaderPath = process.platform === "darwin" ? "DYLD_LIBRARY_PATH" : "LD_LIBRARY_PATH";
+        env[loaderPath] = [prepared.shared_library_directory, env[loaderPath]].filter(Boolean).join(path.delimiter);
+    }
+
     console.log("Running cx_Freeze backend build...");
     const result = spawnSync(spawnCmd, spawnArgs, {
         stdio: "inherit",

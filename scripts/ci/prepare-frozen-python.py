@@ -9,6 +9,7 @@ import json
 import os
 import platform
 import re
+import shlex
 import shutil
 import ssl
 import subprocess
@@ -22,8 +23,8 @@ from urllib.parse import urlparse
 
 
 def main():
-    if not sys.platform.startswith("linux"):
-        raise SystemExit("This source-base preparation is Linux-only")
+    if not (sys.platform.startswith("linux") or sys.platform == "darwin"):
+        raise SystemExit("Source-base preparation requires Linux or macOS")
     root = Path(__file__).resolve().parents[2]
     expected = os.environ.get("PYTHON_VERSION", platform.python_version())
     if not platform.python_version() == expected:
@@ -77,13 +78,20 @@ def main():
         if len(projects) != 1 or not (projects[0] / "setup.py").is_file():
             raise RuntimeError("The pinned source archive has an unexpected layout")
         wheelhouse = Path(folder) / "wheels"
-        # The upstream launcher places LIBM before static libpython. Keep it
-        # linked on hosted interpreters; this affects only this source build.
+        # Use the selected SDK shared library for this source build only.
         build_env = dict(os.environ)
         compiler = build_env.get("CC") or sysconfig.get_config_var("CC")
         if not isinstance(compiler, str) or not compiler.strip():
             raise RuntimeError("The selected Python has no configured C compiler")
-        build_env["CC"] = compiler + " -Wl,--no-as-needed"
+        libdir = Path(sysconfig.get_config_var("LIBDIR")).resolve()
+        shared_name = sysconfig.get_config_var("LDLIBRARY")
+        if not shared_name or not (libdir / shared_name).is_file():
+            raise RuntimeError("The selected Python shared library is missing")
+        # Put the shared SDK library before upstream's static LIBPL archive.
+        # This also avoids linking LLVM LTO archives with a different linker.
+        build_env["CC"] = compiler + " -L" + shlex.quote(str(libdir))
+        if sys.platform.startswith("linux"):
+            build_env["CC"] += " -Wl,--no-as-needed"
         subprocess.run(
             [
                 sys.executable,
@@ -129,6 +137,8 @@ def main():
     report = {
         "passed": True,
         "build_python": platform.python_version(),
+        "shared_library_directory": str(libdir),
+        "shared_library_name": shared_name,
         "freeze_core": package["version"],
         "locked_sdist": source,
         "source_build_without_binary_or_build_cache": True,
@@ -144,12 +154,12 @@ def main():
     report["base_names"] = sorted(p.name for p in bases.iterdir())
     report["python_soabi"] = sysconfig.get_config_var("SOABI")
     report["python_exe_suffix"] = sysconfig.get_config_var("EXE")
-    print(json.dumps(report, sort_keys=True), flush=True)
     from cx_Freeze import Executable
 
     probe = Executable(script=str(root / "scripts/ci/prepare-frozen-python.py"))
     if not Path(probe.base).is_file():
         raise RuntimeError("Source-built console base is missing")
+    print(json.dumps(report, sort_keys=True), flush=True)
     output = root / "reports/freezer-source.json"
     output.parent.mkdir(exist_ok=True)
     output.write_text(json.dumps(report, indent=2) + "\n")
