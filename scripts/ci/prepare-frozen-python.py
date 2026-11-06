@@ -144,7 +144,9 @@ def main():
         "locked_sdist": source,
         "source_build_without_binary_or_build_cache": True,
         "explicit_locked_source_build_ext_and_bdist_wheel": True,
-        "hosted_static_python_math_libraries_retained": sys.platform.startswith("linux"),
+        "hosted_static_python_math_libraries_retained": sys.platform.startswith(
+            "linux"
+        ),
         "build_dependencies_from_frozen_environment": True,
         "base_hashes": {
             p.name: hashlib.file_digest(p.open("rb"), "sha256").hexdigest()
