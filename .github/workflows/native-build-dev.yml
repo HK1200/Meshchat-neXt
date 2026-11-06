@@ -266,7 +266,7 @@ jobs:
             MESHCHAT_RELEASE_REVIEW_ROOT: ${{ github.workspace }}/temp-tests/windows-release-review
             MESHCHAT_REVIEW_RUN_ID: ${{ inputs.release_artifact_run }}
             MESHCHATNEXT_BUILD_CHANNEL: stable
-            MESHCHATNEXT_GIT_COMMIT: ${{ inputs.release_source_sha }}
+            MESHCHATNEXT_GIT_COMMIT: ${{ github.sha }}
             MESHCHAT_REVIEW_SOURCE_SHA: ${{ inputs.release_source_sha }}
             PYTHON_CMD: uv run --frozen --all-extras --group dev python
         steps:
@@ -308,9 +308,9 @@ jobs:
             - name: Download only the existing approved Windows artifact
               uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
               with:
-                  name: next-windows-${{ inputs.release_source_sha }}
+                  name: next-windows-${{ github.sha }}
                   path: temp-tests/windows-release-review/source/dist
-                  run-id: ${{ inputs.release_artifact_run }}
+                  run-id: ${{ env.MESHCHAT_REVIEW_RUN_ID }}
                   github-token: ${{ github.token }}
             - name: Set up fixed Node and pnpm for corrected packaging
               uses: ./.github/actions/setup-node-pnpm
@@ -373,7 +373,7 @@ jobs:
             - name: Upload only the approved installers and public source/hash report
               uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
               with:
-                  name: next-windows-verified-${{ inputs.release_source_sha }}
+                  name: next-windows-verified-${{ github.sha }}
                   path: |
                       temp-tests/windows-release-review/verified-report/MeshchatNext-v0.1.7-win-portable.exe
                       temp-tests/windows-release-review/verified-report/MeshchatNext-v0.1.7-win-x64-installer.exe
