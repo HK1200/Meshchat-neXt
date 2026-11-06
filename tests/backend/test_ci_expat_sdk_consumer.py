@@ -25,7 +25,12 @@ def consumer():
 @pytest.fixture
 def archive_builder(tmp_path, consumer):
     def build(
-        *, vendor=None, bad_inventory=False, escaping_link=False, extra_file=False
+        *,
+        vendor=None,
+        bad_inventory=False,
+        escaping_link=False,
+        extra_file=False,
+        target="linux-x64",
     ):
         files = {
             "python/PYTHON.json": b"{}",
@@ -45,7 +50,7 @@ def archive_builder(tmp_path, consumer):
                 archive.addfile(member)
         digest = hashlib.sha256(distribution.read_bytes()).hexdigest()
         report = {
-            "target": "linux-x64",
+            "target": target,
             "upstream_source": vendor or consumer.VENDOR,
             "python_source_sha256": consumer.PYTHON_SOURCE,
             "expat_source_sha256": consumer.EXPAT_SOURCE,
@@ -111,3 +116,9 @@ def test_artifact_output_whitelist_enforced(consumer, archive_builder):
     artifact, entry, output = archive_builder(extra_file=True)
     with pytest.raises(ValueError, match="Unexpected SDK artifact"):
         consumer.verify_sdk(artifact, entry, "linux-x64", output)
+
+
+def test_windows_without_official_backport_rejected(consumer, archive_builder):
+    artifact, entry, output = archive_builder(target="windows-x64")
+    with pytest.raises(ValueError, match="required official CPython security backport"):
+        consumer.verify_sdk(artifact, entry, "windows-x64", output)

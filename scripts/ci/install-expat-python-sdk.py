@@ -75,6 +75,16 @@ def verify_sdk(artifact: Path, entry: dict, target: str, output: Path) -> dict:
             or report["actual_runtime"].get("expat") != "expat_2.10.0"
         ):
             raise ValueError("SDK producer runtime is not security fixed")
+        if target == "windows-x64":
+            backport = report.get("cpython_security_backport") or {}
+            if (
+                backport.get("commit") != "79c504454a52990bfa02374fdb625fdce32844b0"
+                or backport.get("patch_sha256")
+                != "cb302c375b917f3730f0c13ffcc14a18f6d16754e762d22f889c821c928c77e6"
+            ):
+                raise ValueError(
+                    "Windows SDK lacks the required official CPython security backport"
+                )
         if archive.getinfo("python-sdk.tar.gz").file_size != entry["sdk_archive_size"]:
             raise ValueError("SDK archive size mismatch")
         with (
@@ -259,6 +269,16 @@ def main() -> None:
             ]
         )
     }
+    for variable in (
+        "PYTHONHOME",
+        "PYTHONPATH",
+        "LD_LIBRARY_PATH",
+        "LD_PRELOAD",
+        "DYLD_LIBRARY_PATH",
+        "DYLD_FALLBACK_LIBRARY_PATH",
+        "DYLD_INSERT_LIBRARIES",
+    ):
+        env.pop(variable, None)
     env["UV_PYTHON_INSTALL_BIN"] = "0"
     subprocess.run(
         [
@@ -298,6 +318,13 @@ def main() -> None:
     if os.environ.get("GITHUB_ENV"):
         with Path(os.environ["GITHUB_ENV"]).open("a") as stream:
             stream.write("UV_PYTHON=" + str(executable) + "\n")
+            sdk_root = (
+                executable.parent if os_name == "windows" else executable.parent.parent
+            )
+            for variable in ("pythonLocation", "Python_ROOT_DIR", "Python3_ROOT_DIR"):
+                stream.write(variable + "=" + str(sdk_root) + "\n")
+            if os_name == "linux":
+                stream.write("LD_LIBRARY_PATH=" + str(sdk_root / "lib") + "\n")
         with Path(os.environ["GITHUB_PATH"]).open("a") as stream:
             stream.write(str(executable.parent) + "\n")
     print(json.dumps(result))

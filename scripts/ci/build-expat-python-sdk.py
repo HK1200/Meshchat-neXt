@@ -24,6 +24,15 @@ SOURCE = "a83ff4e7e166b048089d79dd1acfbd6c84c77ac4"
 REPOSITORY = "https://github.com/astral-sh/python-build-standalone.git"
 PYTHON_SHA256 = "de414a57119abef52784d8993e341d53aed635fc2b05c2607d9f98a2c5b72032"
 EXPAT_SHA256 = "c624ba2998fc65df1163a49641ff3f9ab73138b11641d92c86bee0fb01b1bc7f"
+WINDOWS_BACKPORT_COMMIT = "79c504454a52990bfa02374fdb625fdce32844b0"
+WINDOWS_BACKPORT_SHA256 = (
+    "cb302c375b917f3730f0c13ffcc14a18f6d16754e762d22f889c821c928c77e6"
+)
+WINDOWS_VENDOR_HOOK_SHA256 = (
+    "f761bb904e664e39a44d88bd5e59b4a690b4d0c8e4785c5b2c913a552b4c9667"
+)
+RUNTIME_PROBE = "import sys,pyexpat,ssl,json,xml.etree.ElementTree as E\nassert E.fromstring('<root><name>Alice \\u2603</name></root>').find('name').text=='Alice \\u2603'\npyexpat.ParserCreate().Parse('<verified/>', True)\ntry:\n    pyexpat.ParserCreate().Parse('<root>', True)\nexcept pyexpat.ExpatError:\n    pass\nelse:\n    raise AssertionError('Malformed XML accepted')\nentities=['<!ENTITY a0 \"1234567890\">']\nfor i in range(1,9):\n    entities.append('<!ENTITY a%d \"%s\">'%(i,('&a%d;'%(i-1))*10))\ntry:\n    pyexpat.ParserCreate().Parse('<!DOCTYPE a ['+''.join(entities)+']><a>&a8;</a>', True)\nexcept pyexpat.ExpatError as error:\n    assert error.code==pyexpat.errors.codes[pyexpat.errors.XML_ERROR_AMPLIFICATION_LIMIT_BREACH],error\nelse:\n    raise AssertionError('Entity amplification limit not enforced')\nprint(json.dumps({'python':sys.version.split()[0],'expat':pyexpat.EXPAT_VERSION,'openssl':ssl.OPENSSL_VERSION,'parser_cases':['ElementTree native CAPI Unicode','direct valid XML','malformed rejection','entity amplification rejection']}))\n"
+
 TARGETS = {
     "linux-x64": ("linux", "x86_64-unknown-linux-gnu", "pgo+lto"),
     "linux-arm64": ("linux", "aarch64-unknown-linux-gnu", "pgo+lto"),
@@ -97,6 +106,46 @@ def prepare_linux_image(
         "dockerfile_sha256": sha(dockerfile),
         "image_id": image_id,
         "method": "Official upstream CI cache import and image export; vendor source and authenticated dependency pins unchanged",
+    }
+
+
+def apply_windows_security_backport(root: Path, vendor: Path) -> dict[str, str]:
+    """Use the vendor's existing exact source-patch hook for CPython's official fix."""
+    patch = root / "scripts/ci/patches/cpython-3.14-expat-2.10.0.patch"
+    hook = vendor / "cpython-windows/build.py"
+    if sha(patch) != WINDOWS_BACKPORT_SHA256 or sha(hook) != WINDOWS_VENDOR_HOOK_SHA256:
+        raise RuntimeError("Unexpected Windows security patch or vendor hook input")
+    destination = vendor / "cpython-windows/patch-cpython-expat-2.10.0.patch"
+    if destination.exists():
+        raise RuntimeError("Existing Windows security patch requires review")
+    original = hook.read_bytes().decode("utf-8")
+    anchor = '    patches = ["patch-disable-uwp.patch"]'
+    if original.count(anchor) != 1:
+        raise RuntimeError("Supported Windows source-patch hook changed")
+    updated = original.replace(
+        anchor, anchor + '\n    patches.append("patch-cpython-expat-2.10.0.patch")'
+    )
+    hook.write_bytes(updated.encode("utf-8"))
+    shutil.copyfile(patch, destination)
+    git = shutil.which("git")
+    if git is None:
+        raise RuntimeError("Git is required for security patch identity checks")
+    changed = subprocess.check_output(
+        [git, "diff", "--name-only"], cwd=vendor, text=True
+    ).splitlines()
+    untracked = subprocess.check_output(
+        [git, "ls-files", "--others", "--exclude-standard"], cwd=vendor, text=True
+    ).splitlines()
+    if changed != ["cpython-windows/build.py"] or untracked != [
+        "cpython-windows/patch-cpython-expat-2.10.0.patch"
+    ]:
+        raise RuntimeError("Unexpected changes to the vendor security recipe")
+    return {
+        "commit": WINDOWS_BACKPORT_COMMIT,
+        "patch_sha256": WINDOWS_BACKPORT_SHA256,
+        "vendor_hook_before_sha256": WINDOWS_VENDOR_HOOK_SHA256,
+        "vendor_hook_after_sha256": sha(hook),
+        "scope": "Official CPython bundled Expat2.10 security backport; existing upstream test files and vendor patches unchanged",
     }
 
 
@@ -201,6 +250,9 @@ def main():
         or downloads["expat"]["version"] != "2.10.0"
     ):
         raise RuntimeError("Unexpected Expat security input")
+    cpython_backport = (
+        apply_windows_security_backport(root, vendor) if host == "win32" else None
+    )
     # The compiler gets no CI artifact, repository, registry or signing tokens.
     env = {
         k: v
@@ -293,12 +345,27 @@ def main():
         )
     sdk = install / "python/install"
     executable = sdk / ("python.exe" if host == "win32" else "bin/python3.14")
-    probe = "import sys,pyexpat,ssl,json,xml.etree.ElementTree as E; assert E.fromstring('<verified/>').tag=='verified'; print(json.dumps({'python':sys.version.split()[0],'expat':pyexpat.EXPAT_VERSION,'openssl':ssl.OPENSSL_VERSION}))"
+    probe = RUNTIME_PROBE
+    probe_env = {
+        key: value
+        for key, value in env.items()
+        if key.upper()
+        not in {
+            "PYTHONHOME",
+            "PYTHONPATH",
+            "LD_LIBRARY_PATH",
+            "LD_PRELOAD",
+            "DYLD_LIBRARY_PATH",
+            "DYLD_FALLBACK_LIBRARY_PATH",
+            "DYLD_INSERT_LIBRARIES",
+        }
+    }
     runtime = json.loads(
         subprocess.check_output(
-            [str(executable), "-I", "-S", "-B", "-c", probe], text=True, env=env
+            [str(executable), "-I", "-S", "-B", "-c", probe], text=True, env=probe_env
         )
     )
+    print(json.dumps({"observed_sdk_runtime": runtime}), flush=True)
     if runtime["python"] != "3.14.10" or runtime["expat"] != "expat_2.10.0":
         raise RuntimeError(
             "Actual built SDK does not contain the required fixed runtime"
@@ -316,12 +383,13 @@ def main():
         "triple": triple,
         "actual_runtime": runtime,
         "linux_build_image": image_provenance,
+        "cpython_security_backport": cpython_backport,
         "full_vendor_archive_sha256": sha(original),
         "sdk_archive_sha256": sha(output),
         "sdk_archive_size": output.stat().st_size,
         "files": inventory,
         "symlinks": links,
-        "kind": "Owner-built SDK from the unmodified verified upstream security-update recipe; not an upstream tagged binary release",
+        "kind": "Owner-built SDK from the verified upstream security recipe, with the declared official CPython security backport on Windows; not an upstream tagged binary release",
     }
     (out / "SDK-PROVENANCE.json").write_text(json.dumps(report, indent=2) + "\n")
     if {p.name for p in out.iterdir()} != {"python-sdk.tar.gz", "SDK-PROVENANCE.json"}:
