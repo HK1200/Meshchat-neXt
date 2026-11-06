@@ -25,7 +25,7 @@ import pytest
 def test_native_review_binds_exact_merged_artifact(fault):
     path = (
         Path(__file__).resolve().parents[2]
-        / "scripts/ci/verify-windows-review-inputs.py"
+        / "scripts/ci/verify-windows-review-metadata.py"
     )
     spec = importlib.util.spec_from_file_location("review_inputs", path)
     module = importlib.util.module_from_spec(spec)

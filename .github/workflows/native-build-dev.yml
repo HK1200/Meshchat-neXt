@@ -287,7 +287,7 @@ jobs:
               env:
                   GH_TOKEN: ${{ github.token }}
               run: |
-                  python scripts/ci/verify-windows-review-inputs.py --source "$env:MESHCHAT_REVIEW_SOURCE_SHA" --run "$env:MESHCHAT_REVIEW_RUN_ID" --output "$env:MESHCHAT_RELEASE_REVIEW_ROOT/review-run-verified.json"
+                  python scripts/ci/verify-windows-review-metadata.py --source "$env:MESHCHAT_REVIEW_SOURCE_SHA" --run "$env:MESHCHAT_REVIEW_RUN_ID" --output "$env:MESHCHAT_RELEASE_REVIEW_ROOT/review-run-verified.json"
                   if ($LASTEXITCODE -ne 0) { throw "Exact-source Windows artifact verification failed" }
             - name: Checkout immutable release source
               uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
