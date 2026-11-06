@@ -46,7 +46,10 @@ bash scripts/ensure-flatpak-flathub-remote.sh
 pnpm run build-linux-native
 pnpm run electron-postinstall
 pnpm run version:sync
+.venv/bin/python scripts/ci/prepare-frozen-python.py
+export PYTHON_CMD=.venv/bin/python
 pnpm run build-backend
+.venv/bin/python scripts/ci/verify-frozen-python.py --arch x64 --expected-python "${PYTHON_VERSION:-3.14.10}"
 
 DEBUG="${DEBUG:-@malept/flatpak-bundler*}" \
     pnpm exec electron-builder --linux flatpak --x64 --publish=never -c.flatpak.branch="${branch}"

@@ -1,0 +1,62 @@
+{
+    "schema": 1,
+    "repository": "HK1200/Meshchat-neXt",
+    "qualification": "all five target SDKs independently qualified; native runtime and full archive inventories verified",
+    "targets": {
+        "macos-arm64": {
+            "artifact_id": 13481880820,
+            "artifact_zip_sha256": "47d42b0bc39fa7d3fd87dc37c10613e5129fb61a57bb1ef24e15285e0eb04211",
+            "sdk_archive_sha256": "3ed5d2ffd34eb9860c93cf24b50b463a914b7d6953954d40ea9fe6b262f961d0",
+            "sdk_archive_size": 71594528,
+            "producer_head": "412452b36d904c86c05f3d1a1e16f20e9b5aee0d",
+            "producer_run": 42169168560,
+            "producer_job": 127732689915,
+            "artifact_name": "next-expat-fixed-python-macos-arm64",
+            "distribution_build": "20261106"
+        },
+        "linux-x64": {
+            "artifact_id": 13484643468,
+            "artifact_zip_sha256": "019e13c8858a2abe9310b92549baa64caf1859c3eaeb25cb84c7be4320012f17",
+            "sdk_archive_sha256": "09a4de260c87f0409b9b7345ead890f811efd5eea691a1c09936383f84f56098",
+            "sdk_archive_size": 121762122,
+            "producer_head": "f1429fa2dce87623fb6b0863d967cf419eff7c01",
+            "producer_run": 42180238169,
+            "producer_job": 127767909432,
+            "artifact_name": "next-expat-fixed-python-linux-x64",
+            "distribution_build": "20261106"
+        },
+        "linux-arm64": {
+            "artifact_id": 13484269248,
+            "artifact_zip_sha256": "9c442e04d2e3cd14812e89be50fc3d618c88f812cc28692d5573fb7d4145eadc",
+            "sdk_archive_sha256": "180484a41e545e60cbbfc3feda7043b0b83fcb8dcc4ac50f998aed0db13680a7",
+            "sdk_archive_size": 104180566,
+            "producer_head": "f1429fa2dce87623fb6b0863d967cf419eff7c01",
+            "producer_run": 42180241295,
+            "producer_job": 127767917562,
+            "artifact_name": "next-expat-fixed-python-linux-arm64",
+            "distribution_build": "20261106"
+        },
+        "windows-x64": {
+            "artifact_id": 13486506204,
+            "artifact_zip_sha256": "71f484272005faa1560f1d454d315a064baa07692d51d553353805d3c56ef8b9",
+            "sdk_archive_sha256": "f829a8ab3b945e954cfaeb2ea0cb83656ec30c36df327b9ef89052024bca132b",
+            "sdk_archive_size": 56286816,
+            "producer_head": "61bd80fe527e9c5184cc0e58038779bb5e88da7f",
+            "producer_run": 42179795418,
+            "producer_job": 127766500949,
+            "artifact_name": "next-expat-fixed-python-windows-x64",
+            "distribution_build": "20261106"
+        },
+        "macos-x64": {
+            "artifact_id": 13486377600,
+            "artifact_zip_sha256": "71e2b2f735ecaa4b0bf83ed6d69d7619f2f19f1c4198920766b71b1343e81518",
+            "sdk_archive_sha256": "3255bcb34421e6af03cb40a183401159575de7834f179884d362cc09e191ce74",
+            "sdk_archive_size": 71111950,
+            "producer_head": "f2e5e257e63cbc3f0e24e3c3dbb121919c9466d7",
+            "producer_run": 42182528825,
+            "producer_job": 127775218945,
+            "artifact_name": "next-expat-fixed-python-macos-x64",
+            "distribution_build": "20261106"
+        }
+    }
+}

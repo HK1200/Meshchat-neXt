@@ -25,6 +25,8 @@ require_node_min() {
 
 require_node_min 24
 
+pnpm run version:sync
+
 mkdir -p release-assets
 
 HOST_ARCH="$(uname -m)"
@@ -144,6 +146,9 @@ if [ "${SKIP_ELECTRON:-0}" != 1 ]; then
             bash scripts/ci/github-warm-appimage-tools.sh
         fi
         pnpm run electron-postinstall
+        # Binary freezer wheels can embed an older Python patch.
+        .venv/bin/python scripts/ci/prepare-frozen-python.py
+        export PYTHON_CMD=.venv/bin/python
         if [ "${MESHCHATNEXT_FRONTEND_PREBUILT:-0}" = "1" ]; then
             if [[ ! -f "meshchatnext/public/index.html" ]]; then
                 echo "MESHCHATNEXT_FRONTEND_PREBUILT=1 but meshchatnext/public/index.html is missing." >&2
@@ -152,10 +157,12 @@ if [ "${SKIP_ELECTRON:-0}" != 1 ]; then
             echo "Reusing prebuilt frontend assets in meshchatnext/public/."
             _electron_backend() {
                 PLATFORM=linux ARCH="$1" pnpm run build-backend
+                .venv/bin/python scripts/ci/verify-frozen-python.py --arch "$1" --expected-python "${PYTHON_VERSION:-3.14.10}"
             }
         else
             _electron_backend() {
                 PLATFORM=linux ARCH="$1" pnpm run build
+                .venv/bin/python scripts/ci/verify-frozen-python.py --arch "$1" --expected-python "${PYTHON_VERSION:-3.14.10}"
             }
         fi
         if [ "$NATIVE_ARCH" = "x64" ]; then

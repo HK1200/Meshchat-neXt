@@ -778,6 +778,11 @@ class MeshCoreNodes:
         row = await self._contact(peer)
         if row["kind"] != 3 or peer not in self.snapshot():
             raise ValueError("Log in to the room server before posting")
-        return await self.messages.send_direct(
-            peer, text, request_id=request_id, room=True
-        )
+        try:
+            return await self.messages.send_direct(
+                peer, text, request_id=request_id, room=True
+            )
+        except (ValueError, ConnectionError) as error:
+            if getattr(error, "meshcore_not_sent", False):
+                return {"state": "not_sent", "reason": str(error)}
+            raise

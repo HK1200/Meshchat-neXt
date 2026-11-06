@@ -111,6 +111,9 @@ async def test_api_v1_app_info_json_contract(mock_rns_minimal, temp_dir):
         response = await handler(request)
         data = json.loads(response.body)
         assert_matches_schema(data, API_V1_APP_INFO_ENVELOPE_SCHEMA)
+        import pyexpat
+
+        assert data["app_info"]["expat_version"] == pyexpat.EXPAT_VERSION
 
 
 @pytest.mark.asyncio

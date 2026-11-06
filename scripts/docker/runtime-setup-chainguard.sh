@@ -9,6 +9,7 @@ apk upgrade --no-cache
 # The dev base image can retain explicit package constraints. Replace those
 # constraints with fixed-version floors rather than accepting a no-op upgrade.
 apk add --no-cache --upgrade \
+    'libexpat1>=2.10.0-r0' \
     'ca-certificates>=20260909-r3' \
     'ca-certificates-bundle>=20260909-r3' \
     'curl>=8.23.0-r0' \

@@ -44,7 +44,50 @@ def _mapped_library_paths(maps_text: str, library: str) -> list[str]:
     return paths
 
 
+def _verify_security_parser() -> dict[str, str]:
+    """Check the actual loaded parser, including the ElementTree C API."""
+    import platform
+    import pyexpat
+    import xml.etree.ElementTree as ET
+
+    versions = {"python": platform.python_version(), "expat": pyexpat.EXPAT_VERSION}
+    if versions != {"python": "3.14.10", "expat": "expat_2.10.0"}:
+        raise RuntimeError(f"Frozen runtime is not security fixed: {versions}")
+    # Fixed synthetic XML exercises the actual native API, not untrusted input.
+    node = ET.fromstring("<root><name>Alice \u2603</name></root>")  # noqa: S314
+    if node.findtext("name") != "Alice \u2603":
+        raise RuntimeError("Frozen ElementTree native parser Unicode check failed")
+    pyexpat.ParserCreate().Parse("<verified/>", True)
+    try:
+        pyexpat.ParserCreate().Parse("<root>", True)
+    except pyexpat.ExpatError:
+        pass
+    else:
+        raise RuntimeError("Frozen parser accepted malformed XML")
+    entities = ['<!ENTITY a0 "1234567890">']
+    entities.extend(
+        f'<!ENTITY a{index} "' + f"&a{index - 1};" * 10 + '">' for index in range(1, 9)
+    )
+    try:
+        pyexpat.ParserCreate().Parse(
+            "<!DOCTYPE a [" + "".join(entities) + "]><a>&a8;</a>", True
+        )
+    except pyexpat.ExpatError as error:
+        if (
+            error.code
+            != pyexpat.errors.codes[pyexpat.errors.XML_ERROR_AMPLIFICATION_LIMIT_BREACH]
+        ):
+            raise RuntimeError(
+                "Unexpected frozen parser amplification failure"
+            ) from error
+    else:
+        raise RuntimeError("Frozen parser did not enforce entity amplification limit")
+    return versions
+
+
 def main() -> None:
+    if getattr(sys, "frozen", False):
+        print("frozen security parser", _verify_security_parser())
     import email.header
     import email.message
     import email.policy  # noqa: F401

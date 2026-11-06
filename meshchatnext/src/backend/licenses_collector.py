@@ -543,6 +543,7 @@ def render_third_party_notices(payload: dict[str, Any]) -> str:
         "SIP_THIRD_PARTY_NOTICES.txt",
         "AV1_THIRD_PARTY_NOTICES.txt",
         "ANDROID_NUMERICS_NOTICES.txt",
+        "ANDROID_EXPAT_NOTICES.txt",
     ):
         native_notices = _repo_root() / _DATA_SUBPATH / filename
         if native_notices.is_file():

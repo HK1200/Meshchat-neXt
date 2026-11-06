@@ -122,6 +122,7 @@ jobs:
         timeout-minutes: ${{ matrix.task.timeout }}
         permissions:
             contents: read
+            actions: read
         strategy:
             fail-fast: false
             matrix:
@@ -158,6 +159,7 @@ jobs:
               with:
                   tree-signer-hash: ${{ vars.NEXT_TREE_SIGNER_HASH }}
                   python-version: ${{ env.PYTHON_VERSION }}
+                  security-runtime: "true"
                   uv-version: ${{ env.UV_VERSION }}
                   node-version: ${{ env.NODE_VERSION }}
                   pnpm-version: ${{ env.PNPM_VERSION }}
@@ -309,6 +311,7 @@ jobs:
         timeout-minutes: 20
         permissions:
             contents: read
+            actions: read
         strategy:
             fail-fast: false
             matrix:
@@ -329,6 +332,7 @@ jobs:
               with:
                   tree-signer-hash: ${{ vars.NEXT_TREE_SIGNER_HASH }}
                   python-version: ${{ env.PYTHON_VERSION }}
+                  security-runtime: "true"
                   uv-version: ${{ env.UV_VERSION }}
                   install-node: "false"
 
@@ -350,6 +354,7 @@ jobs:
         timeout-minutes: 20
         permissions:
             contents: read
+            actions: read
         steps:
             - name: Harden runner
               uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
@@ -367,6 +372,7 @@ jobs:
               with:
                   tree-signer-hash: ${{ vars.NEXT_TREE_SIGNER_HASH }}
                   python-version: ${{ env.PYTHON_VERSION }}
+                  security-runtime: "true"
                   uv-version: ${{ env.UV_VERSION }}
                   install-node: "false"
 
@@ -549,6 +555,7 @@ jobs:
         timeout-minutes: 10
         permissions:
             contents: read
+            actions: read
         steps:
             - name: Harden runner
               uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
@@ -565,6 +572,7 @@ jobs:
               with:
                   tree-signer-hash: ${{ vars.NEXT_TREE_SIGNER_HASH }}
                   python-version: ${{ env.PYTHON_VERSION }}
+                  security-runtime: "true"
                   uv-version: ${{ env.UV_VERSION }}
                   install-node: "false"
 
@@ -578,6 +586,7 @@ jobs:
         continue-on-error: true
         permissions:
             contents: read
+            actions: read
         steps:
             - name: Harden runner
               uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
@@ -594,6 +603,7 @@ jobs:
               with:
                   tree-signer-hash: ${{ vars.NEXT_TREE_SIGNER_HASH }}
                   python-version: ${{ env.PYTHON_VERSION }}
+                  security-runtime: "true"
                   uv-version: ${{ env.UV_VERSION }}
                   install-node: "false"
 
@@ -617,6 +627,7 @@ jobs:
         timeout-minutes: 15
         permissions:
             contents: read
+            actions: read
         steps:
             - name: Harden runner
               uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
@@ -633,6 +644,7 @@ jobs:
               with:
                   tree-signer-hash: ${{ vars.NEXT_TREE_SIGNER_HASH }}
                   python-version: ${{ env.PYTHON_VERSION }}
+                  security-runtime: "true"
                   uv-version: ${{ env.UV_VERSION }}
                   install-node: "false"
 
@@ -649,6 +661,7 @@ jobs:
         timeout-minutes: 60
         permissions:
             contents: read
+            actions: read
         env:
             FRONTEND_ARTIFACT_NAME: ${{ needs.frontend.outputs.artifact_name }}
             MESHCHATNEXT_FRONTEND_PREBUILT: "1"
@@ -671,6 +684,7 @@ jobs:
               with:
                   tree-signer-hash: ${{ vars.NEXT_TREE_SIGNER_HASH }}
                   python-version: ${{ env.PYTHON_VERSION }}
+                  security-runtime: "true"
                   uv-version: ${{ env.UV_VERSION }}
                   node-version: ${{ env.NODE_VERSION }}
                   pnpm-version: ${{ env.PNPM_VERSION }}
@@ -775,6 +789,7 @@ jobs:
         timeout-minutes: 25
         permissions:
             contents: read
+            actions: read
         steps:
             - name: Harden runner
               uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
@@ -791,6 +806,7 @@ jobs:
               with:
                   tree-signer-hash: ${{ vars.NEXT_TREE_SIGNER_HASH }}
                   python-version: ${{ env.PYTHON_VERSION }}
+                  security-runtime: "true"
                   uv-version: ${{ env.UV_VERSION }}
                   node-version: ${{ env.NODE_VERSION }}
                   pnpm-version: ${{ env.PNPM_VERSION }}
@@ -818,6 +834,7 @@ jobs:
         timeout-minutes: 60
         permissions:
             contents: read
+            actions: read
         steps:
             - name: Harden runner
               uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
@@ -834,6 +851,7 @@ jobs:
               with:
                   tree-signer-hash: ${{ vars.NEXT_TREE_SIGNER_HASH }}
                   python-version: ${{ env.PYTHON_VERSION }}
+                  security-runtime: "true"
                   uv-version: ${{ env.UV_VERSION }}
                   node-version: ${{ env.NODE_VERSION }}
                   pnpm-version: ${{ env.PNPM_VERSION }}
@@ -868,6 +886,7 @@ jobs:
         timeout-minutes: 45
         permissions:
             contents: read
+            actions: read
         env:
             FRONTEND_ARTIFACT_NAME: ${{ needs.frontend.outputs.artifact_name }}
             MESHCHATNEXT_FRONTEND_PREBUILT: "1"
@@ -888,6 +907,7 @@ jobs:
               with:
                   tree-signer-hash: ${{ vars.NEXT_TREE_SIGNER_HASH }}
                   python-version: ${{ env.PYTHON_VERSION }}
+                  security-runtime: "true"
                   uv-version: ${{ env.UV_VERSION }}
                   node-version: ${{ env.NODE_VERSION }}
                   pnpm-version: ${{ env.PNPM_VERSION }}
@@ -929,6 +949,7 @@ jobs:
                 os: [ubuntu-latest, macos-latest, windows-latest]
         permissions:
             contents: read
+            actions: read
         steps:
             - name: Harden runner
               uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
@@ -945,6 +966,7 @@ jobs:
               with:
                   tree-signer-hash: ${{ vars.NEXT_TREE_SIGNER_HASH }}
                   python-version: ${{ env.PYTHON_VERSION }}
+                  security-runtime: "true"
                   uv-version: ${{ env.UV_VERSION }}
                   install-node: "false"
                   install-task: "false"

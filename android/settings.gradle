@@ -10,6 +10,14 @@ pluginManagement {
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
+        // Resolve Python target archives only from the verified local security build.
+        // A missing archive must fail rather than silently use the older vendor parser.
+        exclusiveContent {
+            forRepository {
+                maven { url uri(".expat-runtime-maven") }
+            }
+            filter { includeModule("com.chaquo.python", "target") }
+        }
         google()
         mavenCentral()
         maven { url "https://chaquo.com/maven" }
