@@ -227,3 +227,6 @@ tests/ui/baseline.json
 # Generated interpreter-build and isolated runtime verification reports.
 /reports/freezer-source.json
 /reports/frozen-python-*.json
+
+# Reproducible security-backported Android runtime inputs (never commit binaries).
+android/.expat-runtime-maven/

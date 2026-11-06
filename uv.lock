@@ -2096,6 +2096,9 @@ dev = [
     { name = "ruff" },
     { name = "schemathesis" },
 ]
+source-verification = [
+    { name = "rns" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -2152,6 +2155,7 @@ dev = [
     { name = "ruff", specifier = ">=0.14.0,<0.16.0" },
     { name = "schemathesis", specifier = ">=4.28.0" },
 ]
+source-verification = [{ name = "rns", specifier = "==1.5.7" }]
 
 [[package]]
 name = "meshcore"

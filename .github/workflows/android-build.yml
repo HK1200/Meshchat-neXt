@@ -274,6 +274,10 @@ jobs:
                       python3 scripts/android/build-sip.py --abi "$abi"
                   done
 
+            - name: Build checksum-pinned Expat security backport
+              shell: bash
+              run: python scripts/android/provision-expat.py
+
             - name: Build Android wheels
               run: bash scripts/build-android-wheels-local.sh --python-minor "${PYTHON_VERSION}" --chaquopy-ref "${CHAQUOPY_REF}" --abis arm64-v8a,x86_64,armeabi-v7a
 

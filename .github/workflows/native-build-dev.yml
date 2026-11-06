@@ -18,6 +18,18 @@ on:
             - main
     workflow_dispatch:
         inputs:
+            runtime_sdk_target:
+                description: "Select one diagnosed SDK target or all platforms"
+                type: choice
+                required: false
+                default: all
+                options:
+                    - all
+                    - linux-x64
+                    - linux-arm64
+                    - windows-x64
+                    - macos-arm64
+                    - macos-x64
             runtime_sdk_only:
                 description: "Build only public Expat-fixed Python SDK inputs; never publish app releases"
                 type: boolean
@@ -33,7 +45,7 @@ permissions:
     contents: read
 
 concurrency:
-    group: native-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+    group: native-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}${{ inputs.runtime_sdk_only == true && format('-sdk-{0}', inputs.runtime_sdk_target || 'all') || '' }}
     cancel-in-progress: true
 
 env:
@@ -364,12 +376,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                include:
-                    - { os: ubuntu-latest, label: linux-x64 }
-                    - { os: ubuntu-24.04-arm, label: linux-arm64 }
-                    - { os: windows-latest, label: windows-x64 }
-                    - { os: macos-latest, label: macos-arm64 }
-                    - { os: macos-15-intel, label: macos-x64 }
+                include: ${{ fromJSON(inputs.runtime_sdk_target == 'linux-x64' && '[{"os":"ubuntu-latest","label":"linux-x64"}]' || inputs.runtime_sdk_target == 'linux-arm64' && '[{"os":"ubuntu-24.04-arm","label":"linux-arm64"}]' || inputs.runtime_sdk_target == 'windows-x64' && '[{"os":"windows-latest","label":"windows-x64"}]' || inputs.runtime_sdk_target == 'macos-arm64' && '[{"os":"macos-latest","label":"macos-arm64"}]' || inputs.runtime_sdk_target == 'macos-x64' && '[{"os":"macos-15-intel","label":"macos-x64"}]' || '[{"os":"ubuntu-latest","label":"linux-x64"},{"os":"ubuntu-24.04-arm","label":"linux-arm64"},{"os":"windows-latest","label":"windows-x64"},{"os":"macos-latest","label":"macos-arm64"},{"os":"macos-15-intel","label":"macos-x64"}]') }}
         steps:
             - name: Harden SDK builder
               uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1
@@ -390,22 +397,24 @@ jobs:
                   uv-version: "0.13.6"
             - name: Install frozen builder dependencies
               shell: bash
-              run: uv sync --frozen --all-extras --group dev
+              run: uv sync --frozen --only-group source-verification
             - name: Verify the reviewed SDK builder source
               shell: bash
               env:
+                  RNS_TREE_VERIFY_STRICT: "1"
                   RNS_REQUIRED_SIGNER: 87b2973e252645589a1543010e9fcda1
-              run: sh scripts/ci/verify-tree-rsm.sh
+              run: uv run --frozen --only-group source-verification sh scripts/ci/verify-tree-rsm.sh
             - name: Build and verify the supported upstream security recipe
               shell: bash
               env:
                   SDK_TARGET: ${{ matrix.label }}
-              run: uv run --frozen --all-extras --group dev python scripts/ci/build-expat-python-sdk.py --target "$SDK_TARGET"
+              run: uv run --frozen --only-group source-verification python scripts/ci/build-expat-python-sdk.py --target "$SDK_TARGET"
             - name: Verify the pinned source remains unchanged
               shell: bash
               env:
+                  RNS_TREE_VERIFY_STRICT: "1"
                   RNS_REQUIRED_SIGNER: 87b2973e252645589a1543010e9fcda1
-              run: sh scripts/ci/verify-tree-rsm.sh
+              run: uv run --frozen --only-group source-verification sh scripts/ci/verify-tree-rsm.sh
             - name: Preserve only the public SDK and its source/hash report
               uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
               with:
