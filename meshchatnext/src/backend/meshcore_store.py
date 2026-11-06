@@ -319,6 +319,25 @@ class MeshCoreStore:
             )
             return stamp
 
+    def send_result(self, owner, peer, text, request_id):
+        """Read an existing submission without requiring a live radio clock."""
+        peer = public_key(peer)
+        if not isinstance(request_id, str) or not 1 <= len(request_id) <= 128:
+            raise ValueError("A stable message request ID is required")
+        with self._lock, self._connect() as db:
+            row = db.execute(
+                "SELECT * FROM messages WHERE owner=? AND id=?", (owner, request_id)
+            ).fetchone()
+            if row:
+                if (
+                    row["peer"] != peer
+                    or row["text"] != text
+                    or row["direction"] != "out"
+                ):
+                    raise ValueError("Message request ID has already been used")
+                return dict(row)
+        return None
+
     def prepare_send(
         self, owner, peer, text, request_id, *, room=False, timestamp_floor=0
     ):

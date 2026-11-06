@@ -61,6 +61,22 @@ class NodeTests(unittest.IsolatedAsyncioTestCase):
             "success", {"is_admin": False}
         )
 
+    async def test_room_preflight_failure_is_not_uncertain_but_post_send_error_stays_uncertain(
+        self,
+    ):
+        self.nodes.logins[PEER] = (None, False)
+        error = ValueError("Message clock is too far ahead; wait before sending")
+        error.meshcore_not_sent = True
+        self.messages.send_direct.side_effect = error
+        result = await self.nodes.send_room(PEER, "post", request_id="preflight")
+        self.assertEqual(result["state"], "not_sent")
+        self.assertIn("clock", result["reason"])
+        self.messages.send_direct.side_effect = ValueError(
+            "Invalid companion receipt token"
+        )
+        with self.assertRaisesRegex(ValueError, "receipt"):
+            await self.nodes.send_room(PEER, "post", request_id="uncertain")
+
     def response(self, kind, payload, peer=PEER):
         self.listeners[kind](
             SimpleNamespace(

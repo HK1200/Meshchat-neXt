@@ -406,23 +406,35 @@ class MeshCoreMessaging:
         """Submit once. Reusing a request ID reads its result; it never resends."""
         async with self.session._lock:
             self._check()
-            timestamp_floor = 0
-            if room:
-                clock = self.session._payload(
-                    await self._client.commands.get_time()
-                ).get("time")
-                if type(clock) is not int or not 0 <= clock < 0xFFFFFFFF:
-                    raise ConnectionError("Invalid companion clock for room post")
-                timestamp_floor = clock + 1
-            row, fresh = await asyncio.to_thread(
-                self.store.prepare_send,
-                self.owner,
-                peer,
-                text,
-                request_id,
-                room=room,
-                timestamp_floor=timestamp_floor,
+            # A status read must never depend on another companion clock request.
+            existing = await asyncio.to_thread(
+                self.store.send_result, self.owner, peer, text, request_id
             )
+            if existing:
+                return existing
+            try:
+                timestamp_floor = 0
+                if room:
+                    clock = self.session._payload(
+                        await self._client.commands.get_time()
+                    ).get("time")
+                    if type(clock) is not int or not 0 <= clock < 0xFFFFFFFF:
+                        raise ConnectionError("Invalid companion clock for room post")
+                    timestamp_floor = clock + 1
+                row, fresh = await asyncio.to_thread(
+                    self.store.prepare_send,
+                    self.owner,
+                    peer,
+                    text,
+                    request_id,
+                    room=room,
+                    timestamp_floor=timestamp_floor,
+                )
+            except (ValueError, ConnectionError) as error:
+                # No send_msg call has occurred. Preserve the exception type for
+                # callers, but let room UI distinguish a safe preflight failure.
+                error.meshcore_not_sent = True
+                raise
             if not fresh:
                 return row
             try:

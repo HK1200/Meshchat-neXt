@@ -57,6 +57,83 @@ describe("MeshCore node sessions", () => {
         await flushPromises();
         expect(window.api.post).toHaveBeenCalledTimes(1);
     });
+    it("replies publicly to the selected room author and retains text after a safe preflight failure", async () => {
+        setup();
+        await wrapper.setProps({
+            snapshot: {
+                owner,
+                connected: true,
+                node_sessions: { [peer]: { state: "verified" } },
+                contacts: [{ peer: "1234abcd" + "00".repeat(28), name: "Alice", active: true }],
+                messages: [
+                    {
+                        id: "reply-post",
+                        peer,
+                        direction: "in",
+                        text: "Hello",
+                        created: 1,
+                        payload: JSON.stringify({ event: { txt_type: 2, signature: "1234abcd" } }),
+                    },
+                ],
+            },
+        });
+        await button("Reply").trigger("click");
+        await wrapper.find("textarea").setValue("Hi Alice");
+        window.api.post.mockResolvedValueOnce({
+            data: { result: { state: "not_sent", reason: "Clock is ahead; wait" } },
+        });
+        await wrapper.findAll("form")[1].trigger("submit");
+        await flushPromises();
+        expect(window.api.post).toHaveBeenCalledWith(
+            "/api/v1/meshcore/room-message",
+            {
+                peer,
+                expected_owner: owner,
+                text: "> Alice [1234abcd]: Hello\nHi Alice",
+                request_id: expect.any(String),
+            },
+            { timeout: 150000 }
+        );
+        expect(wrapper.text()).toContain("Post was not sent.");
+        expect(wrapper.find("textarea").element.value).toBe("Hi Alice");
+        expect(button("Send to room").attributes("disabled")).toBeUndefined();
+        await button("Cancel reply").trigger("click");
+        expect(wrapper.find("textarea").element.value).toBe("Hi Alice");
+        await button("Reply").trigger("click");
+        await wrapper.setProps({ snapshot: { owner: "dd".repeat(32), connected: true, messages: [] } });
+        expect(wrapper.text()).not.toContain("Replying to Alice");
+        expect(wrapper.find("textarea").element.value).toBe("");
+    });
+    it("unlocks after the exact pending post is acknowledged without resending", async () => {
+        setup();
+        const snapshot = { owner, connected: true, node_sessions: { [peer]: { state: "verified" } }, messages: [] };
+        await wrapper.setProps({ snapshot });
+        await wrapper.find("textarea").setValue("uncertain post");
+        window.api.post.mockRejectedValueOnce(new Error("lost HTTP response"));
+        await wrapper.findAll("form")[1].trigger("submit");
+        await flushPromises();
+        const requestId = window.api.post.mock.calls[0][1].request_id;
+        expect(button("Send to room").attributes("disabled")).toBeDefined();
+        await wrapper.setProps({
+            snapshot: {
+                ...snapshot,
+                messages: [{ id: "other", peer, direction: "out", state: "delivered", text: "other", created: 1 }],
+            },
+        });
+        expect(wrapper.find("textarea").attributes("disabled")).toBeDefined();
+        await wrapper.setProps({
+            snapshot: {
+                ...snapshot,
+                messages: [
+                    { id: requestId, peer, direction: "out", state: "delivered", text: "uncertain post", created: 2 },
+                ],
+            },
+        });
+        expect(wrapper.find("textarea").attributes("disabled")).toBeUndefined();
+        expect(wrapper.find("textarea").element.value).toBe("");
+        expect(wrapper.text()).toContain("It was not sent again.");
+        expect(window.api.post).toHaveBeenCalledTimes(1);
+    });
     it("shows room posts separately from CLI text and clears secrets on owner changes", async () => {
         setup();
         await wrapper.find("input").setValue("secret");

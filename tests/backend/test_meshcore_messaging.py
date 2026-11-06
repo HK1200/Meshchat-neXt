@@ -245,6 +245,44 @@ class MessagingTests(unittest.IsolatedAsyncioTestCase):
         await self.messenger.send_direct(PEER, "hello", request_id="one")
         self.assertEqual(self.client.sent, 1)
 
+    async def test_room_preflight_is_distinct_and_existing_result_needs_no_clock(self):
+        import time
+        from unittest.mock import AsyncMock
+
+        self.store.replace_contacts(OWNER, {PEER: {"public_key": PEER, "type": 3}})
+        self.client.get_time = AsyncMock(
+            return_value=event(Types.OK, {"time": int(time.time()) + 120})
+        )
+        with self.assertRaisesRegex(ValueError, "clock") as caught:
+            await self.messenger.send_direct(
+                PEER, "hello", request_id="clock", room=True
+            )
+        self.assertTrue(caught.exception.meshcore_not_sent)
+        self.assertEqual(self.client.sent, 0)
+        self.client.get_time.return_value = event(Types.OK, {"time": int(time.time())})
+        first = await self.messenger.send_direct(
+            PEER, "hello", request_id="one", room=True
+        )
+        self.assertEqual(first["state"], "accepted")
+        self.client.get_time.side_effect = ConnectionError("Clock unavailable")
+        again = await self.messenger.send_direct(
+            PEER, "hello", request_id="one", room=True
+        )
+        self.assertEqual(again["state"], "accepted")
+        self.assertEqual(self.client.sent, 1)
+        self.client.response = event(
+            Types.MSG_SENT, {"expected_ack": b"bad", "suggested_timeout": 100}
+        )
+        self.client.get_time.side_effect = None
+        with self.assertRaisesRegex(ValueError, "receipt token") as caught:
+            await self.messenger.send_direct(
+                PEER, "hello2", request_id="two", room=True
+            )
+        self.assertFalse(getattr(caught.exception, "meshcore_not_sent", False))
+        self.assertEqual(
+            self.store.send_result(OWNER, PEER, "hello2", "two")["state"], "unknown"
+        )
+
     async def test_numeric_firmware_error_is_rejected(self):
         self.client.response = event(Types.ERROR, {"error_code": 2})
         result = await self.messenger.send_direct(PEER, "hello", request_id="one")
