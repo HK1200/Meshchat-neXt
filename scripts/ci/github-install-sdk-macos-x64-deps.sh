@@ -19,9 +19,9 @@ if [[ ! -x /opt/local/bin/port ]]; then
     sudo installer -pkg "$package" -target /
     sudo /opt/local/bin/port -N selfupdate
 fi
-sudo /opt/local/bin/port -N install openssl
-if [[ ! -f /opt/local/libexec/openssl3/lib/libssl.3.dylib || ! -f /opt/local/libexec/openssl3/lib/libcrypto.3.dylib ]]; then
+sudo /opt/local/bin/port -N install openssl libiconv
+if [[ ! -f /opt/local/libexec/openssl3/lib/libssl.3.dylib || ! -f /opt/local/libexec/openssl3/lib/libcrypto.3.dylib || ! -f /opt/local/lib/libiconv.2.dylib ]]; then
     echo "Locked Intel Mac signer dependency is missing" >&2
     exit 1
 fi
-/opt/local/bin/port installed openssl3
+/opt/local/bin/port installed openssl3 libiconv

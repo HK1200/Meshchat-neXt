@@ -373,6 +373,8 @@ jobs:
         timeout-minutes: 120
         permissions:
             contents: read
+        env:
+            UV_CACHE_DIR: ${{ github.workspace }}/temp-tests/security-sdk-uv-cache/${{ matrix.label }}
         strategy:
             fail-fast: false
             matrix:
@@ -401,7 +403,13 @@ jobs:
               run: bash scripts/ci/github-install-sdk-macos-x64-deps.sh
             - name: Install frozen builder dependencies
               shell: bash
-              run: uv sync --frozen --only-group source-verification
+              run: |
+                  if [[ "${{ matrix.label }}" == macos-x64 ]]; then
+                      OPENSSL_DIR=/opt/local/libexec/openssl3 OPENSSL_STATIC=1 ARCHFLAGS="-arch x86_64" uv sync --frozen --only-group source-verification --no-binary-package cryptography
+                      find .venv -name '_rust*.so' -exec otool -L {} \;
+                  else
+                      uv sync --frozen --only-group source-verification
+                  fi
             - name: Verify the reviewed SDK builder source
               shell: bash
               env:
