@@ -2,6 +2,7 @@
 import hashlib
 import json
 import os
+import re
 import subprocess
 import time
 import uuid
@@ -10,6 +11,8 @@ from pathlib import Path
 
 import requests
 
+SOURCE = os.environ["MESHCHAT_REVIEW_SOURCE_SHA"]
+assert re.fullmatch(r"[0-9a-f]{40}", SOURCE), "Exact reviewed source is required"
 ROOT = Path(os.environ["MESHCHAT_RELEASE_REVIEW_ROOT"]).resolve()
 assert ROOT.parent.name == "temp-tests" and (ROOT / "source/.git").exists()
 TEST = ROOT / "upgrade-validation" / ("test-" + uuid.uuid4().hex[:8])
@@ -218,15 +221,14 @@ try:
     start("corrected-backend")
     assert api("GET", "app/info").json()["app_info"]["version"] == "0.1.7"
     assert api("GET", "app/info").json()["app_info"]["python_version"] == "3.14.10"
-    assert (
-        api("GET", "app/info").json()["app_info"]["git_commit"]
-        == "c73b4e0b5f5376f9e4e6a0e9b752bf00a76f67f1"
-    )
+    assert api("GET", "app/info").json()["app_info"]["git_commit"] == SOURCE
     assert api("GET", "app/info").json()["app_info"]["build_channel"] == "stable"
     assert api("GET", "app/info").json()["app_info"]["is_dev_build"] is False
     report["installed_stable_channel"] = True
     report["installed_is_dev_build"] = False
     report["installed_patched_python_version"] = "3.14.10"
+    assert api("GET", "app/info").json()["app_info"]["expat_version"] == "expat_2.10.0"
+    report["installed_patched_expat_version"] = "expat_2.10.0"
     worker_env = {
         k: v for k, v in os.environ.items() if k not in {"PYTHONHOME", "PYTHONPATH"}
     }

@@ -35,6 +35,11 @@ on:
                 type: boolean
                 required: false
                 default: false
+            release_source_sha:
+                description: "Exact merged main source for the approved Windows artifact"
+                type: string
+                required: false
+                default: ""
             release_artifact_run:
                 description: "Existing merged 0.1.7 Windows artifact run to verify without rebuilding"
                 type: string
@@ -242,7 +247,10 @@ jobs:
               uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
               with:
                   name: next-windows-${{ github.sha }}
-                  path: release-artifacts/
+                  path: |
+                      release-artifacts/MeshchatNext-v0.1.7-win-portable.exe
+                      release-artifacts/MeshchatNext-v0.1.7-win-x64-installer.exe
+                      release-artifacts/SOURCE-PACKAGES.json
                   if-no-files-found: error
                   retention-days: 14
 
@@ -258,7 +266,8 @@ jobs:
             MESHCHAT_RELEASE_REVIEW_ROOT: ${{ github.workspace }}/temp-tests/windows-release-review
             MESHCHAT_REVIEW_RUN_ID: ${{ inputs.release_artifact_run }}
             MESHCHATNEXT_BUILD_CHANNEL: stable
-            MESHCHATNEXT_GIT_COMMIT: c73b4e0b5f5376f9e4e6a0e9b752bf00a76f67f1
+            MESHCHATNEXT_GIT_COMMIT: ${{ inputs.release_source_sha }}
+            MESHCHAT_REVIEW_SOURCE_SHA: ${{ inputs.release_source_sha }}
             PYTHON_CMD: uv run --frozen --all-extras --group dev python
         steps:
             - name: Harden runner
@@ -266,10 +275,6 @@ jobs:
               with:
                   egress-policy: audit
                   allowed-endpoints: ${{ env.HARDEN_ENDPOINTS }}
-            - name: Assert the fixed release artifact run
-              shell: pwsh
-              run: |
-                  if ($env:MESHCHAT_REVIEW_RUN_ID -ne "42102913490") { throw "Only the immutable 0.1.7 main build is permitted" }
             - name: Preserve exact signed source line endings
               shell: pwsh
               run: git config --global core.autocrlf false
@@ -277,10 +282,17 @@ jobs:
               uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
               with:
                   persist-credentials: false
+            - name: Verify exact merged source and immutable artifact run
+              shell: pwsh
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  python scripts/ci/verify-windows-review-inputs.py --source "$env:MESHCHAT_REVIEW_SOURCE_SHA" --run "$env:MESHCHAT_REVIEW_RUN_ID" --output "$env:MESHCHAT_RELEASE_REVIEW_ROOT/review-run-verified.json"
+                  if ($LASTEXITCODE -ne 0) { throw "Exact-source Windows artifact verification failed" }
             - name: Checkout immutable release source
               uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
               with:
-                  ref: c73b4e0b5f5376f9e4e6a0e9b752bf00a76f67f1
+                  ref: ${{ inputs.release_source_sha }}
                   path: temp-tests/windows-release-review/source
                   persist-credentials: false
             - name: Set up fixed Python and uv
@@ -296,7 +308,7 @@ jobs:
             - name: Download only the existing approved Windows artifact
               uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
               with:
-                  name: next-windows-c73b4e0b5f5376f9e4e6a0e9b752bf00a76f67f1
+                  name: next-windows-${{ inputs.release_source_sha }}
                   path: temp-tests/windows-release-review/source/dist
                   run-id: ${{ inputs.release_artifact_run }}
                   github-token: ${{ github.token }}
@@ -361,7 +373,7 @@ jobs:
             - name: Upload only the approved installers and public source/hash report
               uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
               with:
-                  name: next-windows-verified-c73b4e0b5f5376f9e4e6a0e9b752bf00a76f67f1
+                  name: next-windows-verified-${{ inputs.release_source_sha }}
                   path: |
                       temp-tests/windows-release-review/verified-report/MeshchatNext-v0.1.7-win-portable.exe
                       temp-tests/windows-release-review/verified-report/MeshchatNext-v0.1.7-win-x64-installer.exe

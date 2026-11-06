@@ -6,6 +6,7 @@ import importlib.util
 import json
 import marshal
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -13,7 +14,8 @@ from pathlib import Path
 
 import requests
 
-SOURCE = "c73b4e0b5f5376f9e4e6a0e9b752bf00a76f67f1"
+SOURCE = os.environ["MESHCHAT_REVIEW_SOURCE_SHA"]
+assert re.fullmatch(r"[0-9a-f]{40}", SOURCE), "Exact reviewed source is required"
 PIN = "87b2973e252645589a1543010e9fcda1"
 NAMES = {
     "MeshchatNext-v0.1.7-win-portable.exe",
@@ -81,6 +83,11 @@ def prepare():
     from meshchatnext.src.update_rsm import verify_rsm
 
     assert sys.version_info[:3] == (3, 14, 10)
+    import pyexpat
+
+    assert pyexpat.EXPAT_VERSION == "expat_2.10.0"
+    run_proof = json.loads((ROOT / "review-run-verified.json").read_text())
+    assert run_proof["passed"] and run_proof["source"] == SOURCE
     source_proof = verify_source_tree()
     proof = json.loads((DIST / "SOURCE-PACKAGES.json").read_text(encoding="utf-8-sig"))
     assert proof["source"] == SOURCE and proof["version"] == "0.1.7"
@@ -142,6 +149,7 @@ def prepare():
     )
     assert (unpacked / "Meshchat neXt.exe").is_file()
     proof["source_signature_before_build"] = source_proof
+    proof["verified_input_run"] = run_proof
     proof["baseline"] = {"pin": PIN, "version": "0.1.6", "artifact": entries[0]}
     proof["expected_installed_shell_sha256"] = sha(unpacked / "Meshchat neXt.exe")
     (ROOT / "input-proof.json").write_text(json.dumps(proof, indent=2))
@@ -303,6 +311,7 @@ def collect():
     update = json.loads((ROOT / "update-staging-validation.json").read_text())
     assert upgrade["status"] == update["status"] == "passed"
     assert upgrade["upgraded_version"] == "0.1.7"
+    assert upgrade["installed_patched_expat_version"] == "expat_2.10.0"
     assert upgrade["installed_frozen_worker_probe"]["passed"]
     assert upgrade["installed_frozen_worker_probe"]["stderr_empty"]
     assert upgrade["in_place_upgrade_preserves_all_profile_bytes"]
