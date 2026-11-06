@@ -211,6 +211,9 @@ jobs:
                       python3 scripts/android/build-sip.py --abi "$abi"
                   done
 
+            - name: Build checksum-pinned Expat security backport
+              run: python scripts/android/provision-expat.py --abis x86_64
+
             - name: Build Android wheels (x86_64 only)
               run: bash scripts/build-android-wheels-local.sh --python-minor "${PYTHON_VERSION}" --chaquopy-ref "${CHAQUOPY_REF}" --abis x86_64
 
@@ -259,6 +262,9 @@ jobs:
               run: |
                   chmod +x gradlew
                   ./gradlew --no-daemon -PmeshchatnextAbis=x86_64 :app:assembleDebug
+
+            - name: Verify packaged Expat security backport
+              run: python scripts/android/verify-apk-expat.py --provenance android/.expat-runtime-maven/PROVENANCE.json --abis x86_64 android/app/build/outputs/apk/debug/*.apk
 
             - name: Upload smoke APK
               uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
