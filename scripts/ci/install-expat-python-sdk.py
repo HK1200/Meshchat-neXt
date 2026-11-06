@@ -17,6 +17,7 @@ import zipfile
 from pathlib import Path, PurePosixPath
 
 VENDOR = "a83ff4e7e166b048089d79dd1acfbd6c84c77ac4"
+MACOS_X64_VENDOR = "de549958c79576345140088bd5482d0b0f8a2614"
 PYTHON_SOURCE = "de414a57119abef52784d8993e341d53aed635fc2b05c2607d9f98a2c5b72032"
 EXPAT_SOURCE = "c624ba2998fc65df1163a49641ff3f9ab73138b11641d92c86bee0fb01b1bc7f"
 
@@ -62,7 +63,7 @@ def verify_sdk(artifact: Path, entry: dict, target: str, output: Path) -> dict:
         report = json.loads(archive.read("SDK-PROVENANCE.json"))
         expected = {
             "target": target,
-            "upstream_source": VENDOR,
+            "upstream_source": MACOS_X64_VENDOR if target == "macos-x64" else VENDOR,
             "python_source_sha256": PYTHON_SOURCE,
             "expat_source_sha256": EXPAT_SOURCE,
             "sdk_archive_sha256": entry["sdk_archive_sha256"],
@@ -183,7 +184,7 @@ def main() -> None:
         gh = shutil.which("gh")
         if gh is None:
             raise RuntimeError("GitHub CLI is required for qualified SDK retrieval")
-        repository = inputs["repository"]
+        repository = entry.get("repository", inputs["repository"])
         if repository not in {"HK1200/Meshchat-neXt", "HK1200/MeshChatX-HK"}:
             raise RuntimeError("Unexpected SDK repository")
         metadata = json.loads(

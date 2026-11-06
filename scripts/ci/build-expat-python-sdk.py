@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import BinaryIO, cast
 
 SOURCE = "a83ff4e7e166b048089d79dd1acfbd6c84c77ac4"
+MACOS_X64_SOURCE = "de549958c79576345140088bd5482d0b0f8a2614"
 REPOSITORY = "https://github.com/astral-sh/python-build-standalone.git"
 PYTHON_SHA256 = "de414a57119abef52784d8993e341d53aed635fc2b05c2607d9f98a2c5b72032"
 EXPAT_SHA256 = "c624ba2998fc65df1163a49641ff3f9ab73138b11641d92c86bee0fb01b1bc7f"
@@ -209,12 +210,24 @@ OFFICIAL_LINUX_ARTIFACTS = {
 }
 
 
+OFFICIAL_MACOS_X64_ARTIFACT = (
+    13451833624,
+    127523534523,
+    "fbae4956dd9b2d1fd93bebaf60543a7cc061cf8f8b6eea7a6291f0c1e489864f",
+)
+
+
 def official_linux_archive(target: str, work: Path, triple: str, options: str):
-    """Qualify first-party CI bytes; never rebuild an unavailable historic sysroot."""
+    """Qualify first-party CI bytes on the genuine target OS and architecture."""
     gh = shutil.which("gh")
     if gh is None:
         raise RuntimeError("GitHub CLI is required for pinned official SDK retrieval")
-    artifact_id, job_id, digest = OFFICIAL_LINUX_ARTIFACTS[target]
+    if target == "macos-x64":
+        artifact_id, job_id, digest = OFFICIAL_MACOS_X64_ARTIFACT
+        run_id, source = 42106621134, MACOS_X64_SOURCE
+    else:
+        artifact_id, job_id, digest = OFFICIAL_LINUX_ARTIFACTS[target]
+        run_id, source = 41476367331, SOURCE
     base = "repos/astral-sh/python-build-standalone/actions/"
 
     def metadata(endpoint):
@@ -223,7 +236,7 @@ def official_linux_archive(target: str, work: Path, triple: str, options: str):
         )
 
     report = metadata("artifacts/" + str(artifact_id))
-    run_report = metadata("runs/41476367331")
+    run_report = metadata("runs/" + str(run_id))
     job = metadata("jobs/" + str(job_id))
     expected_name = "cpython-3.14-" + triple + "-" + options
     if (
@@ -231,18 +244,18 @@ def official_linux_archive(target: str, work: Path, triple: str, options: str):
         or report["name"] != expected_name
         or report["expired"]
         or report["digest"] != "sha256:" + digest
-        or report["workflow_run"]["id"] != 41476367331
-        or report["workflow_run"]["head_sha"] != SOURCE
-        or run_report["head_sha"] != SOURCE
+        or report["workflow_run"]["id"] != run_id
+        or report["workflow_run"]["head_sha"] != source
+        or run_report["head_sha"] != source
         or run_report["event"] != "push"
         or run_report["head_branch"] != "main"
-        or job["run_id"] != 41476367331
+        or job["run_id"] != run_id
         or job["name"] != triple + " / 3.14 / " + options
         or job["status"] != "completed"
         or job["conclusion"] != "success"
     ):
         raise RuntimeError(
-            "Official Linux SDK source, target job or artifact identity mismatch"
+            "Official SDK source, target job or artifact identity mismatch"
         )
     artifact = work / "official-sdk.zip"
     with artifact.open("wb") as stream:
@@ -252,7 +265,7 @@ def official_linux_archive(target: str, work: Path, triple: str, options: str):
             check=True,
         )
     if sha(artifact) != digest or artifact.stat().st_size != report["size_in_bytes"]:
-        raise RuntimeError("Official Linux SDK archive checksum or size mismatch")
+        raise RuntimeError("Official SDK archive checksum or size mismatch")
     with zipfile.ZipFile(artifact) as archive:
         members = archive.infolist()
         prefix = "cpython-3.14.10-" + triple + "-" + options + "-"
@@ -264,17 +277,20 @@ def official_linux_archive(target: str, work: Path, triple: str, options: str):
         ):
             raise RuntimeError("Unexpected official SDK artifact output")
         original = work / "official-sdk.tar.zst"
-        with archive.open(members[0]) as source, original.open("wb") as destination:
-            shutil.copyfileobj(source, destination)
+        with (
+            archive.open(members[0]) as source_stream,
+            original.open("wb") as destination,
+        ):
+            shutil.copyfileobj(source_stream, destination)
     return original, {
         "repository": "astral-sh/python-build-standalone",
-        "run_id": 41476367331,
+        "run_id": run_id,
         "job_id": job_id,
         "target_job_conclusion": "success",
         "parent_conclusion": run_report["conclusion"],
         "artifact_id": artifact_id,
         "artifact_zip_sha256": digest,
-        "source": SOURCE,
+        "source": source,
     }
 
 
@@ -282,6 +298,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--target", choices=TARGETS, required=True)
     args = parser.parse_args()
+    source = MACOS_X64_SOURCE if args.target == "macos-x64" else SOURCE
     host, triple, options = TARGETS[args.target]
     if sys.platform != host:
         raise RuntimeError("SDK builds must run on the genuine target operating system")
@@ -311,13 +328,13 @@ def main():
         ],
         root,
     )
-    run([git, "fetch", "--depth=1", "origin", SOURCE], vendor)
-    run([git, "checkout", "--detach", SOURCE], vendor)
+    run([git, "fetch", "--depth=1", "origin", source], vendor)
+    run([git, "checkout", "--detach", source], vendor)
     actual = subprocess.check_output(
         [git, "rev-parse", "HEAD"], cwd=vendor, text=True
     ).strip()
     if (
-        actual != SOURCE
+        actual != source
         or subprocess.check_output([git, "status", "--porcelain"], cwd=vendor).strip()
     ):
         raise RuntimeError(
@@ -370,7 +387,7 @@ def main():
             env,
         )
     official_provenance = None
-    if host == "linux":
+    if host == "linux" or args.target == "macos-x64":
         original, official_provenance = official_linux_archive(
             args.target, work, triple, options
         )
@@ -465,7 +482,7 @@ def main():
     output = out / "python-sdk.tar.gz"
     inventory, links = package_install_only(sdk, install / "python", output)
     report = {
-        "upstream_source": SOURCE,
+        "upstream_source": source,
         "repository": REPOSITORY,
         "python_source_sha256": PYTHON_SHA256,
         "expat_source_sha256": EXPAT_SHA256,
@@ -473,14 +490,15 @@ def main():
         "triple": triple,
         "actual_runtime": runtime,
         "linux_build_image": image_provenance,
-        "official_linux_artifact": official_provenance,
+        "official_linux_artifact": official_provenance if host == "linux" else None,
+        "official_macos_artifact": official_provenance if host == "darwin" else None,
         "cpython_security_backport": cpython_backport,
         "full_vendor_archive_sha256": sha(original),
         "sdk_archive_sha256": sha(output),
         "sdk_archive_size": output.stat().st_size,
         "files": inventory,
         "symlinks": links,
-        "kind": "Native-verified install-only SDK from pinned first-party Linux CI bytes or owner-built vendor recipe with the declared official Windows backport; not an upstream tagged binary release",
+        "kind": "Native-verified install-only SDK from pinned first-party Linux/Intel Mac CI bytes or owner-built vendor recipe with the declared official Windows backport; not an upstream tagged binary release",
     }
     (out / "SDK-PROVENANCE.json").write_text(json.dumps(report, indent=2) + "\n")
     if {p.name for p in out.iterdir()} != {"python-sdk.tar.gz", "SDK-PROVENANCE.json"}:
