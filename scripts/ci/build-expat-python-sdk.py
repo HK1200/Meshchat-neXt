@@ -91,6 +91,9 @@ def main():
     git = shutil.which("git")
     if not git:
         raise RuntimeError("Git is required for verified SDK source retrieval")
+    uv = shutil.which("uv")
+    if not uv:
+        raise RuntimeError("The pinned UV executable must be available")
     root = Path(__file__).resolve().parents[2]
     work = root / "temp-tests" / "security-python-sdk"
     if work.exists():
@@ -166,7 +169,7 @@ def main():
     helper = "pythonbuild.exe" if host == "win32" else "pythonbuild"
     shutil.copy2(vendor / "target/release" / helper, vendor / helper)
     command = [
-        "uv",
+        uv,
         "run",
         "--frozen",
         "--no-dev",

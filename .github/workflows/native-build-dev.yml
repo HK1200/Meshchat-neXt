@@ -376,7 +376,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                include: ${{ fromJSON(inputs.runtime_sdk_target == 'linux-x64' && '[{"os":"ubuntu-latest","label":"linux-x64"}]' || inputs.runtime_sdk_target == 'linux-arm64' && '[{"os":"ubuntu-24.04-arm","label":"linux-arm64"}]' || inputs.runtime_sdk_target == 'windows-x64' && '[{"os":"windows-latest","label":"windows-x64"}]' || inputs.runtime_sdk_target == 'macos-arm64' && '[{"os":"macos-latest","label":"macos-arm64"}]' || inputs.runtime_sdk_target == 'macos-x64' && '[{"os":"macos-15-intel","label":"macos-x64"}]' || '[{"os":"ubuntu-latest","label":"linux-x64"},{"os":"ubuntu-24.04-arm","label":"linux-arm64"},{"os":"windows-latest","label":"windows-x64"},{"os":"macos-latest","label":"macos-arm64"},{"os":"macos-15-intel","label":"macos-x64"}]') }}
+                include: ${{ fromJSON(inputs.runtime_sdk_target == 'linux-x64' && '[{"os":"ubuntu-latest","label":"linux-x64"}]' || inputs.runtime_sdk_target == 'linux-arm64' && '[{"os":"ubuntu-24.04-arm","label":"linux-arm64"}]' || inputs.runtime_sdk_target == 'windows-x64' && '[{"os":"windows-2022","label":"windows-x64"}]' || inputs.runtime_sdk_target == 'macos-arm64' && '[{"os":"macos-latest","label":"macos-arm64"}]' || inputs.runtime_sdk_target == 'macos-x64' && '[{"os":"macos-15-intel","label":"macos-x64"}]' || '[{"os":"ubuntu-latest","label":"linux-x64"},{"os":"ubuntu-24.04-arm","label":"linux-arm64"},{"os":"windows-2022","label":"windows-x64"},{"os":"macos-latest","label":"macos-arm64"},{"os":"macos-15-intel","label":"macos-x64"}]') }}
         steps:
             - name: Harden SDK builder
               uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1
