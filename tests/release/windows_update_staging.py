@@ -32,8 +32,8 @@ report = {
 async def main():
     artifacts = []
     for name in (
-        "MeshchatNext-v0.1.7-win-portable.exe",
-        "MeshchatNext-v0.1.7-win-x64-installer.exe",
+        "MeshchatNext-v0.1.8-win-portable.exe",
+        "MeshchatNext-v0.1.8-win-x64-installer.exe",
     ):
         p = ROOT / "source/dist" / name
         artifacts.append(
@@ -49,8 +49,8 @@ async def main():
     manifest = {
         "app": "meshchat-next",
         "schema": 1,
-        "version": "0.1.7",
-        "tag": "v0.1.7",
+        "version": "0.1.8",
+        "tag": "v0.1.8",
         "track": "release",
         "released_at": "2026-11-05T00:00:00Z",
         "minimum_version": "0.0.0",
@@ -61,14 +61,14 @@ async def main():
     assert verified == manifest
     report["checks"]["signed_windows_manifest_verified"] = True
     current = UpdateManager(
-        str(test / "current-storage"), current_version="0.1.7", channel="stable"
+        str(test / "current-storage"), current_version="0.1.8", channel="stable"
     )
     current._fetch_bytes = lambda *args, **kwargs: rsm
     same = await current.check()
     assert not same["update_available"], same
     report["checks"]["current_version_not_offered_again"] = True
     mgr = UpdateManager(
-        str(test / "storage"), current_version="0.1.6", channel="stable"
+        str(test / "storage"), current_version="0.1.7", channel="stable"
     )
     mgr._fetch_bytes = lambda *args, **kwargs: rsm
     status = await mgr.check()

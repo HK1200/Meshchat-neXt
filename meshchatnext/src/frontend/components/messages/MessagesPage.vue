@@ -188,46 +188,62 @@
                     </button>
                 </div>
                 <div class="p-5 overflow-y-auto space-y-4">
-                    <p class="text-sm text-sem-fg-muted">
-                        {{ $t("messages.select_peer_or_enter_address") }}
-                    </p>
-                    <div>
-                        <label
-                            class="block text-xs font-medium text-sem-fg-muted uppercase tracking-wider mb-1"
-                            for="mobile-compose-destination"
+                    <template v-if="appFeatures.meshcore">
+                        <button
+                            type="button"
+                            class="secondary-chip w-full"
+                            :aria-expanded="showMeshCoreComposeContacts"
+                            @click="showMeshCoreComposeContacts = !showMeshCoreComposeContacts"
                         >
-                            {{ $t("app.lxmf_address_hash") }}
-                        </label>
-                        <input
-                            id="mobile-compose-destination"
-                            v-model="mobileComposeAddress"
-                            type="text"
-                            autocomplete="off"
-                            autocorrect="off"
-                            spellcheck="false"
-                            :placeholder="$t('messages.mobile_compose_destination_placeholder')"
-                            class="input-field w-full"
-                            @keydown.enter="submitMobileCompose"
+                            MeshCore contacts
+                        </button>
+                        <MeshCoreMessageContactPicker
+                            v-if="showMeshCoreComposeContacts"
+                            @selected="isMobileComposeModalOpen = false"
                         />
-                    </div>
-                    <div class="flex flex-col gap-2">
-                        <button
-                            type="button"
-                            class="primary-chip w-full! rounded-xl! py-2.5! text-sm! focus-ring-sem disabled:opacity-50 disabled:pointer-events-none"
-                            :disabled="!mobileComposeAddress.trim()"
-                            @click="submitMobileCompose"
-                        >
-                            {{ $t("app.compose") }}
-                        </button>
-                        <button
-                            type="button"
-                            class="secondary-chip w-full! rounded-xl! py-2.5! text-sm! focus-ring-sem"
-                            @click="openIngestFromMobileCompose"
-                        >
-                            <MaterialDesignIcon icon-name="qrcode" class="size-5 shrink-0" />
-                            {{ $t("messages.ingest_paper_message") }}
-                        </button>
-                    </div>
+                    </template>
+                    <template v-if="appFeatures.reticulum">
+                        <p class="text-sm text-sem-fg-muted">
+                            {{ $t("messages.select_peer_or_enter_address") }}
+                        </p>
+                        <div>
+                            <label
+                                class="block text-xs font-medium text-sem-fg-muted uppercase tracking-wider mb-1"
+                                for="mobile-compose-destination"
+                            >
+                                {{ $t("app.lxmf_address_hash") }}
+                            </label>
+                            <input
+                                id="mobile-compose-destination"
+                                v-model="mobileComposeAddress"
+                                type="text"
+                                autocomplete="off"
+                                autocorrect="off"
+                                spellcheck="false"
+                                :placeholder="$t('messages.mobile_compose_destination_placeholder')"
+                                class="input-field w-full"
+                                @keydown.enter="submitMobileCompose"
+                            />
+                        </div>
+                        <div class="flex flex-col gap-2">
+                            <button
+                                type="button"
+                                class="primary-chip w-full! rounded-xl! py-2.5! text-sm! focus-ring-sem disabled:opacity-50 disabled:pointer-events-none"
+                                :disabled="!mobileComposeAddress.trim()"
+                                @click="submitMobileCompose"
+                            >
+                                {{ $t("app.compose") }}
+                            </button>
+                            <button
+                                type="button"
+                                class="secondary-chip w-full! rounded-xl! py-2.5! text-sm! focus-ring-sem"
+                                @click="openIngestFromMobileCompose"
+                            >
+                                <MaterialDesignIcon icon-name="qrcode" class="size-5 shrink-0" />
+                                {{ $t("messages.ingest_paper_message") }}
+                            </button>
+                        </div>
+                    </template>
                 </div>
             </div>
         </div>
@@ -344,6 +360,7 @@ import MessagesSidebar from "./MessagesSidebar.vue";
 import ConversationViewer from "./ConversationViewer.vue";
 import MeshCoreConversationList from "../meshcore/MeshCoreConversationList.vue";
 import MeshCoreThread from "../meshcore/MeshCoreThread.vue";
+import MeshCoreMessageContactPicker from "../meshcore/MeshCoreMessageContactPicker.vue";
 import { onWsEvent, offWsEvent } from "../../js/registries/wsEventRegistry";
 
 function snapshotGlobalConfig() {
@@ -384,6 +401,7 @@ export default {
     components: {
         ConversationViewer,
         MeshCoreConversationList,
+        MeshCoreMessageContactPicker,
         MeshCoreThread,
         MessagesSidebar,
         MaterialDesignIcon,
@@ -456,6 +474,7 @@ export default {
             ingestScannerStream: null,
             ingestScannerAnimationFrame: null,
             isMobileComposeModalOpen: false,
+            showMeshCoreComposeContacts: false,
             mobileComposeAddress: "",
         };
     },
@@ -1736,6 +1755,7 @@ export default {
             return match ? decodeURIComponent(match[1]) : null;
         },
         openMobileCompose() {
+            this.showMeshCoreComposeContacts = !appFeatures.reticulum;
             this.mobileComposeAddress = "";
             this.isMobileComposeModalOpen = true;
         },

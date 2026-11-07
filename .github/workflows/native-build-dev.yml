@@ -41,7 +41,7 @@ on:
                 required: false
                 default: ""
             release_artifact_run:
-                description: "Existing merged 0.1.7 Windows artifact run to verify without rebuilding"
+                description: "Existing merged 0.1.8 Windows artifact run to verify without rebuilding"
                 type: string
                 required: false
                 default: ""
@@ -223,14 +223,14 @@ jobs:
               if: matrix.label == 'windows'
               run: uv run python scripts/ci/github-smoke-appcontainer.py --build-dir build/exe
 
-            - name: Collect Windows 0.1.7 review packages
+            - name: Collect Windows 0.1.8 review packages
               id: windows-review
               if: matrix.label == 'windows'
               shell: pwsh
               run: |
                   $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
-                  if ($version -ne "0.1.7") { exit 0 }
-                  $files = @("dist/MeshchatNext-v0.1.7-win-portable.exe", "dist/MeshchatNext-v0.1.7-win-x64-installer.exe")
+                  if ($version -ne "0.1.8") { exit 0 }
+                  $files = @("dist/MeshchatNext-v0.1.8-win-portable.exe", "dist/MeshchatNext-v0.1.8-win-x64-installer.exe")
                   New-Item -ItemType Directory -Force release-artifacts | Out-Null
                   $assets = @()
                   foreach ($file in $files) {
@@ -242,20 +242,20 @@ jobs:
                   @{ source = (git rev-parse HEAD); version = $version; authenticode = "unsigned"; assets = $assets; native_ui = (Get-Content reports/windows-node-ui.json -Raw | ConvertFrom-Json) } | ConvertTo-Json -Depth 5 | Set-Content release-artifacts/SOURCE-PACKAGES.json
                   "ready=true" >> $env:GITHUB_OUTPUT
 
-            - name: Upload approved Windows 0.1.7 review packages
+            - name: Upload approved Windows 0.1.8 review packages
               if: matrix.label == 'windows' && steps.windows-review.outputs.ready == 'true'
               uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
               with:
                   name: next-windows-${{ github.sha }}
                   path: |
-                      release-artifacts/MeshchatNext-v0.1.7-win-portable.exe
-                      release-artifacts/MeshchatNext-v0.1.7-win-x64-installer.exe
+                      release-artifacts/MeshchatNext-v0.1.8-win-portable.exe
+                      release-artifacts/MeshchatNext-v0.1.8-win-x64-installer.exe
                       release-artifacts/SOURCE-PACKAGES.json
                   if-no-files-found: error
                   retention-days: 14
 
     verify-release-windows:
-        name: Verify existing Windows 0.1.7 release packages
+        name: Verify existing Windows 0.1.8 release packages
         if: ${{ inputs.runtime_sdk_only != true && github.event_name == 'workflow_dispatch' && inputs.release_artifact_run != '' }}
         runs-on: windows-latest
         timeout-minutes: 30
@@ -375,8 +375,8 @@ jobs:
               with:
                   name: next-windows-verified-${{ github.sha }}
                   path: |
-                      temp-tests/windows-release-review/verified-report/MeshchatNext-v0.1.7-win-portable.exe
-                      temp-tests/windows-release-review/verified-report/MeshchatNext-v0.1.7-win-x64-installer.exe
+                      temp-tests/windows-release-review/verified-report/MeshchatNext-v0.1.8-win-portable.exe
+                      temp-tests/windows-release-review/verified-report/MeshchatNext-v0.1.8-win-x64-installer.exe
                       temp-tests/windows-release-review/verified-report/SOURCE-PACKAGES.json
                   if-no-files-found: error
                   retention-days: 14

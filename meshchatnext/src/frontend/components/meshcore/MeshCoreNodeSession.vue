@@ -379,12 +379,9 @@ const nodeTabs = computed(() => [
     { id: "manage", label: "Manage" },
 ]);
 const panelId = (tab) => `meshcore-node-${props.node.peer}-${tab}`;
-watch(
-    () => [props.node.peer, props.node.kind, props.snapshot.owner, props.snapshot.radio_id],
-    () => {
-        activeTab.value = props.node.kind === 3 ? "messages" : "status";
-    }
-);
+watch([() => props.node.peer, () => props.node.kind, () => props.snapshot.owner, () => props.snapshot.radio_id], () => {
+    activeTab.value = props.node.kind === 3 ? "messages" : "status";
+});
 const showPassword = ref(false);
 const adminAction = ref("version"),
     adminValue = ref(""),

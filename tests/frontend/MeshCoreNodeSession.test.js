@@ -405,6 +405,23 @@ describe("Task-based node navigation and room author names", () => {
         expect(panel("Node status").isVisible()).toBe(true);
         expect(panel("Room conversation").exists()).toBe(false);
     });
+    it("keeps the selected tab on refreshed snapshots and resets it for a different radio", async () => {
+        setup();
+        const snapshot = { ...wrapper.props("snapshot"), radio_id: "first" };
+        await wrapper.setProps({ snapshot });
+        for (const [tab, panel] of [
+            ["Status", "Node status"],
+            ["Access", "Node access"],
+            ["Manage", "Manage node"],
+        ]) {
+            await button(tab).trigger("click");
+            await wrapper.setProps({ node: { ...wrapper.props("node") }, snapshot: { ...snapshot, messages: [] } });
+            expect(button(tab).attributes("aria-pressed")).toBe("true");
+            expect(wrapper.find(`[aria-label="${panel}"]`).isVisible()).toBe(true);
+        }
+        await wrapper.setProps({ snapshot: { ...snapshot, radio_id: "second" } });
+        expect(button("Messages").attributes("aria-pressed")).toBe("true");
+    });
     it("keeps a room draft across tab changes and exposes admin login without sending anything", async () => {
         setup();
         await wrapper.setProps({

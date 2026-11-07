@@ -25,6 +25,14 @@
                         <p class="text-sm text-sem-fg-muted">MeshCore · {{ nodeType(selected.kind) }}</p>
                     </div>
                 </div>
+                <button
+                    v-if="selected.kind === 3 && /^[0-9a-f]{64}$/i.test(selected.peer)"
+                    type="button"
+                    class="secondary-chip"
+                    @click="shareRoomContact"
+                >
+                    Share room contact
+                </button>
                 <details class="text-sm border-t border-sem-border pt-3">
                     <summary class="cursor-pointer">Identity &amp; route details</summary>
                     <dl class="space-y-3 text-sm">
@@ -193,6 +201,8 @@
 <script setup>
 import MeshCorePeerRadio2 from "./MeshCorePeerRadio2.vue";
 import { navigateAppUp } from "../../js/androidBackNavigation";
+import { copyTextToClipboard } from "../../js/clipboardUtils";
+import ToastUtils from "../../js/ToastUtils";
 import { computed, ref, watch } from "vue";
 import { useMeshCoreNotificationContext } from "../../js/meshcoreNotifications";
 import MeshCoreNodePasswords from "./MeshCoreNodePasswords.vue";
@@ -258,6 +268,22 @@ watch(
         discoveryStatus.value = "";
     }
 );
+async function shareRoomContact() {
+    const room = selected.value;
+    if (room?.kind !== 3 || !/^[0-9a-f]{64}$/i.test(room.peer)) return;
+    const title = room.name ? `MeshCore room server: ${room.name}` : "MeshCore room server";
+    const text = `${title}\nPublic key: ${room.peer.toLowerCase()}`;
+    if (typeof navigator.share === "function") {
+        try {
+            await navigator.share({ title, text });
+            return;
+        } catch (error) {
+            if (error?.name === "AbortError") return;
+        }
+    }
+    if (await copyTextToClipboard(text)) ToastUtils.success("Room contact copied.");
+    else ToastUtils.error("Could not share or copy the room contact. The public key is under Identity & route.");
+}
 async function discover() {
     if (discovering.value || !snapshot.value.connected) return;
     discovering.value = true;

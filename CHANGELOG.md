@@ -1,5 +1,11 @@
 # Meshchat neXt changelog
 
+## 0.1.8
+
+- Keep MeshCore room and repeater tabs selected during background refreshes.
+- Start a MeshCore chat from the searchable contact picker in the phone’s Conversations plus menu or desktop sidebar.
+- Share a room server’s name and public key from its node page.
+
 ## 0.1.7
 
 - Exchange Family-compatible private MeshCore locations with separately approved saved contacts. Share the device location once through an encrypted direct message, with explicit consent per companion and contact, stale/replay protection, prefix-collision rejection and private map labels. Received location frames do not create chat bubbles or notifications.
