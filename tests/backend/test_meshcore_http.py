@@ -39,6 +39,31 @@ class HttpTests(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self):
         await self.client.close()
 
+    async def test_automatic_room_login_accepts_only_scoped_request(self):
+        body = {
+            "peer": "b2" * 32,
+            "expected_owner": "a1" * 32,
+            "expected_connection_id": "connection",
+        }
+        for invalid in (
+            {
+                key: value
+                for key, value in body.items()
+                if key != "expected_connection_id"
+            },
+            {**body, "expected_owner": "a1"},
+            {**body, "use_saved_role": "admin"},
+            {**body, "password": "fixture"},
+        ):
+            response = await self.client.post(
+                "/api/v1/meshcore/node-auto-login", json=invalid
+            )
+            self.assertEqual(response.status, 400)
+        self.assertEqual(self.service.calls, [])
+        response = await self.client.post("/api/v1/meshcore/node-auto-login", json=body)
+        self.assertEqual(response.status, 200)
+        self.assertEqual(self.service.calls, [(("nodes", "login_saved_room"), body)])
+
     async def test_tak_enrollment_and_packages_require_owner_and_known_fields(self):
         cases = {
             "tak-connect": {"host": "localhost", "port": 8089, "auto_protocol": True},

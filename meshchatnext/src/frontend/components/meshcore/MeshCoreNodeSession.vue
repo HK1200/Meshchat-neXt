@@ -57,7 +57,7 @@
                     type="button"
                     class="secondary-chip"
                     :disabled="busy || needsRecovery || !snapshot.connected || !verified"
-                    @click="operate('node-logout')"
+                    @click="logout"
                 >
                     Log out
                 </button>
@@ -75,6 +75,19 @@
                 ><input v-model="rememberPassword" type="checkbox" :disabled="busy" />Save password securely after
                 successful login</label
             >
+            <label v-if="autoLoginScope" class="flex items-center gap-2 text-sm">
+                <input
+                    type="checkbox"
+                    :checked="autoLoginEnabled"
+                    :disabled="busy"
+                    @change="setAutoLogin($event.target.checked)"
+                />
+                Automatically log in with saved member password
+            </label>
+            <p v-if="autoLoginScope" class="text-xs text-sem-fg-muted">
+                Save a member password securely first. While this room is open, automatic login tries once when the
+                radio connects. Logging out turns it off for this room.
+            </p>
         </section>
         <p v-if="notice" role="status" class="text-sm text-sem-fg-muted">{{ notice }}</p>
         <p v-if="!needsRecovery && snapshot.node_operations?.[node.peer]" class="text-xs text-sem-fg-muted">
@@ -640,6 +653,43 @@ function label(key) {
         }[key] || key.replaceAll("_", " ")
     );
 }
+const autoLoginEnabled = ref(false);
+const autoLoginScope = computed(() => {
+    const { owner, radio_id: radioId } = props.snapshot;
+    const { kind, peer } = props.node;
+    if (kind !== 3 || !/^[0-9a-f]{64}$/i.test(owner || "") || !/^[0-9a-f]{64}$/i.test(peer)) return "";
+    return `meshchat-next.room-auto-login:${JSON.stringify([owner, radioId || "default", peer])}`;
+});
+let lastAutoLoginAttempt = "";
+function savedAutoLogin(scope) {
+    try {
+        return localStorage.getItem(scope) === "1";
+    } catch {
+        return false;
+    }
+}
+function setAutoLogin(enabled) {
+    const scope = autoLoginScope.value;
+    if (!scope) return;
+    try {
+        if (enabled) localStorage.setItem(scope, "1");
+        else localStorage.removeItem(scope);
+        autoLoginEnabled.value = enabled;
+    } catch {
+        problem.value = "Could not save the automatic room login preference.";
+    }
+}
+watch(
+    autoLoginScope,
+    (scope) => {
+        autoLoginEnabled.value = Boolean(scope && savedAutoLogin(scope));
+    },
+    { immediate: true }
+);
+function logout() {
+    setAutoLogin(false);
+    return operate("node-logout");
+}
 async function operate(action, extra = {}) {
     if (busy.value || needsRecovery.value || !props.snapshot.connected) return;
     busy.value = true;
@@ -661,6 +711,14 @@ async function operate(action, extra = {}) {
             passwordRefresh.value++;
             if (result.password_saved === false)
                 problem.value = "Login succeeded, but the password could not be saved securely.";
+        }
+        if (action === "node-auto-login" && result.state === "password_storage_unavailable") {
+            notice.value = "Secure password storage is unavailable. Log in under Access.";
+            return result;
+        }
+        if (action === "node-auto-login" && result.state === "no_saved_password") {
+            notice.value = "Save a member password under Access to enable automatic login.";
+            return result;
         }
         if (result.state === "route_received") {
             notice.value =
@@ -736,7 +794,7 @@ async function recover() {
         adminUncertain.value = false;
         uncertain.value = false;
         problem.value = "";
-        notice.value = "MeshCore reconnected. Log in again.";
+        notice.value = autoLoginEnabled.value ? "MeshCore reconnected." : "MeshCore reconnected. Log in again.";
         emit("changed");
     } catch {
         problem.value = "MeshCore could not reconnect. Check the radio in MeshCore settings.";
@@ -803,6 +861,38 @@ watch(
         adminConfirmed.value = false;
         adminUncertain.value = false;
     }
+);
+watch(
+    [
+        autoLoginScope,
+        autoLoginEnabled,
+        () => props.snapshot.connection_id,
+        () => props.snapshot.connected,
+        verified,
+        needsRecovery,
+        busy,
+    ],
+    () => {
+        const scope = autoLoginScope.value;
+        const connection = props.snapshot.connection_id;
+        if (
+            !scope ||
+            !autoLoginEnabled.value ||
+            !connection ||
+            !props.snapshot.connected ||
+            verified.value ||
+            needsRecovery.value ||
+            busy.value ||
+            password.value ||
+            !savedAutoLogin(scope)
+        )
+            return;
+        const attempt = `${scope}:${connection}`;
+        if (attempt === lastAutoLoginAttempt) return;
+        lastAutoLoginAttempt = attempt;
+        void operate("node-auto-login", { expected_connection_id: connection });
+    },
+    { immediate: true, flush: "post" }
 );
 onBeforeUnmount(() => {
     clearAdminPassword();

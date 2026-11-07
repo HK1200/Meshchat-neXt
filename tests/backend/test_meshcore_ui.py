@@ -358,6 +358,38 @@ class UiStoreTests(unittest.TestCase):
 
 
 class OfflineUiTests(unittest.IsolatedAsyncioTestCase):
+    async def test_automatic_room_login_requires_the_current_radio_connection(self):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        from meshchatnext.src.backend.meshcore_service import MeshCoreService
+
+        with tempfile.TemporaryDirectory() as folder:
+            service = MeshCoreService(folder)
+            service.status = lambda: {"connected": True}
+            service.messages = SimpleNamespace(owner=OWNER)
+            service._connection_id = "new-connection"
+            login = AsyncMock(return_value={"state": "verified"})
+            service.nodes = SimpleNamespace(login_saved_room=login)
+            with self.assertRaisesRegex(ValueError, "connection changed"):
+                await service.call(
+                    "nodes",
+                    "login_saved_room",
+                    peer=PEER,
+                    expected_owner=OWNER,
+                    expected_connection_id="old-connection",
+                )
+            login.assert_not_awaited()
+            result = await service.call(
+                "nodes",
+                "login_saved_room",
+                peer=PEER,
+                expected_owner=OWNER,
+                expected_connection_id="new-connection",
+            )
+            self.assertEqual(result["state"], "verified")
+            login.assert_awaited_once_with(peer=PEER)
+
     async def test_disconnected_history_and_links_require_the_expected_meshcore_owner(
         self,
     ):

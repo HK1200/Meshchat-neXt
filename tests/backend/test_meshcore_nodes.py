@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from meshchatnext.src.backend.meshcore_nodes import MeshCoreNodes
 from meshchatnext.src.backend.meshcore_store import MeshCoreStore
@@ -98,6 +98,46 @@ class NodeTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(self.nodes.snapshot()[PEER]["expires_in"])
         await self.nodes.logout(PEER)
         self.assertNotIn(PEER, self.nodes.snapshot())
+
+    async def test_saved_room_login_uses_only_member_password_and_runs_once(self):
+        vault = SimpleNamespace(
+            status=Mock(
+                return_value={"available": True, "saved_roles": ["member", "admin"]}
+            ),
+            load=Mock(return_value="member-fixture"),
+        )
+        self.nodes.passwords = vault
+        self.assertEqual((await self.nodes.login_saved_room(PEER))["state"], "verified")
+        vault.load.assert_called_once_with(self.messages.owner, PEER, "member")
+        self.commands._send_login_raw.assert_awaited_once_with(PEER, "member-fixture")
+        self.assertEqual(
+            (await self.nodes.login_saved_room(PEER))["state"], "already_verified"
+        )
+        await self.nodes.logout(PEER)
+        self.assertEqual(
+            (await self.nodes.login_saved_room(PEER))["state"],
+            "automatic_login_skipped",
+        )
+        self.commands._send_login_raw.assert_awaited_once()
+
+    async def test_saved_room_login_skips_admin_only_and_rejects_a_repeater(self):
+        vault = SimpleNamespace(
+            status=Mock(return_value={"available": True, "saved_roles": ["admin"]}),
+            load=Mock(return_value="member-fixture"),
+        )
+        self.nodes.passwords = vault
+        self.assertEqual(
+            (await self.nodes.login_saved_room(PEER))["state"], "no_saved_password"
+        )
+        vault.load.assert_not_called()
+        self.nodes = MeshCoreNodes(self.messages, vault)
+        vault.status.return_value = {"available": True, "saved_roles": ["member"]}
+        self.messages.sync_contacts.return_value = [
+            {"peer": PEER, "kind": 2, "active": 1}
+        ]
+        with self.assertRaisesRegex(ValueError, "unambiguous"):
+            await self.nodes.login_saved_room(PEER)
+        self.commands._send_login_raw.assert_not_awaited()
 
     async def test_repeater_login_keeps_its_existing_expiry(self):
         self.messages.sync_contacts.return_value = [

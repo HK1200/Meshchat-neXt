@@ -3,6 +3,7 @@
 ## 0.1.8
 
 - Keep MeshCore room and repeater tabs selected during background refreshes.
+- Opt in to signing back into an open room once per radio connection using its securely saved member password.
 - Start a MeshCore chat from the searchable contact picker in the phone’s Conversations plus menu or desktop sidebar.
 - Share a room server’s name and public key from its node page.
 
