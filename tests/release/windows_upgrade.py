@@ -124,8 +124,8 @@ def snapshot():
 
 
 try:
-    old = ROOT / "old/MeshchatNext-v0.1.6-win-x64-installer.exe"
-    new = ROOT / "source/dist/MeshchatNext-v0.1.7-win-x64-installer.exe"
+    old = ROOT / "old/MeshchatNext-v0.1.7-win-x64-installer.exe"
+    new = ROOT / "source/dist/MeshchatNext-v0.1.8-win-x64-installer.exe"
     assert old.is_file() and new.is_file()
     run([old, "/S", "/D=" + str(APP)], "install-baseline.log")
     start("baseline-backend")
@@ -216,10 +216,10 @@ try:
         hashlib.sha256((APP / "Meshchat neXt.exe").read_bytes()).hexdigest() == expected
     )
     report["corrected_executable_installed"] = True
-    report["baseline_version"] = "0.1.6"
-    report["upgraded_version"] = "0.1.7"
+    report["baseline_version"] = "0.1.7"
+    report["upgraded_version"] = "0.1.8"
     start("corrected-backend")
-    assert api("GET", "app/info").json()["app_info"]["version"] == "0.1.7"
+    assert api("GET", "app/info").json()["app_info"]["version"] == "0.1.8"
     assert api("GET", "app/info").json()["app_info"]["python_version"] == "3.14.10"
     assert api("GET", "app/info").json()["app_info"]["git_commit"] == SOURCE
     assert api("GET", "app/info").json()["app_info"]["build_channel"] == "stable"

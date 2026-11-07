@@ -1,3 +1,4 @@
+import { RouterLinkStub } from "@vue/test-utils";
 import { mount, flushPromises, enableAutoUnmount } from "@vue/test-utils";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import MessagesPage from "@/components/messages/MessagesPage.vue";
@@ -59,6 +60,7 @@ describe("MessagesPage.vue", () => {
                 },
                 stubs: {
                     MaterialDesignIcon: true,
+                    RouterLink: RouterLinkStub,
                     LoadingSpinner: true,
                     MessagesSidebar: {
                         template: '<div class="sidebar-stub"></div>',
@@ -73,6 +75,53 @@ describe("MessagesPage.vue", () => {
             },
         });
     };
+
+    it("opens a saved MeshCore chat on its radio from the plus menu", async () => {
+        const peer = "a1".repeat(32);
+        const get = axiosMock.get.getMockImplementation();
+        axiosMock.get.mockImplementation((url, ...args) =>
+            url === "/api/v1/meshcore/ui"
+                ? Promise.resolve({
+                      data: {
+                          result: {
+                              available: true,
+                              connected: false,
+                              radio_id: "second-radio",
+                              radio_label: "Travel radio",
+                              contacts: [
+                                  { name: "Alice", peer, kind: 1, active: 1 },
+                                  { name: "Bob", peer: "b2".repeat(32), kind: 1, active: 1 },
+                                  { name: "Inactive", peer: "c3".repeat(32), kind: 1, active: false },
+                                  { name: "Room", peer: "d4".repeat(32), kind: 3, active: 1 },
+                              ],
+                          },
+                      },
+                  })
+                : get(url, ...args)
+        );
+        const wrapper = mountMessagesPage();
+        await wrapper.find('button[title="app.compose"]').trigger("click");
+        const dialog = wrapper.find('[role="dialog"]');
+        await dialog
+            .findAll("button")
+            .find((button) => button.text() === "MeshCore contacts")
+            .trigger("click");
+        await flushPromises();
+        expect(dialog.text()).toContain("Travel radio · Disconnected");
+        expect(dialog.text()).not.toContain("Inactive");
+        expect(dialog.text()).not.toContain("Room");
+        await dialog.find('input[placeholder="Search MeshCore contacts…"]').setValue("ALICE");
+        const links = dialog.findAllComponents(RouterLinkStub);
+        expect(links).toHaveLength(1);
+        expect(links[0].props("to")).toEqual({
+            name: "messages",
+            params: { destinationHash: "" },
+            query: { meshcore: peer, meshcoreRadio: "second-radio" },
+        });
+        await links[0].trigger("click");
+        expect(wrapper.find('[role="dialog"]').exists()).toBe(false);
+        expect(axiosMock.post).not.toHaveBeenCalled();
+    });
 
     it("does not schedule a refresh from a late callback after unmount", async () => {
         const wrapper = mountMessagesPage();

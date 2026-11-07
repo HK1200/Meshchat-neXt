@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: 0BSD
-"""Review fixed 0.1.7 package bytes on Windows, using only disposable profiles."""
+"""Review fixed 0.1.8 package bytes on Windows, using only disposable profiles."""
 
 import hashlib
 import importlib.util
@@ -18,8 +18,8 @@ SOURCE = os.environ["MESHCHAT_REVIEW_SOURCE_SHA"]
 assert re.fullmatch(r"[0-9a-f]{40}", SOURCE), "Exact reviewed source is required"
 PIN = "87b2973e252645589a1543010e9fcda1"
 NAMES = {
-    "MeshchatNext-v0.1.7-win-portable.exe",
-    "MeshchatNext-v0.1.7-win-x64-installer.exe",
+    "MeshchatNext-v0.1.8-win-portable.exe",
+    "MeshchatNext-v0.1.8-win-x64-installer.exe",
 }
 ROOT = Path(os.environ["MESHCHAT_RELEASE_REVIEW_ROOT"]).resolve()
 assert sys.platform == "win32", "Genuine Windows execution is required"
@@ -90,7 +90,7 @@ def prepare():
     assert run_proof["passed"] and run_proof["source"] == SOURCE
     source_proof = verify_source_tree()
     proof = json.loads((DIST / "SOURCE-PACKAGES.json").read_text(encoding="utf-8-sig"))
-    assert proof["source"] == SOURCE and proof["version"] == "0.1.7"
+    assert proof["source"] == SOURCE and proof["version"] == "0.1.8"
     assert {a["file"] for a in proof["assets"]} == NAMES
     assert {p.name for p in DIST.iterdir()} == NAMES | {"SOURCE-PACKAGES.json"}
     assert proof["native_ui"]["source"] == SOURCE
@@ -109,12 +109,12 @@ def prepare():
             env={**os.environ, "MESHCHAT_REVIEW_ASSET": str(path)},
         ).strip()
         assert status == "NotSigned", (path.name, status)
-    base = "https://github.com/HK1200/Meshchat-neXt/releases/download/v0.1.6/"
+    base = "https://github.com/HK1200/Meshchat-neXt/releases/download/v0.1.7/"
     response = requests.get(base + "latest.rsm", timeout=120)
     response.raise_for_status()
     manifest = verify_rsm(response.content, required_signer_hash=bytes.fromhex(PIN))
-    assert manifest["version"] == "0.1.6" and manifest["tag"] == "v0.1.6"
-    name = "MeshchatNext-v0.1.6-win-x64-installer.exe"
+    assert manifest["version"] == "0.1.7" and manifest["tag"] == "v0.1.7"
+    name = "MeshchatNext-v0.1.7-win-x64-installer.exe"
     entries = [a for a in manifest["artifacts"] if a["file"] == name]
     assert len(entries) == 1 and entries[0]["platform"] == "windows"
     old = ROOT / "old"
@@ -132,7 +132,7 @@ def prepare():
         [
             seven,
             "x",
-            str(DIST / "MeshchatNext-v0.1.7-win-x64-installer.exe"),
+            str(DIST / "MeshchatNext-v0.1.8-win-x64-installer.exe"),
             "-o" + str(outer),
             "-y",
         ],
@@ -150,7 +150,7 @@ def prepare():
     assert (unpacked / "Meshchat neXt.exe").is_file()
     proof["source_signature_before_build"] = source_proof
     proof["verified_input_run"] = run_proof
-    proof["baseline"] = {"pin": PIN, "version": "0.1.6", "artifact": entries[0]}
+    proof["baseline"] = {"pin": PIN, "version": "0.1.7", "artifact": entries[0]}
     proof["expected_installed_shell_sha256"] = sha(unpacked / "Meshchat neXt.exe")
     (ROOT / "input-proof.json").write_text(json.dumps(proof, indent=2))
 
@@ -310,7 +310,7 @@ def collect():
     upgrade = json.loads((ROOT / "upgrade-validation.json").read_text())
     update = json.loads((ROOT / "update-staging-validation.json").read_text())
     assert upgrade["status"] == update["status"] == "passed"
-    assert upgrade["upgraded_version"] == "0.1.7"
+    assert upgrade["upgraded_version"] == "0.1.8"
     assert upgrade["installed_patched_expat_version"] == "expat_2.10.0"
     assert upgrade["installed_frozen_worker_probe"]["passed"]
     assert upgrade["installed_frozen_worker_probe"]["stderr_empty"]

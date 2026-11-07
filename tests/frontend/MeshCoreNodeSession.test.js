@@ -6,6 +6,7 @@ const owner = "a1".repeat(32),
 let wrapper;
 afterEach(() => {
     wrapper?.unmount();
+    localStorage.clear();
     vi.restoreAllMocks();
 });
 function setup(kind = 3) {
@@ -198,7 +199,7 @@ describe("MeshCore node sessions", () => {
         expect(wrapper.text()).toContain("Administrator login verified");
         await button("Restart server").trigger("click");
         expect(button("Run server action").attributes("disabled")).toBeDefined();
-        await wrapper.find('input[type="checkbox"]').setValue(true);
+        await wrapper.find('[aria-label="MeshCore administrator controls"] input[type="checkbox"]').setValue(true);
         window.api.post.mockResolvedValueOnce({ data: { result: { state: "submitted", text: "Restart submitted" } } });
         await button("Run server action").trigger("submit");
         await flushPromises();
@@ -298,7 +299,7 @@ describe("MeshCore node sessions", () => {
         expect(value.attributes("type")).toBe("password");
         await value.setValue("temporary");
         await confirm.setValue("different");
-        await wrapper.find('input[type="checkbox"]').setValue(true);
+        await wrapper.find('[aria-label="MeshCore administrator controls"] input[type="checkbox"]').setValue(true);
         expect(button("Run server action").attributes("disabled")).toBeDefined();
         await confirm.setValue("temporary");
         expect(button("Run server action").attributes("disabled")).toBeUndefined();
@@ -404,6 +405,72 @@ describe("Task-based node navigation and room author names", () => {
         expect(button("Overview").attributes("aria-pressed")).toBe("true");
         expect(panel("Node status").isVisible()).toBe(true);
         expect(panel("Room conversation").exists()).toBe(false);
+    });
+    it("automatically logs in once per connection after opting in and stays off after logout", async () => {
+        setup();
+        const connected = { ...wrapper.props("snapshot"), radio_id: "travel", connection_id: "first" };
+        await wrapper.setProps({ snapshot: connected });
+        expect(window.api.post).not.toHaveBeenCalled();
+        await button("Access").trigger("click");
+        await wrapper
+            .findAll('input[type="checkbox"]')
+            .find((input) => input.element.parentElement.textContent.includes("Automatically log in"))
+            .setValue(true);
+        await flushPromises();
+        expect(window.api.post).toHaveBeenCalledExactlyOnceWith(
+            "/api/v1/meshcore/node-auto-login",
+            { peer, expected_owner: owner, expected_connection_id: "first" },
+            { timeout: 150000, params: { radio: "travel" } }
+        );
+        await wrapper.setProps({ snapshot: { ...connected } });
+        expect(window.api.post).toHaveBeenCalledTimes(1);
+        await wrapper.setProps({ snapshot: { ...connected, connected: false, connection_id: null } });
+        expect(window.api.post).toHaveBeenCalledTimes(1);
+        const reconnected = { ...connected, connection_id: "second" };
+        await wrapper.setProps({ snapshot: reconnected });
+        await flushPromises();
+        expect(window.api.post).toHaveBeenCalledTimes(2);
+        expect(window.api.post.mock.calls[1][1].expected_connection_id).toBe("second");
+        await wrapper.setProps({
+            snapshot: { ...reconnected, node_sessions: { [peer]: { state: "verified" } } },
+        });
+        window.api.post.mockResolvedValueOnce({ data: { result: { state: "submitted" } } });
+        await button("Log out").trigger("click");
+        await flushPromises();
+        await wrapper.setProps({ snapshot: { ...connected, connection_id: "third" } });
+        expect(window.api.post).toHaveBeenCalledTimes(3);
+        expect(window.api.post.mock.calls[2][0]).toBe("/api/v1/meshcore/node-logout");
+    });
+
+    it("does not retry a denied automatic login on polling or use its preference on a different radio", async () => {
+        setup();
+        const scope = `meshchat-next.room-auto-login:${JSON.stringify([owner, "first-radio", peer])}`;
+        localStorage.setItem(scope, "1");
+        window.api.post.mockResolvedValueOnce({ data: { result: { state: "denied" } } });
+        const snapshot = { ...wrapper.props("snapshot"), radio_id: "first-radio", connection_id: "first" };
+        await wrapper.setProps({ snapshot });
+        await flushPromises();
+        expect(wrapper.text()).toContain("The server denied this login.");
+        await wrapper.setProps({ snapshot: { ...snapshot } });
+        await wrapper.setProps({ snapshot: { ...snapshot, radio_id: "second-radio", connection_id: "second" } });
+        expect(window.api.post).toHaveBeenCalledTimes(1);
+    });
+    it("keeps the selected tab on refreshed snapshots and resets it for a different radio", async () => {
+        setup();
+        const snapshot = { ...wrapper.props("snapshot"), radio_id: "first" };
+        await wrapper.setProps({ snapshot });
+        for (const [tab, panel] of [
+            ["Status", "Node status"],
+            ["Access", "Node access"],
+            ["Manage", "Manage node"],
+        ]) {
+            await button(tab).trigger("click");
+            await wrapper.setProps({ node: { ...wrapper.props("node") }, snapshot: { ...snapshot, messages: [] } });
+            expect(button(tab).attributes("aria-pressed")).toBe("true");
+            expect(wrapper.find(`[aria-label="${panel}"]`).isVisible()).toBe(true);
+        }
+        await wrapper.setProps({ snapshot: { ...snapshot, radio_id: "second" } });
+        expect(button("Messages").attributes("aria-pressed")).toBe("true");
     });
     it("keeps a room draft across tab changes and exposes admin login without sending anything", async () => {
         setup();

@@ -42,6 +42,15 @@
                 <option v-for="radio in snapshot.radios" :key="radio.id" :value="radio.id">{{ radio.label }}</option>
             </select>
         </label>
+        <button
+            type="button"
+            class="secondary-chip hidden sm:inline-flex"
+            :aria-expanded="showContacts"
+            @click="showContacts = !showContacts"
+        >
+            MeshCore contacts
+        </button>
+        <MeshCoreMessageContactPicker v-if="showContacts" class="hidden sm:block" @selected="showContacts = false" />
         <p v-if="error" role="alert" class="text-xs text-sem-danger">{{ error }}</p>
         <button
             v-for="row in visible"
@@ -80,11 +89,13 @@
 </template>
 <script setup>
 import { voicePreview } from "../../js/meshcoreVoice";
-import { computed } from "vue";
+import { computed, ref } from "vue";
+import MeshCoreMessageContactPicker from "./MeshCoreMessageContactPicker.vue";
 import LxmfUserIcon from "../LxmfUserIcon.vue";
 import { useMeshCoreUi, meshcoreRoute } from "../../js/meshcoreUi";
 const props = defineProps({ search: { type: String, default: "" }, unreadOnly: Boolean, compact: Boolean });
 const { snapshot, error, action } = useMeshCoreUi();
+const showContacts = ref(false);
 const visible = computed(() =>
     snapshot.value.conversations.filter(
         (row) =>

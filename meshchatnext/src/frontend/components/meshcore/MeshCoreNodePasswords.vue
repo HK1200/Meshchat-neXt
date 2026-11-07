@@ -3,8 +3,8 @@
         <summary class="text-sm cursor-pointer">Saved server passwords</summary>
         <div class="space-y-2 mt-3 text-sm">
             <p class="text-xs text-sem-fg-muted">
-                Optional · encrypted on this Android device. Excluded from app exports. Saved separately for each
-                MeshCore identity, node and role.
+                Optional · protected by secure storage on this device. Excluded from app exports. Saved separately for
+                each MeshCore identity, node and role.
             </p>
             <p v-if="loaded && !status.available">Secure password storage is unavailable on this device.</p>
             <template v-if="status.available">

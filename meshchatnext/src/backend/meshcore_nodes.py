@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Explicit server operations; passwords and verified logins are memory-only."""
+"""Server operations with connection-scoped login state and secure credentials."""
 
 from __future__ import annotations
 
@@ -25,6 +25,7 @@ class MeshCoreNodes:
         self.messages = messages
         self.session = messages.session
         self.logins = {}
+        self._automatic_login_attempts = set()
         self.uncertain = set()
         self.operations = {}
         self._last_discovery = None
@@ -154,7 +155,7 @@ class MeshCoreNodes:
             if value[0] is None or value[0] > now
         }
 
-    async def _contact(self, peer):
+    async def _contact(self, peer, *, kinds=(2, 3)):
         peer = public_key(peer)
         self.messages._check()
         rows = await self.messages.sync_contacts()
@@ -173,7 +174,7 @@ class MeshCoreNodes:
                 (
                     row
                     for row in announced
-                    if row["peer"] == peer and row["kind"] in (2, 3)
+                    if row["peer"] == peer and row["kind"] in kinds
                 ),
                 None,
             )
@@ -204,12 +205,12 @@ class MeshCoreNodes:
         if (
             len(matches) != 1
             or matches[0]["peer"] != peer
-            or matches[0]["kind"] not in (2, 3)
+            or matches[0]["kind"] not in kinds
         ):
             raise ValueError("Choose an unambiguous active repeater or room server")
         return matches[0]
 
-    async def _exchange(self, peer, operation, password=None):
+    async def _exchange(self, peer, operation, password=None, *, room_only=False):
         diagnostic = {
             "operation": operation,
             "stage": "sending",
@@ -218,7 +219,7 @@ class MeshCoreNodes:
         }
         self.operations[peer] = diagnostic
         try:
-            contact = await self._contact(peer)
+            contact = await self._contact(peer, kinds=(3,) if room_only else (2, 3))
         except Exception as error:
             diagnostic.update(
                 stage="contact_check_failed", error_type=type(error).__name__
@@ -382,7 +383,29 @@ class MeshCoreNodes:
         )
         return await self.password_status(peer)
 
-    async def login(self, peer, password=None, remember=False, use_saved_role=None):
+    async def login_saved_room(self, peer):
+        peer = public_key(peer)
+        if peer in self.snapshot():
+            return {"state": "already_verified"}
+        if peer in self._automatic_login_attempts or peer in self.uncertain:
+            return {"state": "automatic_login_skipped"}
+        self._automatic_login_attempts.add(peer)
+        status = await self.password_status(peer)
+        if not status["available"]:
+            return {"state": "password_storage_unavailable"}
+        if "member" not in status["saved_roles"]:
+            return {"state": "no_saved_password"}
+        return await self.login(peer, use_saved_role="member", room_only=True)
+
+    async def login(
+        self,
+        peer,
+        password=None,
+        remember=False,
+        use_saved_role=None,
+        *,
+        room_only=False,
+    ):
         peer = public_key(peer)
         if type(remember) is not bool:
             raise ValueError("Remember password must be a boolean")
@@ -401,7 +424,8 @@ class MeshCoreNodes:
         ):
             raise ValueError("Password must contain at most 64 UTF-8 bytes without NUL")
         self.logins.pop(peer, None)
-        result = await self._exchange(peer, "login", password)
+        self._automatic_login_attempts.add(peer)
+        result = await self._exchange(peer, "login", password, room_only=room_only)
         if remember and result.get("state") == "verified":
             try:
                 await self.password_save(
@@ -423,6 +447,7 @@ class MeshCoreNodes:
 
     async def logout(self, peer):
         peer = public_key(peer)
+        self._automatic_login_attempts.add(peer)
         await self._contact(peer)
         self.logins.pop(peer, None)
         async with self.session._lock:

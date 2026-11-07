@@ -2,6 +2,11 @@ import { ref } from "vue";
 import { mount, flushPromises } from "@vue/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import MeshCoreNodesPage from "../../meshchatnext/src/frontend/components/meshcore/MeshCoreNodesPage.vue";
+import { copyTextToClipboard } from "../../meshchatnext/src/frontend/js/clipboardUtils";
+vi.mock("../../meshchatnext/src/frontend/js/clipboardUtils", () => ({ copyTextToClipboard: vi.fn() }));
+vi.mock("../../meshchatnext/src/frontend/js/ToastUtils", () => ({
+    default: { success: vi.fn(), error: vi.fn() },
+}));
 let snapshot, action, wrapper;
 const peer = "a1".repeat(32),
     sensor = "c3".repeat(32);
@@ -34,7 +39,10 @@ beforeEach(() => {
     });
     action = vi.fn().mockResolvedValue({ nodes: [{ peer, kind: 2 }] });
 });
-afterEach(() => wrapper?.unmount());
+afterEach(() => {
+    wrapper?.unmount();
+    vi.unstubAllGlobals();
+});
 describe("Saved nodes discovery", () => {
     it("runs one explicit discovery and separates current replies from older announces", async () => {
         start();
@@ -73,6 +81,21 @@ describe("Saved nodes discovery", () => {
         await flushPromises();
         expect(wrapper.find('[role="status"]').text()).toContain("Wait 30");
         expect(wrapper.find("button").attributes("disabled")).toBeUndefined();
+    });
+    it("copies only the room name and public key when native sharing is unavailable", async () => {
+        snapshot.value.nodes = [{ peer, name: "Trail chat", kind: 3, password: "must stay private" }];
+        vi.stubGlobal("navigator", { share: undefined });
+        copyTextToClipboard.mockResolvedValueOnce(true);
+        start({ peer });
+        await wrapper
+            .findAll("button")
+            .find((button) => button.text() === "Share room contact")
+            .trigger("click");
+        await flushPromises();
+        expect(copyTextToClipboard).toHaveBeenCalledExactlyOnceWith(
+            `MeshCore room server: Trail chat\nPublic key: ${peer}`
+        );
+        expect(action).not.toHaveBeenCalled();
     });
     it("does not show repeater login controls for a saved sensor", () => {
         snapshot.value.nodes = [{ peer: sensor, name: "Weather", kind: 4 }];
