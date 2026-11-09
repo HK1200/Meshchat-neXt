@@ -295,6 +295,10 @@ async def _write(service, owner, request, action):
             {"peer", "expected_owner", "expected_connection_id"},
             set(),
         ),
+        "repeater-auto-login": (
+            {"peer", "expected_owner", "expected_connection_id"},
+            set(),
+        ),
         "node-password-status": ({"peer", "expected_owner"}, set()),
         "node-password-save": (
             {"peer", "role", "password", "expected_owner"},
@@ -541,6 +545,7 @@ async def _write(service, owner, request, action):
             "voice-discard": ("voice", "discard"),
             "node-login": ("nodes", "login"),
             "node-auto-login": ("nodes", "login_saved_room"),
+            "repeater-auto-login": ("nodes", "login_saved_repeater"),
             "node-password-status": ("nodes", "password_status"),
             "node-password-save": ("nodes", "password_save"),
             "node-password-forget": ("nodes", "password_forget"),

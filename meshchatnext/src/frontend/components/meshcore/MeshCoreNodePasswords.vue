@@ -1,64 +1,67 @@
 <template>
     <details class="border-t border-sem-border pt-3" @toggle="opened">
-        <summary class="text-sm cursor-pointer">Saved server passwords</summary>
-        <div class="space-y-2 mt-3 text-sm">
-            <p class="text-xs text-sem-fg-muted">
-                Optional · protected by secure storage on this device. Excluded from app exports. Saved separately for
-                each MeshCore identity, node and role.
+        <summary class="cursor-pointer text-sm font-medium">Saved passwords</summary>
+        <div class="mt-3 max-w-md space-y-3 text-sm">
+            <p v-if="loaded && !status.available" class="text-sem-fg-muted">
+                Secure password storage is unavailable on this device.
             </p>
-            <p v-if="loaded && !status.available">Secure password storage is unavailable on this device.</p>
             <template v-if="status.available">
-                <label
-                    >Access
-                    <select
-                        v-model="role"
-                        class="bg-sem-surface-muted text-sem-fg border border-sem-border rounded-lg p-2 ml-2"
-                    >
+                <label class="flex flex-wrap items-center gap-2">
+                    Password type
+                    <select v-model="role" class="input-field">
                         <option value="member">Member / guest</option>
                         <option value="admin">Administrator</option>
-                    </select></label
-                >
-                <p>{{ saved ? "Password saved on this device" : "No saved password for this access level" }}</p>
-                <div v-if="saved" class="flex flex-wrap gap-2">
+                    </select>
+                </label>
+                <p class="text-xs text-sem-fg-muted">{{ saved ? "Saved on this device" : "No saved password" }}</p>
+                <div v-if="!editing" class="flex flex-wrap gap-2">
                     <button
-                        v-if="canLogin"
+                        v-if="saved && canLogin"
                         type="button"
-                        class="secondary-chip"
+                        class="primary-chip"
                         :disabled="busy || disabled"
                         @click="$emit('use-saved', role)"
                     >
-                        Log in with saved password
+                        Use saved password
+                    </button>
+                    <button type="button" class="secondary-chip" :disabled="busy || disabled" @click="editing = true">
+                        {{ saved ? "Replace" : "Save a password" }}
                     </button>
                     <button
+                        v-if="saved"
                         type="button"
                         class="secondary-chip"
                         :disabled="busy || disabled"
                         @click="perform('forget')"
                     >
-                        Forget saved password
+                        Forget
                     </button>
                 </div>
-                <label class="block"
-                    >{{ saved ? "Replace saved password" : "Password to save"
-                    }}<input
-                        v-model="password"
-                        :type="show ? 'text' : 'password'"
-                        autocomplete="off"
-                        aria-label="Password to save securely"
-                        class="block w-full bg-sem-surface-muted border border-sem-border rounded-lg p-2 mt-1"
-                        :disabled="busy || disabled"
-                /></label>
-                <div class="flex gap-2">
-                    <button type="button" class="secondary-chip" :disabled="busy || disabled" @click="show = !show">
-                        {{ show ? "Hide" : "Show" }}</button
-                    ><button
-                        type="button"
-                        class="secondary-chip"
-                        :disabled="busy || disabled || !password || bytes > 64"
-                        @click="perform('save')"
-                    >
-                        Save securely
-                    </button>
+                <div v-else class="space-y-2">
+                    <label class="block">
+                        New saved password
+                        <input
+                            v-model="password"
+                            type="password"
+                            autocomplete="off"
+                            aria-label="Password to save securely"
+                            class="input-field mt-1 w-full"
+                            :disabled="busy || disabled"
+                        />
+                    </label>
+                    <div class="flex flex-wrap gap-2">
+                        <button
+                            type="button"
+                            class="primary-chip"
+                            :disabled="busy || disabled || !password || bytes > 64"
+                            @click="perform('save')"
+                        >
+                            Save securely
+                        </button>
+                        <button type="button" class="secondary-chip" :disabled="busy" @click="closeEditor">
+                            Cancel
+                        </button>
+                    </div>
                 </div>
             </template>
             <p v-if="problem" role="alert" class="text-sem-danger">{{ problem }}</p>
@@ -72,14 +75,16 @@ import { apiPath } from "../../js/constants";
 const props = defineProps({
     owner: { type: String, default: "" },
     peer: { type: String, required: true },
+    radioId: { type: String, default: "" },
+    defaultRole: { type: String, default: "member" },
     disabled: Boolean,
     canLogin: Boolean,
     refreshKey: { type: Number, default: 0 },
 });
 const emit = defineEmits(["use-saved", "available"]);
-const role = ref("member"),
+const role = ref(props.defaultRole),
     password = ref(""),
-    show = ref(false),
+    editing = ref(false),
     busy = ref(false),
     loaded = ref(false),
     problem = ref("");
@@ -97,12 +102,13 @@ async function perform(action = "status") {
     if (action !== "status") body.role = role.value;
     if (action === "save") body.password = password.value;
     password.value = "";
-    show.value = false;
     try {
-        const { data } = await window.api.post(apiPath(`/meshcore/node-password-${action}`), body);
+        const options = props.radioId ? [{ params: { radio: props.radioId } }] : [];
+        const { data } = await window.api.post(apiPath(`/meshcore/node-password-${action}`), body, ...options);
         if (token !== generation) return;
         status.value = data.result;
         loaded.value = true;
+        if (action === "save") closeEditor();
         emit("available", status.value.available);
     } catch {
         if (token === generation) problem.value = "Secure password storage could not complete this request.";
@@ -110,13 +116,15 @@ async function perform(action = "status") {
         if (token === generation) busy.value = false;
     }
 }
+function closeEditor() {
+    password.value = "";
+    editing.value = false;
+}
+watch(role, closeEditor);
 function opened(event) {
     expanded = event.target.open;
     if (expanded) perform();
-    else {
-        password.value = "";
-        show.value = false;
-    }
+    else closeEditor();
 }
 watch(
     () => props.refreshKey,
@@ -125,11 +133,11 @@ watch(
     }
 );
 watch(
-    () => [props.owner, props.peer],
+    () => [props.owner, props.peer, props.radioId, props.defaultRole],
     () => {
         generation++;
-        password.value = "";
-        show.value = false;
+        role.value = props.defaultRole;
+        closeEditor();
         busy.value = false;
         loaded.value = false;
         status.value = { available: false, saved_roles: [] };

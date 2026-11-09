@@ -5,6 +5,9 @@ export const DEFAULT_NAV_GROUP_ORDER = ["communicate", "explore", "app", "networ
 export const NAV_EDIT_HOLD_MS = 500;
 export const NAV_EDIT_HOLD_MOVE_PX = 12;
 
+const NAV_LAYOUT_VERSION = 2;
+const MOVED_TO_MORE = ["interfaces", "tools", "settings"];
+
 const FORBIDDEN_IDS = new Set(["__proto__", "constructor", "prototype"]);
 
 /**
@@ -109,7 +112,7 @@ export function normalizeNavLayout(raw) {
         }
     }
     return {
-        version: 1,
+        version: NAV_LAYOUT_VERSION,
         groupOrder,
         itemOrder,
         placements,
@@ -120,7 +123,15 @@ export function normalizeNavLayout(raw) {
  * @returns {NavLayout | null}
  */
 export function loadAppSidebarNavLayout() {
-    return normalizeNavLayout(readJson(APP_SIDEBAR_NAV_LAYOUT_KEY));
+    const stored = readJson(APP_SIDEBAR_NAV_LAYOUT_KEY);
+    const layout = normalizeNavLayout(stored);
+    if (layout && stored?.version !== NAV_LAYOUT_VERSION) {
+        for (const id of MOVED_TO_MORE) {
+            if (layout.placements[id]) layout.placements[id].tier = "more";
+        }
+        saveAppSidebarNavLayout(layout);
+    }
+    return layout;
 }
 
 /**
@@ -144,7 +155,7 @@ export function cloneNavLayout(layout) {
         return null;
     }
     return {
-        version: 1,
+        version: NAV_LAYOUT_VERSION,
         groupOrder: [...normalized.groupOrder],
         itemOrder: [...normalized.itemOrder],
         placements: { ...normalized.placements },
@@ -297,7 +308,7 @@ export function captureNavLayout(primaryGroups, moreItems) {
         };
     }
     return {
-        version: 1,
+        version: NAV_LAYOUT_VERSION,
         groupOrder,
         itemOrder,
         placements,

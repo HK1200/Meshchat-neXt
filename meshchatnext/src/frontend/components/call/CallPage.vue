@@ -30,12 +30,13 @@
                             ).filter((name) => appFeatures[name])"
                             :key="network"
                             type="button"
-                            class="flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-colors"
-                            :class="
+                            class="flex-1 rounded-lg px-3 py-2 text-sm transition-colors"
+                            :class="[
+                                activeTab === 'contacts' ? 'font-bold' : 'font-medium',
                                 telephoneNetwork === network
                                     ? 'bg-sem-surface-muted text-sem-accent'
-                                    : 'text-sem-fg-muted hover:bg-sem-surface-muted'
-                            "
+                                    : 'text-sem-fg-muted hover:bg-sem-surface-muted',
+                            ]"
                             :aria-pressed="telephoneNetwork === network"
                             @click="telephoneNetwork = network"
                         >
@@ -60,8 +61,8 @@
                         v-if="telephoneNetwork === 'meshcore' && activeTab === 'phone'"
                         class="py-4 text-sm text-sem-fg-muted"
                     >
-                        MeshCore voice clips are sent from direct messages. Choose a MeshCore contact in Phonebook or
-                        Contacts to open a conversation.
+                        MeshCore voice clips are sent from direct messages. Choose a MeshCore contact in Contacts or RNS
+                        Phonebook to open a conversation.
                     </p>
                     <SipPhone v-if="telephoneNetwork === 'sip' && activeTab === 'phone'" />
                     <SipContactBook
@@ -1109,6 +1110,7 @@
                         @copy-hash="copyHash"
                         @load-more="loadMoreDiscovery"
                         @call="onPhonebookCall"
+                        @add="addPhonebookContact"
                     />
 
                     <CallVoicemailTab
@@ -1621,7 +1623,7 @@
             @click.self="isContactModalOpen = false"
         >
             <div
-                class="w-full max-w-lg bg-sem-surface rounded-3xl shadow-2xl overflow-hidden transform transition-all scale-100"
+                class="w-full max-w-lg max-h-[90dvh] flex flex-col bg-sem-surface rounded-3xl shadow-2xl overflow-hidden transform transition-all scale-100"
             >
                 <div
                     class="px-6 py-5 border-b border-sem-border flex items-center justify-between bg-sem-surface-muted/50 dark:bg-sem-surface/50"
@@ -1643,7 +1645,22 @@
                     </button>
                 </div>
 
-                <div class="p-6 space-y-6">
+                <div class="min-h-0 overflow-y-auto p-6 space-y-6">
+                    <button
+                        v-if="!editingContact"
+                        type="button"
+                        class="secondary-chip"
+                        :aria-expanded="showContactDiscovery"
+                        @click="showContactDiscovery = !showContactDiscovery"
+                    >
+                        Discover contacts
+                    </button>
+                    <DiscoveredContacts
+                        v-if="!editingContact && showContactDiscovery"
+                        aspect="lxst.telephony"
+                        :saved-addresses="contacts.map((contact) => contact.remote_identity_hash)"
+                        @select="useDiscoveredContact"
+                    />
                     <div class="space-y-4">
                         <div class="flex flex-col items-center justify-center pb-4">
                             <div class="relative group">
@@ -1785,6 +1802,7 @@
 </template>
 
 <script>
+import DiscoveredContacts from "../contacts/DiscoveredContacts.vue";
 import { appFeatures } from "../../js/appFeatures";
 import { useNetworkStore } from "../../js/stores/networkStore";
 import { useConfigStore } from "../../js/stores/configStore";
@@ -1825,6 +1843,7 @@ const telephonePcmCaptureWorkletUrl = "/assets/js/telephone-pcm-capture.worklet.
 export default {
     name: "CallPage",
     components: {
+        DiscoveredContacts,
         MaterialDesignIcon,
         SearchInput,
         LxmfUserIcon,
@@ -1906,6 +1925,7 @@ export default {
             contactsSearch: "",
             contacts: [],
             isContactModalOpen: false,
+            showContactDiscovery: false,
             editingContact: null,
             contactForm: {
                 name: "",
@@ -3571,7 +3591,24 @@ export default {
                 });
             }
         },
+        useDiscoveredContact(contact) {
+            this.contactForm.name = contact.name;
+            this.contactForm.remote_identity_hash = contact.identityHash;
+            this.contactForm.lxst_address = contact.address;
+            this.contactForm.lxmf_address = contact.lxmfAddress || "";
+            this.showContactDiscovery = false;
+        },
+        addPhonebookContact(announce) {
+            this.openAddContactModal();
+            this.useDiscoveredContact({
+                name: announce.display_name?.trim() || `Contact ${announce.destination_hash.slice(0, 8)}`,
+                identityHash: announce.identity_hash,
+                address: announce.destination_hash,
+                lxmfAddress: announce.lxmf_destination_hash,
+            });
+        },
         openAddContactModal() {
+            this.showContactDiscovery = false;
             this.editingContact = null;
             this.contactForm = {
                 name: "",

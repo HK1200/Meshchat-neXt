@@ -71,6 +71,25 @@ def test_lxmf_delivery_skips_telemetry_only():
     )
 
 
+def test_lxmf_map_location_without_chat_content_stays_silent():
+    payload = {
+        "type": "lxmf.delivery",
+        "remote_identity_name": "Family",
+        "lxmf_message": {
+            "is_incoming": True,
+            "title": "",
+            "content": "",
+            "fields": {
+                "telemetry": {"location": {"latitude": 48.75, "longitude": -122.48}}
+            },
+        },
+    }
+    assert lxmf_delivery_notification_text(payload) is None
+    assert "location" in payload["lxmf_message"]["fields"]["telemetry"]
+    payload["lxmf_message"]["content"] = "Meet me here"
+    assert lxmf_delivery_notification_text(payload) == ("Family", "Meet me here")
+
+
 def test_lxmf_delivery_incoming_title_and_body():
     assert lxmf_delivery_notification_text(
         {

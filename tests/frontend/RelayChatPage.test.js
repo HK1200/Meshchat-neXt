@@ -130,6 +130,24 @@ describe("RelayChatPage.vue", () => {
 
     const mountPage = () => mount(RelayChatPage, { global: mountToolsPageGlobals() });
 
+    it("opens the room list without reopening a previously selected room", async () => {
+        const first = mountPage();
+        await vi.waitFor(() => expect(first.vm.hubsLoaded).toBe(true));
+        await first.vm.selectRoom(HUB_HASH, "lobby");
+        first.unmount();
+        axiosMock.get.mockClear();
+        const reopened = mountPage();
+        try {
+            await vi.waitFor(() => expect(reopened.vm.hubsLoaded).toBe(true));
+            await reopened.vm.$nextTick();
+            expect(reopened.vm.view).toBe("chat");
+            expect(reopened.vm.selectedRoom).toBe(null);
+            expect(axiosMock.get.mock.calls.every(([url]) => !url.includes("/rooms/lobby/messages"))).toBe(true);
+        } finally {
+            reopened.unmount();
+        }
+    });
+
     it("loads and renders hubs", async () => {
         const wrapper = mountPage();
         await vi.waitFor(() => expect(wrapper.vm.hubs.length).toBe(1));
@@ -1650,7 +1668,7 @@ describe("RelayChatPage.vue", () => {
                 const errSpy = vi.spyOn(ToastUtils, "error").mockImplementation(() => {});
                 const wrapper = mountPage();
                 await vi.waitFor(() => expect(wrapper.vm.hubs.length).toBe(1));
-                await vi.waitFor(() => expect(wrapper.vm.selectedRoom).toBe("lobby"));
+                await wrapper.vm.selectRoom(HUB_HASH, "lobby");
                 const before = wrapper.vm.selectedRoom;
                 await wrapper.vm.openRelayRoomLink("rrc://nothex/lobby");
                 expect(errSpy).toHaveBeenCalled();

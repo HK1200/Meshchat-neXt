@@ -60,6 +60,17 @@ describe("MeshCore contacts in Telephone", () => {
         await button.trigger("click");
         expect(wrapper.find("li").text()).toContain("Bob");
     });
+    it("offers client discoveries inside the manual add flow", async () => {
+        start();
+        await wrapper.findAll("button")[0].trigger("click");
+        await wrapper
+            .get("form")
+            .findAll("button")
+            .find((button) => button.text() === "Discover contacts")
+            .trigger("click");
+        expect(wrapper.find("form").exists()).toBe(false);
+        expect(wrapper.get("li").text()).toContain("Bob");
+    });
     it("validates manual MeshCore keys and UTF-8 name limits before writing", async () => {
         start();
         await wrapper.findAll("button")[0].trigger("click");

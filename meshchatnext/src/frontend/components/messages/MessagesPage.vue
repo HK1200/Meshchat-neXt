@@ -188,7 +188,8 @@
                     </button>
                 </div>
                 <div class="p-5 overflow-y-auto space-y-4">
-                    <template v-if="appFeatures.meshcore">
+                    <section v-if="appFeatures.meshcore" class="space-y-2" aria-labelledby="compose-meshcore">
+                        <h4 id="compose-meshcore" class="text-sm font-bold text-sem-fg">MeshCore</h4>
                         <button
                             type="button"
                             class="secondary-chip w-full"
@@ -201,8 +202,14 @@
                             v-if="showMeshCoreComposeContacts"
                             @selected="isMobileComposeModalOpen = false"
                         />
-                    </template>
-                    <template v-if="appFeatures.reticulum">
+                    </section>
+                    <section
+                        v-if="appFeatures.reticulum"
+                        class="space-y-2"
+                        :class="{ 'border-t-2 border-sem-border pt-4': appFeatures.meshcore }"
+                        aria-labelledby="compose-reticulum"
+                    >
+                        <h4 id="compose-reticulum" class="text-sm font-bold text-sem-fg">Reticulum</h4>
                         <p class="text-sm text-sem-fg-muted">
                             {{ $t("messages.select_peer_or_enter_address") }}
                         </p>
@@ -243,7 +250,7 @@
                                 {{ $t("messages.ingest_paper_message") }}
                             </button>
                         </div>
-                    </template>
+                    </section>
                 </div>
             </div>
         </div>
@@ -380,6 +387,7 @@ import {
     startCameraStream,
 } from "../../js/qrScannerUtils";
 import { lxmfConversationListPreview } from "../../js/lxmfConversationPreview";
+import { isTelemetryOnly } from "./conversationMessageHelpers.js";
 import {
     conversationListSignature,
     countUnreadConversations,
@@ -1125,6 +1133,8 @@ export default {
             }
         },
         onOutboundMessageCreated(msg) {
+            if ((msg?.fields?.telemetry || msg?.fields?.telemetry_stream) && !msg.title?.trim() && isTelemetryOnly(msg))
+                return;
             const peerHash = this.peerHashFromMessage(msg);
             const peerDisplay = this.peerDisplayNameForConversationSidebar(peerHash);
             const preview = lxmfConversationListPreview(msg, {

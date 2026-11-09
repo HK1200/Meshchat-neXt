@@ -160,6 +160,51 @@ describe("ContactsPage.vue", () => {
         expect(result.publicKeyHex).toBe("d".repeat(128));
     });
 
+    it("searches LXMF discoveries and saves the selected destination through Contacts", async () => {
+        const destination = "e".repeat(32);
+        const get = axiosMock.get.getMockImplementation();
+        axiosMock.get.mockImplementation((url, options) =>
+            url === "/api/v1/announces"
+                ? Promise.resolve({
+                      data: {
+                          announces: [
+                              { destination_hash: "a".repeat(32), display_name: "This device" },
+                              { destination_hash: destination, display_name: "Discovered Alice" },
+                          ],
+                      },
+                  })
+                : get(url, options)
+        );
+        const wrapper = mountPage();
+        try {
+            await flushPromises();
+            await wrapper.get('button[title="contacts.add_contact"]').trigger("click");
+            await wrapper
+                .findAll("button")
+                .find((button) => button.text() === "Discover contacts")
+                .trigger("click");
+            const list = wrapper.get('[aria-label="Discovered contacts"]');
+            await vi.waitFor(() => expect(list.text()).toContain("Discovered Alice"));
+            expect(list.text()).not.toContain("This device");
+            await list.get('[aria-label="Use contact Discovered Alice"]').trigger("click");
+            expect(axiosMock.post).not.toHaveBeenCalled();
+            expect(wrapper.vm.newContactInput).toBe(destination);
+            await wrapper.vm.submitAddContact();
+            expect(axiosMock.post).toHaveBeenCalledWith("/api/v1/telephone/contacts", {
+                name: "Discovered Alice",
+                lxmf_address: destination,
+            });
+            expect(axiosMock.get).toHaveBeenCalledWith(
+                "/api/v1/announces",
+                expect.objectContaining({
+                    params: expect.objectContaining({ aspect: "lxmf.delivery" }),
+                })
+            );
+        } finally {
+            wrapper.unmount();
+        }
+    });
+
     it("adds contact using manual destination hash", async () => {
         const wrapper = mountPage();
         await wrapper.vm.$nextTick();

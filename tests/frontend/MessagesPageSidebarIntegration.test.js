@@ -1,11 +1,12 @@
-import { mount } from "@vue/test-utils";
+import { flushPromises, mount, RouterLinkStub } from "@vue/test-utils";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import MessagesPage from "@/components/messages/MessagesPage.vue";
 import { useConfigStore } from "@/js/stores/configStore";
 import { useIdentityStore } from "@/js/stores/identityStore";
 
-vi.mock("@/js/Utils", () => ({
+vi.mock("@/js/Utils", async (importOriginal) => ({
     default: {
+        ...(await importOriginal()).default,
         formatTimeAgo: vi.fn(() => "1h ago"),
         formatDestinationHash: (h) => (h && h.length >= 8 ? h.slice(0, 8) + "…" : h),
     },
@@ -76,6 +77,85 @@ describe("MessagesPage with MessagesSidebar integration", () => {
 
         const sidebar = wrapper.findComponent({ name: "MessagesSidebar" });
         expect(sidebar.vm.tab).toBe("announces");
+    });
+
+    it("opens a searchable MeshCore contacts dialog from Conversations", async () => {
+        const peer = "a1".repeat(32);
+        const discovered = "c3".repeat(32);
+        const owner = "d4".repeat(32);
+        const get = axiosMock.get.getMockImplementation();
+        axiosMock.post.mockResolvedValue({ data: { result: {} } });
+        axiosMock.get.mockImplementation((url, ...args) =>
+            url === "/api/v1/meshcore/ui"
+                ? Promise.resolve({
+                      data: {
+                          result: {
+                              available: true,
+                              connected: true,
+                              radio_id: "travel",
+                              owner,
+                              announces: [
+                                  { name: "Discovered Casey", peer: discovered, kind: 1 },
+                                  { name: "Test repeater", peer: "e5".repeat(32), kind: 2 },
+                              ],
+                              contacts: [
+                                  { name: "Alice", peer, kind: 1 },
+                                  { name: "Bob", peer: "b2".repeat(32), kind: 1 },
+                              ],
+                          },
+                      },
+                  })
+                : get(url, ...args)
+        );
+
+        const wrapper = mount(MessagesPage, {
+            props: { destinationHash: "" },
+            global: {
+                mocks: {
+                    $t: (key) => key,
+                    $route: { query: {} },
+                    $router: { replace: vi.fn() },
+                },
+                stubs: {
+                    ConversationViewer: ConversationViewerStub,
+                    MaterialDesignIcon: true,
+                    RouterLink: RouterLinkStub,
+                    Teleport: true,
+                    AppModal: false,
+                },
+                directives: { "click-outside": { mounted: () => {}, unmounted: () => {} } },
+            },
+        });
+
+        try {
+            await flushPromises();
+            const button = wrapper.get('section[aria-label="MeshCore conversations"] button[aria-haspopup="dialog"]');
+            expect(button.classes()).not.toContain("hidden");
+            await button.trigger("click");
+            await flushPromises();
+            const dialog = wrapper.get('[role="dialog"]');
+            await dialog
+                .findAll("button")
+                .find((button) => button.text() === "Discover contacts")
+                .trigger("click");
+            expect(dialog.text()).not.toContain("Test repeater");
+            await dialog.get('[aria-label="Add contact Discovered Casey"]').trigger("click");
+            await flushPromises();
+            expect(axiosMock.post).toHaveBeenCalledWith(
+                "/api/v1/meshcore/contact-add",
+                { peer: discovered, name: "Discovered Casey", expected_owner: owner },
+                { params: { radio: "travel" } }
+            );
+            expect(dialog.text()).toContain("Discovered Casey added");
+            await dialog.get('input[placeholder="Search MeshCore contacts…"]').setValue("alice");
+            const contacts = dialog.findAllComponents(RouterLinkStub);
+            expect(contacts).toHaveLength(1);
+            expect(contacts[0].props("to").query).toEqual({ meshcore: peer, meshcoreRadio: "travel" });
+            await contacts[0].trigger("click");
+            expect(wrapper.find('[role="dialog"]').exists()).toBe(false);
+        } finally {
+            wrapper.unmount();
+        }
     });
 
     it("selects peer from sidebar conversation row and updates MessagesPage selectedPeer", async () => {

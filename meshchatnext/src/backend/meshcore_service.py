@@ -724,7 +724,10 @@ class MeshCoreService:
             expected_owner = kwargs.pop("expected_owner", None)
             if expected_owner is not None and expected_owner != self.messages.owner:
                 raise ValueError("MeshCore identity changed; refresh before sending")
-            if component == "nodes" and method == "login_saved_room":
+            if component == "nodes" and method in (
+                "login_saved_room",
+                "login_saved_repeater",
+            ):
                 connection = kwargs.pop("expected_connection_id", None)
                 if not connection or connection != self._connection_id:
                     raise ValueError(

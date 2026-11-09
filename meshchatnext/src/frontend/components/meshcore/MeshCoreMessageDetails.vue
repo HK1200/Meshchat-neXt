@@ -10,6 +10,16 @@
         <p v-if="error" role="alert" class="text-sm text-sem-danger">{{ error }}</p>
         <template v-if="details">
             <p class="text-sm">{{ details.direction === "out" ? "Outgoing" : "Incoming" }} · {{ details.state }}</p>
+            <p v-if="details.sent_route" class="text-sm">
+                Radio send mode ·
+                {{
+                    details.sent_route === "direct_then_flood"
+                        ? "Direct, then flood retry"
+                        : details.sent_route === "direct"
+                          ? "Direct"
+                          : "Flood"
+                }}
+            </p>
             <p v-if="details.direction === 'out'" class="text-sm">
                 {{
                     details.heard_repeats == null
@@ -17,6 +27,9 @@
                         : `${details.heard_repeats} matching repeats recorded.`
                 }}
                 Not a unique-repeater count or delivery receipt.
+            </p>
+            <p v-if="details.repeat_log_oversize" class="text-sm text-sem-fg-muted">
+                This packet exceeds the receive log size of standard MeshCore companions. A repeat can go unreported.
             </p>
             <p v-if="details.reported_hops !== null" class="text-sm">
                 Radio reported {{ details.reported_hops }} {{ details.reported_hops === 1 ? "hop" : "hops" }}.

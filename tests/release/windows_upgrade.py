@@ -10,10 +10,12 @@ import zipfile
 from pathlib import Path
 
 import requests
+from windows_release_versions import release_versions
 
 SOURCE = os.environ["MESHCHAT_REVIEW_SOURCE_SHA"]
 assert re.fullmatch(r"[0-9a-f]{40}", SOURCE), "Exact reviewed source is required"
 ROOT = Path(os.environ["MESHCHAT_RELEASE_REVIEW_ROOT"]).resolve()
+VERSION, BASELINE_VERSION = release_versions(ROOT / "source")
 assert ROOT.parent.name == "temp-tests" and (ROOT / "source/.git").exists()
 TEST = ROOT / "upgrade-validation" / ("test-" + uuid.uuid4().hex[:8])
 APP = TEST / "app"
@@ -124,8 +126,8 @@ def snapshot():
 
 
 try:
-    old = ROOT / "old/MeshchatNext-v0.1.7-win-x64-installer.exe"
-    new = ROOT / "source/dist/MeshchatNext-v0.1.8-win-x64-installer.exe"
+    old = ROOT / f"old/MeshchatNext-v{BASELINE_VERSION}-win-x64-installer.exe"
+    new = ROOT / f"source/dist/MeshchatNext-v{VERSION}-win-x64-installer.exe"
     assert old.is_file() and new.is_file()
     run([old, "/S", "/D=" + str(APP)], "install-baseline.log")
     start("baseline-backend")
@@ -216,10 +218,10 @@ try:
         hashlib.sha256((APP / "Meshchat neXt.exe").read_bytes()).hexdigest() == expected
     )
     report["corrected_executable_installed"] = True
-    report["baseline_version"] = "0.1.7"
-    report["upgraded_version"] = "0.1.8"
+    report["baseline_version"] = BASELINE_VERSION
+    report["upgraded_version"] = VERSION
     start("corrected-backend")
-    assert api("GET", "app/info").json()["app_info"]["version"] == "0.1.8"
+    assert api("GET", "app/info").json()["app_info"]["version"] == VERSION
     assert api("GET", "app/info").json()["app_info"]["python_version"] == "3.14.10"
     assert api("GET", "app/info").json()["app_info"]["git_commit"] == SOURCE
     assert api("GET", "app/info").json()["app_info"]["build_channel"] == "stable"

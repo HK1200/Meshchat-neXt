@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: 0BSD -->
 
 <template>
-    <div class="flex flex-wrap justify-center border-b border-sem-border shrink-0">
+    <div class="flex flex-wrap justify-center border-b-[3px] border-sem-border-strong shrink-0">
         <button
             :class="tabClass('phone')"
             class="py-2 px-4 border-b-2 font-medium text-sm transition-all"
@@ -10,11 +10,11 @@
             Phone
         </button>
         <button
-            :class="tabClass('phonebook')"
+            :class="tabClass('contacts')"
             class="py-2 px-4 border-b-2 font-medium text-sm transition-all"
-            @click="$emit('update:activeTab', 'phonebook')"
+            @click="$emit('update:activeTab', 'contacts')"
         >
-            Phonebook
+            Contacts
         </button>
         <button
             v-if="appFeatures.reticulum"
@@ -30,11 +30,11 @@
             >
         </button>
         <button
-            :class="tabClass('contacts')"
+            :class="tabClass('phonebook')"
             class="py-2 px-4 border-b-2 font-medium text-sm transition-all"
-            @click="$emit('update:activeTab', 'contacts')"
+            @click="$emit('update:activeTab', 'phonebook')"
         >
-            Contacts
+            RNS Phonebook
         </button>
         <button
             v-if="appFeatures.reticulum"

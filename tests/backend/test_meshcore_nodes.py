@@ -57,6 +57,7 @@ class NodeTests(unittest.IsolatedAsyncioTestCase):
         )
         self.nodes = MeshCoreNodes(self.messages)
         self.nodes.TIMEOUT = 0.02
+        self.nodes.ADMIN_FALLBACK_TIMEOUT = 0.02
         self.commands._send_login_raw.side_effect = lambda *args: self.response(
             "success", {"is_admin": False}
         )
@@ -119,6 +120,54 @@ class NodeTests(unittest.IsolatedAsyncioTestCase):
             "automatic_login_skipped",
         )
         self.commands._send_login_raw.assert_awaited_once()
+
+    async def test_saved_repeater_prefers_admin_and_reuses_verified_session(self):
+        vault = SimpleNamespace(
+            status=Mock(
+                return_value={"available": True, "saved_roles": ["member", "admin"]}
+            ),
+            load=Mock(return_value="test-saved-admin"),
+        )
+        self.nodes.passwords = vault
+        self.messages.store.nodes = Mock(return_value=[{"peer": PEER, "kind": 2}])
+        self.messages.sync_contacts.return_value = [
+            {"peer": PEER, "kind": 2, "active": 1}
+        ]
+        self.commands._send_login_raw.side_effect = lambda *args: self.response(
+            "success", {"is_admin": True}
+        )
+
+        result = await self.nodes.login_saved_repeater(PEER)
+        self.assertEqual(result, {"state": "verified", "is_admin": True})
+        self.assertEqual(
+            (await self.nodes.login_saved_repeater(PEER))["state"], "already_verified"
+        )
+        vault.load.assert_called_once_with(self.messages.owner, PEER, "admin")
+        self.commands._send_login_raw.assert_awaited_once_with(PEER, "test-saved-admin")
+
+    async def test_saved_repeater_uses_member_only_when_admin_is_absent(self):
+        vault = SimpleNamespace(
+            status=Mock(return_value={"available": True, "saved_roles": []}),
+            load=Mock(return_value="test-saved-member"),
+        )
+        self.nodes.passwords = vault
+        self.messages.store.nodes = Mock(return_value=[])
+        self.messages.sync_contacts.return_value = [
+            {"peer": PEER, "kind": 2, "active": 1}
+        ]
+        with self.assertRaisesRegex(ValueError, "saved repeater"):
+            await self.nodes.login_saved_repeater(PEER)
+        self.messages.store.nodes.return_value = [{"peer": PEER, "kind": 2}]
+        self.assertEqual(
+            (await self.nodes.login_saved_repeater(PEER))["state"], "no_saved_password"
+        )
+        self.commands._send_login_raw.assert_not_awaited()
+        vault.load.assert_not_called()
+        vault.status.return_value["saved_roles"] = ["member"]
+        self.assertEqual(
+            (await self.nodes.login_saved_repeater(PEER))["state"], "verified"
+        )
+        vault.load.assert_called_once_with(self.messages.owner, PEER, "member")
 
     async def test_saved_room_login_skips_admin_only_and_rejects_a_repeater(self):
         vault = SimpleNamespace(
@@ -301,6 +350,39 @@ class NodeTests(unittest.IsolatedAsyncioTestCase):
             self.commands.send_cmd.call_args.args[1], "set path.hash.mode 2"
         )
 
+    async def test_repeat_controls_use_validated_repeater_firmware_commands(self):
+        self.types.CONTACT_MSG_RECV = "contact"
+        self.session._payload = lambda event: event.payload
+        self.commands.get_time = AsyncMock(
+            return_value=SimpleNamespace(payload={"time": 100})
+        )
+        self.messages.store.reserve_command_clock = lambda owner, peer, floor: floor
+        self.commands._send_login_raw.side_effect = lambda *args: self.response(
+            "success", {"is_admin": True}
+        )
+        self.messages.sync_contacts.return_value = [
+            {"peer": PEER, "kind": 2, "active": 1}
+        ]
+        await self.nodes.login(PEER, "admin")
+
+        def reply(*args, **kwargs):
+            self.response("contact", {"txt_type": 1, "text": "OK"})
+            return SimpleNamespace(type=self.types.MSG_SENT, payload={})
+
+        self.commands.send_cmd = AsyncMock(side_effect=reply)
+        with self.assertRaisesRegex(ValueError, "Choose on or off"):
+            await self.nodes.admin(PEER, "set-repeat", "invalid")
+        self.commands.send_cmd.assert_not_awaited()
+        for action, value, command in [
+            ("repeat", "", "get repeat"),
+            ("set-repeat", "on", "set repeat on"),
+            ("set-repeat", "off", "set repeat off"),
+        ]:
+            self.assertEqual(
+                (await self.nodes.admin(PEER, action, value))["state"], "admin_response"
+            )
+            self.assertEqual(self.commands.send_cmd.call_args.args[1], command)
+
     async def test_terminal_and_radio2_require_admin_confirmation_and_single_line(self):
         self.types.CONTACT_MSG_RECV = "contact"
         self.session._payload = lambda event: event.payload
@@ -361,7 +443,35 @@ class NodeTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError):
             await self.nodes.admin(PEER, "set-radio2-preset", "mediamesh", False)
 
-    async def test_admin_timeout_blocks_retry_and_reboot_clears_login(self):
+    async def test_admin_uses_companion_round_trip_estimate(self):
+        self.types.CONTACT_MSG_RECV = "contact"
+        self.session._payload = lambda event: event.payload
+        self.commands.get_time = AsyncMock(
+            return_value=SimpleNamespace(payload={"time": 100})
+        )
+        self.messages.store.reserve_command_clock = lambda owner, peer, floor: floor
+        self.commands._send_login_raw.side_effect = lambda *args: self.response(
+            "success", {"is_admin": True}
+        )
+        await self.nodes.login(PEER, "admin")
+        for estimate, expected in ((1000, 10), (40000, 60), (100000, 120)):
+            with self.subTest(estimate=estimate):
+
+                def reply(*args, estimate=estimate, **kwargs):
+                    sent = self.response("contact", {"txt_type": 1, "text": "version"})
+                    sent.payload = {"suggested_timeout": estimate}
+                    return sent
+
+                self.commands.send_cmd = AsyncMock(side_effect=reply)
+                self.assertEqual(
+                    (await self.nodes.admin(PEER, "version"))["state"], "admin_response"
+                )
+                self.assertEqual(
+                    self.nodes.operations[PEER]["timeout_seconds"], expected
+                )
+
+    async def test_admin_timeout_allows_retry_without_confirming_a_late_reply(self):
+        self.messages.sync_contacts.return_value[0]["kind"] = 2
         self.types.CONTACT_MSG_RECV = "contact"
         self.session._payload = lambda event: event.payload
         self.commands.get_time = AsyncMock(
@@ -376,10 +486,16 @@ class NodeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             (await self.nodes.admin(PEER, "version"))["state"], "uncertain"
         )
-        with self.assertRaises(ValueError):
-            await self.nodes.admin(PEER, "version")
         self.assertFalse(self.listeners)
-        self.nodes.uncertain.clear()
+        self.assertTrue(self.nodes.snapshot()[PEER]["is_admin"])
+        self.commands.send_cmd.side_effect = lambda *args, **kwargs: self.response(
+            "contact", {"txt_type": 1, "text": "late version reply"}
+        )
+        self.assertEqual(
+            await self.nodes.admin(PEER, "repeat"),
+            {"state": "admin_unverified_response", "text": "late version reply"},
+        )
+        self.assertNotIn(PEER, self.nodes.uncertain)
         self.assertEqual(
             (await self.nodes.admin(PEER, "reboot", confirmed=True))["state"],
             "submitted",
@@ -561,7 +677,7 @@ class NodeTests(unittest.IsolatedAsyncioTestCase):
             "success", {"is_admin": True}
         )
         await self.nodes.login(PEER, "admin")
-        self.nodes.TIMEOUT = 0.1
+        self.nodes.ADMIN_FALLBACK_TIMEOUT = 0.1
         self.nodes.CLI_POLL_INTERVAL = 0.001
         fetched = 0
 
@@ -599,7 +715,7 @@ class NodeTests(unittest.IsolatedAsyncioTestCase):
             "success", {"is_admin": True}
         )
         await self.nodes.login(PEER, "admin")
-        self.nodes.TIMEOUT = 0.1
+        self.nodes.ADMIN_FALLBACK_TIMEOUT = 0.1
         self.nodes.CLI_POLL_INTERVAL = 0.001
 
         async def queued_reply():

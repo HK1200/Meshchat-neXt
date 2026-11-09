@@ -1,10 +1,10 @@
 <template>
     <details class="px-4 py-2 border-b border-sem-border text-sm" data-private-location>
-        <summary class="cursor-pointer font-semibold">Private location</summary>
+        <summary class="cursor-pointer font-semibold">Share my location</summary>
         <div class="space-y-3 pt-3 pb-2">
             <p class="text-xs text-sem-fg-muted">
-                Family-compatible encrypted direct messages. These controls are separate from saving a contact. Sharing
-                is one-time; rooms and channels are never selected here.
+                Send your current location privately to {{ name }}. If they allow location sharing, it will appear on
+                their map.
             </p>
             <label class="flex items-start gap-2">
                 <input
@@ -22,17 +22,39 @@
                     :disabled="loading || !known"
                     @change="configure('share', $event)"
                 />
-                Allow one-time location sharing with this contact
+                Allow private location sharing with this contact
             </label>
-            <button
-                type="button"
-                class="secondary-chip"
-                data-private-location-share
-                :disabled="loading || sharing || !connected || !known || !policy.share"
-                @click="shareOnce"
-            >
-                {{ sharing ? "Getting or submitting location…" : "Share my location once" }}
-            </button>
+            <div v-if="timedActive" class="flex flex-wrap items-center gap-2">
+                <span class="text-xs" role="status">Sharing location</span>
+                <button type="button" class="secondary-chip" @click="session?.stop()">Stop sharing</button>
+            </div>
+            <div v-else class="flex flex-wrap items-center gap-2">
+                <select
+                    v-model.number="minutes"
+                    class="input-field text-xs"
+                    aria-label="Location sharing duration"
+                    :disabled="loading || sharing || !connected || !known || !policy.share"
+                >
+                    <option :value="0">One time</option>
+                    <option :value="15">15 minutes</option>
+                    <option :value="60">60 minutes</option>
+                </select>
+                <button
+                    type="button"
+                    class="secondary-chip"
+                    data-private-location-share
+                    :disabled="loading || sharing || !connected || !known || !policy.share"
+                    @click="shareLocation"
+                >
+                    {{
+                        sharing
+                            ? "Getting or submitting location…"
+                            : minutes
+                              ? "Start sharing"
+                              : "Share my location once"
+                    }}
+                </button>
+            </div>
             <p class="text-xs text-sem-fg-muted">
                 Received locations appear in the MeshCore map layer. Your device will ask for location permission.
                 Already sent locations cannot be recalled.
@@ -45,18 +67,29 @@
     </details>
 </template>
 <script setup>
-import { ref, watch, onBeforeUnmount } from "vue";
+import { computed, ref, watch, onBeforeUnmount, onDeactivated, onActivated } from "vue";
+import DialogUtils from "../../js/DialogUtils";
+import {
+    privateLocationSessions,
+    readPrivateLocation,
+    startPrivateLocationSession,
+} from "../../js/timedPrivateLocation";
 import { apiPath } from "../../js/constants";
-import { getAndroidPosition, isAndroidLocationSupported } from "../../js/androidLocation";
+import { isAndroidLocationSupported } from "../../js/androidLocation";
 const props = defineProps({
     owner: { type: String, required: true },
     peer: { type: String, required: true },
+    name: { type: String, default: "this contact" },
     radioId: { type: String, default: null },
     contextKey: { type: String, default: null },
     connected: { type: Boolean, default: false },
 });
 const policy = ref({ receive: false, share: false, generation: null });
 const known = ref(false);
+const minutes = ref(0);
+const sessionKey = computed(() => `meshcore:${props.owner}:${props.peer}`);
+const session = computed(() => privateLocationSessions.get(sessionKey.value));
+const timedActive = computed(() => Boolean(session.value));
 const loading = ref(false),
     sharing = ref(false),
     notice = ref("");
@@ -90,6 +123,7 @@ async function request(action, fields, c) {
 async function load() {
     const token = ++epoch,
         c = context();
+    minutes.value = 0;
     policy.value = { receive: false, share: false, generation: null };
     known.value = false;
     sharing.value = false;
@@ -110,6 +144,7 @@ async function load() {
     }
 }
 async function configure(field, event) {
+    session.value?.stop();
     const value = event.target.checked;
     const token = ++epoch,
         c = context();
@@ -140,100 +175,106 @@ async function configure(field, event) {
         }
     }
 }
-function shareOnce() {
+async function shareLocation() {
     if (
         loading.value ||
         sharing.value ||
+        timedActive.value ||
         !props.connected ||
         !known.value ||
         !policy.value.share ||
         !policy.value.generation
     )
         return;
-    const token = epoch,
-        c = context(),
-        generation = policy.value.generation;
-    const nativeLocation = isAndroidLocationSupported();
-    if (!nativeLocation && !navigator.geolocation) {
-        notice.value = "Location is unavailable on this device.";
-        return;
-    }
+
+    const token = epoch;
+    const c = context();
+    const generation = policy.value.generation;
+    const duration = minutes.value;
+    const key = sessionKey.value;
+    const name = props.name;
+    const source = isAndroidLocationSupported() ? "android" : "browser";
+    const getFix = () => readPrivateLocation(source, undefined, 15000);
+    const stillAllowed = () => current(c, token) && policy.value.share && generation === policy.value.generation;
+    const sendFix = async (position) => {
+        const fix = {
+            latitude: position.latitude,
+            longitude: position.longitude,
+            altitude: position.altitude ?? 0,
+            accuracy: position.accuracy,
+            speed: position.speed ?? 0,
+            bearing: position.bearing ?? 0,
+            last_update: Math.floor((position.time || Date.now()) / 1000),
+        };
+        const result = await request("send", { fix, generation, request_id: crypto.randomUUID() }, c);
+        if (result.state !== "accepted") {
+            const error = new Error(
+                result.state === "rejected"
+                    ? "Location was not sent."
+                    : "The result is uncertain. No automatic retry was made."
+            );
+            error.privateLocationRejected = true;
+            throw error;
+        }
+    };
+
     sharing.value = true;
     notice.value = "";
-    let completed = false;
-    const unavailable = () => {
-        if (completed) return;
-        completed = true;
-        if (current(c, token)) {
-            sharing.value = false;
-            notice.value = "Location was unavailable or permission was declined. Nothing was shared.";
-        }
-    };
-    const submit = async (position) => {
-        if (completed) return;
-        completed = true;
-        if (!current(c, token) || !policy.value.share || generation !== policy.value.generation) return;
-        const coords = position.coords;
-        const fix = {
-            latitude: coords.latitude,
-            longitude: coords.longitude,
-            altitude: coords.altitude ?? 0,
-            accuracy: coords.accuracy,
-            speed: coords.speed ?? 0,
-            bearing: coords.heading ?? 0,
-            last_update: Math.floor(position.timestamp / 1000),
-        };
-        try {
-            const result = await request("send", { fix, generation, request_id: crypto.randomUUID() }, c);
-            if (current(c, token)) {
-                if (result.state !== "accepted") known.value = false;
-                notice.value =
-                    result.state === "accepted"
-                        ? "Accepted by the selected radio. Delivery is not yet confirmed."
-                        : result.state === "rejected"
-                          ? "Location was not sent."
-                          : "The result is uncertain. No automatic retry was made.";
-            }
-        } catch (error) {
-            if (current(c, token)) {
-                known.value = false;
-                notice.value =
-                    error?.response?.data?.message || "Could not confirm sharing. No automatic retry was made.";
-            }
-        } finally {
-            if (epoch === token) sharing.value = false;
-        }
-    };
+    let acquiredFix = false;
     try {
-        if (nativeLocation) {
-            getAndroidPosition().then(
-                (pos) =>
-                    submit({
-                        coords: {
-                            latitude: pos.latitude,
-                            longitude: pos.longitude,
-                            altitude: pos.altitude,
-                            accuracy: pos.accuracy,
-                            speed: pos.speed,
-                            heading: pos.bearing,
-                        },
-                        timestamp: pos.time,
-                    }),
-                unavailable
-            );
-        } else {
-            navigator.geolocation.getCurrentPosition(submit, unavailable, {
-                enableHighAccuracy: true,
-                maximumAge: 0,
-                timeout: 15000,
+        if (
+            duration &&
+            !(await DialogUtils.confirm(
+                `Share your location privately with ${props.name} for up to ${duration} minutes? Sharing continues as you use neXt and stops if you put the app in the background.`
+            ))
+        )
+            return;
+        if (!stillAllowed()) return;
+
+        const deadline = Date.now() + duration * 60_000;
+        const firstFix = await getFix();
+        acquiredFix = true;
+        if (!stillAllowed() || document.hidden) return;
+        await sendFix(firstFix);
+        if (!stillAllowed()) return;
+
+        notice.value = "Accepted by the selected radio. Delivery is not yet confirmed.";
+        if (duration && !document.hidden) {
+            // The backend verifies the original radio, owner and permission
+            // generation on every send, even after this chat closes.
+            startPrivateLocationSession(key, name, {
+                deadline,
+                firstFix,
+                getFix,
+                sendFix,
+                isCurrent: () => true,
             });
         }
-    } catch {
-        unavailable();
+    } catch (error) {
+        if (stillAllowed()) {
+            if (acquiredFix) known.value = false;
+            notice.value = acquiredFix
+                ? error?.response?.data?.message ||
+                  (error?.privateLocationRejected
+                      ? error.message
+                      : "Could not share this location. No automatic retry was made.")
+                : "Location was unavailable or permission was declined. Nothing was shared.";
+        }
+    } finally {
+        if (epoch === token) sharing.value = false;
     }
 }
 
 watch(() => [props.owner, props.peer, props.radioId, props.contextKey, props.connected], load, { immediate: true });
+onActivated(() => {
+    if (!known.value && !loading.value) load();
+});
+onDeactivated(() => {
+    // Ignore a pending GPS result after leaving a cached conversation.
+    epoch++;
+    sharing.value = false;
+    loading.value = false;
+});
 onBeforeUnmount(() => {
     stopped = true;
     epoch++;

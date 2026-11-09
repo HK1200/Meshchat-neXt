@@ -18,45 +18,43 @@
             </button>
         </nav>
         <section v-show="activeTab === 'access'" :id="panelId('access')" class="space-y-4" aria-label="Node access">
-            <h3 class="font-semibold">Access &amp; passwords</h3>
-            <p class="text-xs text-sem-fg-muted">
-                {{
-                    node.kind === 3
-                        ? "Room login remains active for this MeshCore connection, until logout or a confirmed disconnection."
-                        : "Repeater login is remembered for five minutes in this app session."
-                }}
-                Passwords are only saved when you explicitly choose secure storage below.
-            </p>
-            <form class="flex flex-wrap items-end gap-2" @submit.prevent="login">
-                <label v-if="!verified" class="text-sm w-full min-w-0"
-                    >Server password
-                    <input
-                        v-model="password"
-                        :type="showPassword ? 'text' : 'password'"
-                        autocomplete="off"
-                        class="bg-sem-surface-muted border border-sem-border text-sm rounded-2xl focus:ring-2 focus:ring-sem-focus block w-full p-2.5 text-sem-fg mt-1"
-                        :disabled="busy || needsRecovery || !snapshot.connected"
-                        aria-label="MeshCore server password"
-                    />
-                </label>
+            <h3 class="font-semibold">Access</h3>
+            <form class="max-w-md space-y-3" @submit.prevent="login">
+                <template v-if="!verified">
+                    <label class="block text-sm font-medium" for="meshcore-server-password">Server password</label>
+                    <div class="flex items-center gap-2">
+                        <input
+                            id="meshcore-server-password"
+                            v-model="password"
+                            :type="showPassword ? 'text' : 'password'"
+                            autocomplete="off"
+                            class="input-field min-w-0 flex-1"
+                            :disabled="busy || needsRecovery || !snapshot.connected"
+                            aria-label="MeshCore server password"
+                        />
+                        <button
+                            type="button"
+                            class="secondary-chip shrink-0"
+                            :aria-pressed="showPassword"
+                            :disabled="busy || needsRecovery || !snapshot.connected"
+                            @click="showPassword = !showPassword"
+                        >
+                            {{ showPassword ? "Hide password" : "Show password" }}
+                        </button>
+                    </div>
+                    <label v-if="vaultAvailable !== false" class="flex items-center gap-2 text-sm">
+                        <input v-model="rememberPassword" type="checkbox" :disabled="busy || !snapshot.connected" />
+                        Remember password on this device
+                    </label>
+                    <button class="primary-chip" :disabled="busy || needsRecovery || !snapshot.connected">
+                        {{ busy ? "Working…" : "Log in" }}
+                    </button>
+                </template>
                 <button
-                    v-if="!verified"
+                    v-else
                     type="button"
                     class="secondary-chip"
-                    :aria-pressed="showPassword"
                     :disabled="busy || needsRecovery || !snapshot.connected"
-                    @click="showPassword = !showPassword"
-                >
-                    {{ showPassword ? "Hide password" : "Show password" }}
-                </button>
-                <button v-if="!verified" class="primary-chip" :disabled="busy || needsRecovery || !snapshot.connected">
-                    {{ busy ? "Working…" : "Log in" }}
-                </button>
-                <button
-                    v-if="verified"
-                    type="button"
-                    class="secondary-chip"
-                    :disabled="busy || needsRecovery || !snapshot.connected || !verified"
                     @click="logout"
                 >
                     Log out
@@ -65,16 +63,14 @@
             <MeshCoreNodePasswords
                 :owner="snapshot.owner"
                 :peer="node.peer"
+                :radio-id="snapshot.radio_id"
+                :default-role="node.kind === 2 ? 'admin' : 'member'"
                 :disabled="busy || !snapshot.connected"
                 :can-login="!verified && !needsRecovery"
                 :refresh-key="passwordRefresh"
                 @use-saved="operate('node-login', { use_saved_role: $event })"
                 @available="vaultAvailable = $event"
             />
-            <label v-if="!verified && vaultAvailable" class="flex items-center gap-2 text-sm"
-                ><input v-model="rememberPassword" type="checkbox" :disabled="busy" />Save password securely after
-                successful login</label
-            >
             <label v-if="autoLoginScope" class="flex items-center gap-2 text-sm">
                 <input
                     type="checkbox"
@@ -84,9 +80,8 @@
                 />
                 Automatically log in with saved member password
             </label>
-            <p v-if="autoLoginScope" class="text-xs text-sem-fg-muted">
-                Save a member password securely first. While this room is open, automatic login tries once when the
-                radio connects. Logging out turns it off for this room.
+            <p v-if="node.kind === 2" class="text-xs text-sem-fg-muted">
+                Opening this repeater uses its saved administrator password first, if available.
             </p>
         </section>
         <p v-if="notice" role="status" class="text-sm text-sem-fg-muted">{{ notice }}</p>
@@ -118,7 +113,8 @@
                 }}
             </p>
             <p v-if="!verified" class="text-sm text-sem-fg-muted">
-                Log in under Access to request status. Route checks do not require login.
+                Log in under Access to request status. {{ node.kind === 2 ? "Pinging" : "Checking the route" }} needs no
+                password.
             </p>
             <button
                 class="secondary-chip"
@@ -129,10 +125,11 @@
             </button>
             <button
                 class="secondary-chip"
-                :disabled="busy || needsRecovery || !snapshot.connected"
+                type="button"
+                :disabled="busy || !snapshot.connected"
                 @click="operate('node-route')"
             >
-                Check route
+                {{ node.kind === 2 ? "Ping repeater" : "Check route" }}
             </button>
             <dl v-if="status" class="grid grid-cols-2 gap-2 text-sm">
                 <template v-for="(value, key) in status.values" :key="key"
@@ -163,103 +160,129 @@
                                 class="secondary-chip"
                                 :aria-pressed="adminAction === item[0]"
                                 :disabled="busy || needsRecovery"
-                                @click="adminAction = item[0]"
+                                @click="chooseAdminAction(item[0])"
                             >
                                 {{ item[1] }}
                             </button>
                         </div>
+                        <div v-if="group.options.some(([action]) => action === adminAction)" class="mt-3 space-y-2">
+                            <form
+                                v-if="adminNeedsValue || adminDisruptive"
+                                class="space-y-3 rounded-lg bg-sem-surface-muted/50 p-3"
+                                @submit.prevent="administer"
+                            >
+                                <h4 class="font-semibold">
+                                    {{ adminOptions.find(([action]) => action === adminAction)?.[1] }}
+                                </h4>
+                                <label v-if="adminNeedsValue" class="block text-sm"
+                                    >{{ adminValueLabel }}
+                                    <select
+                                        v-if="adminAction === 'set-read-only'"
+                                        v-model="adminValue"
+                                        aria-label="Room read-only guest access"
+                                        class="block w-full bg-sem-surface-muted text-sem-fg border border-sem-border rounded-2xl p-2.5 mt-1"
+                                        :disabled="busy || needsRecovery"
+                                    >
+                                        <option value="">Choose access</option>
+                                        <option value="on">Allow read-only guests</option>
+                                        <option value="off">Require the member password</option>
+                                    </select>
+                                    <select
+                                        v-else-if="adminAction === 'set-repeat'"
+                                        v-model="adminValue"
+                                        aria-label="Repeater forwarding"
+                                        class="input-field mt-1 w-full"
+                                        :disabled="busy || needsRecovery"
+                                    >
+                                        <option value="">Choose on or off</option>
+                                        <option value="on">On</option>
+                                        <option value="off">Off</option>
+                                    </select>
+                                    <input
+                                        v-else
+                                        v-model="adminValue"
+                                        :type="adminSecret && !showAdminPassword ? 'password' : 'text'"
+                                        autocomplete="off"
+                                        aria-label="Administrator setting value"
+                                        class="block w-full bg-sem-surface-muted text-sem-fg border border-sem-border rounded-2xl p-2.5 mt-1"
+                                        :disabled="busy || needsRecovery"
+                                    />
+                                </label>
+                                <template v-if="adminSecret">
+                                    <p class="text-xs text-sem-fg-muted">
+                                        This password is for member logins. The administrator password is separate.
+                                        Maximum 15 UTF-8 bytes.
+                                    </p>
+                                    <label class="block text-sm"
+                                        >Confirm new room password
+                                        <input
+                                            v-model="adminPasswordConfirm"
+                                            :type="showAdminPassword ? 'text' : 'password'"
+                                            autocomplete="off"
+                                            aria-label="Confirm room password"
+                                            class="block w-full bg-sem-surface-muted text-sem-fg border border-sem-border rounded-2xl p-2.5 mt-1"
+                                            :disabled="busy || needsRecovery"
+                                        />
+                                    </label>
+                                    <button
+                                        type="button"
+                                        class="secondary-chip"
+                                        :disabled="busy || needsRecovery"
+                                        :aria-pressed="showAdminPassword"
+                                        @click="showAdminPassword = !showAdminPassword"
+                                    >
+                                        {{ showAdminPassword ? "Hide new password" : "Show new password" }}
+                                    </button>
+                                </template>
+                                <label v-if="adminDisruptive" class="flex items-start gap-2 text-sm">
+                                    <input v-model="adminConfirmed" type="checkbox" class="mt-1" />
+                                    {{
+                                        adminSecret
+                                            ? "Change the room member password."
+                                            : adminAction === "reboot"
+                                              ? "Restart this server and disconnect its users."
+                                              : "Changing the radio profile can make this server unreachable. A restart is needed to apply it."
+                                    }}
+                                </label>
+                                <p v-if="adminAction === 'sync-clock'" class="text-xs text-sem-fg-muted">
+                                    Uses the connected MeshCore radio’s clock. The server will refuse to move its clock
+                                    backwards.
+                                </p>
+                                <p
+                                    v-if="['set-latitude', 'set-longitude'].includes(adminAction)"
+                                    class="text-xs text-sem-fg-muted"
+                                >
+                                    Updates the server’s saved position. Its firmware and location-sharing settings
+                                    control which position appears in adverts.
+                                </p>
+                                <p v-if="adminAction === 'set-read-only'" class="text-xs text-sem-fg-muted">
+                                    When enabled, guests without the member password may read room posts.
+                                </p>
+                                <p v-if="adminAction === 'set-hash'" class="text-xs text-sem-fg-muted">
+                                    Enter 1, 2, or 3 bytes. The app converts this to the firmware mode.
+                                </p>
+                                <button
+                                    class="secondary-chip"
+                                    :disabled="
+                                        busy ||
+                                        needsRecovery ||
+                                        (adminNeedsValue && !adminValue.trim()) ||
+                                        (adminDisruptive && !adminConfirmed) ||
+                                        (adminSecret && (!adminPasswordValid || adminPasswordConfirm !== adminValue))
+                                    "
+                                >
+                                    {{ adminSubmitLabel }}
+                                </button>
+                            </form>
+                            <p v-if="adminPending" role="status" class="text-sm text-sem-fg-muted">
+                                Waiting for this server…
+                            </p>
+                            <p v-else-if="adminResult" role="status" class="whitespace-pre-wrap break-words text-sm">
+                                {{ adminResult }}
+                            </p>
+                        </div>
                     </details>
                 </div>
-                <form class="space-y-3 border-t border-sem-border pt-4" @submit.prevent="administer">
-                    <h4 class="font-semibold">{{ adminOptions.find(([action]) => action === adminAction)?.[1] }}</h4>
-                    <label v-if="adminNeedsValue" class="block text-sm"
-                        >{{ adminValueLabel }}
-                        <select
-                            v-if="adminAction === 'set-read-only'"
-                            v-model="adminValue"
-                            aria-label="Room read-only guest access"
-                            class="block w-full bg-sem-surface-muted text-sem-fg border border-sem-border rounded-2xl p-2.5 mt-1"
-                            :disabled="busy || needsRecovery"
-                        >
-                            <option value="">Choose access</option>
-                            <option value="on">Allow read-only guests</option>
-                            <option value="off">Require the member password</option>
-                        </select>
-                        <input
-                            v-else
-                            v-model="adminValue"
-                            :type="adminSecret && !showAdminPassword ? 'password' : 'text'"
-                            autocomplete="off"
-                            aria-label="Administrator setting value"
-                            class="block w-full bg-sem-surface-muted text-sem-fg border border-sem-border rounded-2xl p-2.5 mt-1"
-                            :disabled="busy || needsRecovery"
-                        />
-                    </label>
-                    <template v-if="adminSecret">
-                        <p class="text-xs text-sem-fg-muted">
-                            This password is for member logins. The administrator password is separate. Maximum 15 UTF-8
-                            bytes.
-                        </p>
-                        <label class="block text-sm"
-                            >Confirm new room password
-                            <input
-                                v-model="adminPasswordConfirm"
-                                :type="showAdminPassword ? 'text' : 'password'"
-                                autocomplete="off"
-                                aria-label="Confirm room password"
-                                class="block w-full bg-sem-surface-muted text-sem-fg border border-sem-border rounded-2xl p-2.5 mt-1"
-                                :disabled="busy || needsRecovery"
-                            />
-                        </label>
-                        <button
-                            type="button"
-                            class="secondary-chip"
-                            :disabled="busy || needsRecovery"
-                            :aria-pressed="showAdminPassword"
-                            @click="showAdminPassword = !showAdminPassword"
-                        >
-                            {{ showAdminPassword ? "Hide new password" : "Show new password" }}
-                        </button>
-                    </template>
-                    <label v-if="adminDisruptive" class="flex items-start gap-2 text-sm">
-                        <input v-model="adminConfirmed" type="checkbox" class="mt-1" />
-                        {{
-                            adminSecret
-                                ? "Change the room member password."
-                                : adminAction === "reboot"
-                                  ? "Restart this server and disconnect its users."
-                                  : "Changing the radio profile can make this server unreachable. A restart is needed to apply it."
-                        }}
-                    </label>
-                    <p v-if="adminAction === 'sync-clock'" class="text-xs text-sem-fg-muted">
-                        Uses the connected MeshCore radio’s clock. The server will refuse to move its clock backwards.
-                    </p>
-                    <p v-if="['set-latitude', 'set-longitude'].includes(adminAction)" class="text-xs text-sem-fg-muted">
-                        Updates the server’s saved position. Its firmware and location-sharing settings control which
-                        position appears in adverts.
-                    </p>
-                    <p v-if="adminAction === 'set-read-only'" class="text-xs text-sem-fg-muted">
-                        When enabled, guests without the member password may read room posts.
-                    </p>
-                    <p v-if="adminAction === 'set-hash'" class="text-xs text-sem-fg-muted">
-                        Enter 1, 2, or 3 bytes. The app converts this to the firmware mode.
-                    </p>
-                    <button
-                        class="secondary-chip"
-                        :disabled="
-                            busy ||
-                            needsRecovery ||
-                            (adminNeedsValue && !adminValue.trim()) ||
-                            (adminDisruptive && !adminConfirmed) ||
-                            (adminSecret && (!adminPasswordValid || adminPasswordConfirm !== adminValue))
-                        "
-                    >
-                        Run server action
-                    </button>
-                </form>
-                <p v-if="adminResult" role="status" class="whitespace-pre-wrap break-words text-sm">
-                    {{ adminResult }}
-                </p>
                 <MeshCoreRepeaterConsole
                     :key="`${snapshot.owner}:${snapshot.radio_id}:${snapshot.connection_id}:${node.peer}`"
                     :request="repeaterRequest"
@@ -372,9 +395,9 @@ import MeshCoreRepeaterConsole from "./MeshCoreRepeaterConsole.vue";
 import { roomReply, roomPostText } from "../../js/meshcoreRoomReply";
 import { roomAuthor } from "../../js/meshcoreRoomAuthor";
 import { useMeshCoreMessagePosition } from "../../js/meshcoreMessagePosition";
-import { computed, ref, watch, onBeforeUnmount } from "vue";
+import { computed, nextTick, ref, watch, onBeforeUnmount } from "vue";
 import MeshCoreNodePasswords from "./MeshCoreNodePasswords.vue";
-const vaultAvailable = ref(false),
+const vaultAvailable = ref(null),
     rememberPassword = ref(false),
     passwordRefresh = ref(0);
 import { apiPath } from "../../js/constants";
@@ -396,11 +419,11 @@ watch([() => props.node.peer, () => props.node.kind, () => props.snapshot.owner,
     activeTab.value = props.node.kind === 3 ? "messages" : "status";
 });
 const showPassword = ref(false);
-const adminAction = ref("version"),
+const adminAction = ref(""),
     adminValue = ref(""),
     adminConfirmed = ref(false),
     adminResult = ref(""),
-    adminUncertain = ref(false);
+    adminPending = ref(false);
 const adminPasswordConfirm = ref(""),
     showAdminPassword = ref(false);
 const adminSecret = computed(() => adminAction.value === "set-room-password");
@@ -422,6 +445,12 @@ const adminOptions = computed(() => [
     ["set-radio", "Change radio profile"],
     ["set-tx", "Change TX power"],
     ["set-hash", "Change path hash size"],
+    ...(props.node.kind === 2
+        ? [
+              ["repeat", "View repeat setting"],
+              ["set-repeat", "Change repeat setting"],
+          ]
+        : []),
     ["clock", "View server clock"],
     ["sync-clock", "Sync server clock to radio"],
     ["latitude", "View saved latitude"],
@@ -449,7 +478,10 @@ const adminGroups = computed(() =>
             label: "Identity & location",
             actions: ["version", "board", "name", "set-name", "latitude", "longitude", "set-latitude", "set-longitude"],
         },
-        { label: "Radio & routing", actions: ["radio", "tx", "hash", "set-radio", "set-tx", "set-hash"] },
+        {
+            label: "Radio & routing",
+            actions: ["radio", "tx", "hash", "set-radio", "set-tx", "set-hash", "repeat", "set-repeat"],
+        },
         {
             label: "Advertisements & clock",
             actions: [
@@ -476,6 +508,15 @@ const adminGroups = computed(() =>
 );
 const adminNeedsValue = computed(() => adminAction.value.startsWith("set-") || adminAction.value === "room-post");
 const adminDisruptive = computed(() => ["set-radio", "reboot", "set-room-password"].includes(adminAction.value));
+const adminSubmitLabel = computed(
+    () =>
+        ({
+            "set-repeat": "Save repeat setting",
+            "set-room-password": "Save room password",
+            "room-post": "Post announcement",
+            reboot: "Confirm restart",
+        })[adminAction.value] || "Save setting"
+);
 const adminValueLabel = computed(
     () =>
         ({
@@ -489,6 +530,7 @@ const adminValueLabel = computed(
             "set-radio": "Frequency MHz, bandwidth kHz, SF, CR (5–8)",
             "set-tx": "TX power in dBm (1–22)",
             "set-hash": "Path hash size in bytes",
+            "set-repeat": "Repeater forwarding",
             "room-post": "Server announcement (140 UTF-8 bytes maximum)",
         })[adminAction.value] || "Value"
 );
@@ -529,9 +571,8 @@ watch(verified, (loggedIn) => {
 });
 const needsRecovery = computed(
     () =>
-        adminUncertain.value ||
         uncertain.value ||
-        (props.snapshot.node_operations?.[props.node.peer]?.operation !== "route" &&
+        (!["route", "admin"].includes(props.snapshot.node_operations?.[props.node.peer]?.operation) &&
             ["server_timeout", "radio_unconfirmed", "retry_blocked"].includes(
                 props.snapshot.node_operations?.[props.node.peer]?.stage
             ))
@@ -623,6 +664,7 @@ function operationLabel(stage) {
             radio_rejected: "Radio rejected request",
             radio_unconfirmed: "Radio did not confirm transmission",
             server_timeout: "No matching server response before timeout",
+            admin_unverified_response: "Reply could not be matched to a command",
             server_denied: "Server denied login",
             login_verified: "Login verified",
             status_received: "Status received",
@@ -661,6 +703,11 @@ const autoLoginScope = computed(() => {
     return `meshchat-next.room-auto-login:${JSON.stringify([owner, radioId || "default", peer])}`;
 });
 let lastAutoLoginAttempt = "";
+const repeaterAutoLoginPaused = ref(false);
+watch([() => props.node.peer, () => props.visit], () => {
+    repeaterAutoLoginPaused.value = false;
+    lastAutoLoginAttempt = "";
+});
 function savedAutoLogin(scope) {
     try {
         return localStorage.getItem(scope) === "1";
@@ -687,11 +734,12 @@ watch(
     { immediate: true }
 );
 function logout() {
-    setAutoLogin(false);
+    if (props.node.kind === 2) repeaterAutoLoginPaused.value = true;
+    else setAutoLogin(false);
     return operate("node-logout");
 }
 async function operate(action, extra = {}) {
-    if (busy.value || needsRecovery.value || !props.snapshot.connected) return;
+    if (busy.value || (needsRecovery.value && action !== "node-route") || !props.snapshot.connected) return;
     busy.value = true;
     emit("busy", true);
     problem.value = "";
@@ -699,6 +747,7 @@ async function operate(action, extra = {}) {
     const token = generation,
         owner = props.snapshot.owner,
         peer = props.node.peer;
+    const automatic = action === "node-auto-login" || action === "repeater-auto-login";
     try {
         const { data } = await window.api.post(
             apiPath(`/meshcore/${action}`),
@@ -712,12 +761,15 @@ async function operate(action, extra = {}) {
             if (result.password_saved === false)
                 problem.value = "Login succeeded, but the password could not be saved securely.";
         }
-        if (action === "node-auto-login" && result.state === "password_storage_unavailable") {
+        if (automatic && result.state === "password_storage_unavailable") {
             notice.value = "Secure password storage is unavailable. Log in under Access.";
             return result;
         }
-        if (action === "node-auto-login" && result.state === "no_saved_password") {
-            notice.value = "Save a member password under Access to enable automatic login.";
+        if (automatic && result.state === "no_saved_password") {
+            notice.value =
+                props.node.kind === 2
+                    ? "Save a password under Access to log in automatically next time."
+                    : "Save a member password under Access to enable automatic login.";
             return result;
         }
         if (result.state === "route_received") {
@@ -725,8 +777,6 @@ async function operate(action, extra = {}) {
                 result.out_hops === 0 && result.in_hops === 0
                     ? "Direct connection · no repeaters. Route check completed; login status unchanged."
                     : `Route confirmed: ${result.out_hops} outbound / ${result.in_hops} inbound repeater hops. Login status unchanged.`;
-        } else if (action === "node-admin" && ["admin_response", "submitted"].includes(result.state)) {
-            adminResult.value = result.text || "Server returned an empty response.";
         } else if (action === "node-status" && result.state === "received") {
             status.value = result;
             notice.value = "Status received from this node.";
@@ -742,8 +792,9 @@ async function operate(action, extra = {}) {
                     ? "No route response received. This does not confirm the repeater is offline; you can still try logging in."
                     : action === "room-message"
                       ? "The post could not be verified and may already have been sent. Inspect room history before sending anything further."
-                      : "No matching server response was verified. Reconnect MeshCore before retrying this server request.";
-            if (action === "node-admin") adminUncertain.value = true;
+                      : action === "node-admin"
+                        ? "No reply confirmed. The command may have run. Read the setting before repeating a change."
+                        : "No matching server response was verified. Reconnect MeshCore before retrying this server request.";
             if (action === "room-message") uncertain.value = true;
         } else if (action === "room-message") {
             draft.value = "";
@@ -760,11 +811,12 @@ async function operate(action, extra = {}) {
                 return;
             }
             problem.value =
-                "The request could not be verified. Check the connection and reconnect before retrying; no automatic retry was sent.";
+                action === "node-admin"
+                    ? "The command could not be verified. Check the setting before repeating a change."
+                    : "The request could not be verified. Check the connection and reconnect before retrying; no automatic retry was sent.";
             const code = error?.response?.status;
             if (code) problem.value += ` (App response ${code}.)`;
             emit("changed");
-            if (action === "node-admin") adminUncertain.value = true;
             if (action === "room-message") uncertain.value = true;
         }
     } finally {
@@ -791,7 +843,6 @@ async function recover() {
             { ...saved.connection, receive: saved.receiving, auto_reconnect: saved.auto_reconnect },
             { timeout: 150000, ...context }
         );
-        adminUncertain.value = false;
         uncertain.value = false;
         problem.value = "";
         notice.value = autoLoginEnabled.value ? "MeshCore reconnected." : "MeshCore reconnected. Log in again.";
@@ -813,22 +864,42 @@ async function login() {
 async function repeaterRequest(action, value = "", confirmed = false) {
     if (!administrator.value) throw new Error("Log in as administrator first.");
     const result = await operate("node-admin", { action, value, confirmed });
+    if (action === "terminal" && result?.state === "admin_unverified_response")
+        return `Unverified reply (may be from an earlier command): ${result.text}`;
     if (result?.state !== "admin_response")
         throw new Error(
             "No verified response. Check the connection before continuing; changes may already have applied."
         );
     return result.text || "";
 }
+async function chooseAdminAction(action) {
+    if (!administrator.value || busy.value || needsRecovery.value) return;
+    adminAction.value = action;
+    await nextTick();
+    if (!adminNeedsValue.value && !adminDisruptive.value) await administer();
+}
 async function administer() {
-    if (!administrator.value || adminUncertain.value || (adminDisruptive.value && !adminConfirmed.value)) return;
+    if (!administrator.value || busy.value || needsRecovery.value || !adminAction.value) return;
+    if ((adminNeedsValue.value && !adminValue.value.trim()) || (adminDisruptive.value && !adminConfirmed.value)) return;
     if (adminSecret.value && (!adminPasswordValid.value || adminPasswordConfirm.value !== adminValue.value)) return;
     adminResult.value = "";
-    const action = adminAction.value,
+    adminPending.value = true;
+    const token = generation,
+        action = adminAction.value,
         value = adminValue.value,
         confirmed = adminConfirmed.value;
     if (adminSecret.value) clearAdminPassword();
-    await operate("node-admin", { action, value, confirmed });
-    adminConfirmed.value = false;
+    try {
+        const result = await operate("node-admin", { action, value, confirmed });
+        if (token !== generation || stopped) return;
+        if (["admin_response", "submitted"].includes(result?.state))
+            adminResult.value = result.text || "Server returned an empty response.";
+        else if (result?.state === "admin_unverified_response")
+            adminResult.value = `Unverified reply (may be from an earlier command): ${result.text}`;
+        adminConfirmed.value = false;
+    } finally {
+        adminPending.value = false;
+    }
 }
 async function send() {
     if (!verified.value || uncertain.value || !draft.value.trim() || bytes.value > 160) return;
@@ -846,7 +917,7 @@ watch(
     () => {
         ++generation;
         rememberPassword.value = false;
-        vaultAvailable.value = false;
+        vaultAvailable.value = null;
         password.value = "";
         showPassword.value = false;
         draft.value = "";
@@ -857,15 +928,21 @@ watch(
         problem.value = "";
         uncertain.value = false;
         clearAdminPassword();
+        adminAction.value = "";
         adminResult.value = "";
         adminConfirmed.value = false;
-        adminUncertain.value = false;
     }
 );
 watch(
     [
         autoLoginScope,
         autoLoginEnabled,
+        repeaterAutoLoginPaused,
+        () => props.node.kind,
+        () => props.node.peer,
+        () => props.visit,
+        () => props.snapshot.owner,
+        () => props.snapshot.radio_id,
         () => props.snapshot.connection_id,
         () => props.snapshot.connected,
         verified,
@@ -873,24 +950,22 @@ watch(
         busy,
     ],
     () => {
-        const scope = autoLoginScope.value;
-        const connection = props.snapshot.connection_id;
-        if (
-            !scope ||
-            !autoLoginEnabled.value ||
-            !connection ||
-            !props.snapshot.connected ||
-            verified.value ||
-            needsRecovery.value ||
-            busy.value ||
-            password.value ||
-            !savedAutoLogin(scope)
-        )
+        const repeater = props.node.kind === 2;
+        const { owner, radio_id: radio, connection_id: connection } = props.snapshot;
+        const scope = repeater
+            ? owner && JSON.stringify([owner, radio, props.node.peer, props.visit])
+            : autoLoginScope.value;
+        if (!scope || !connection || !props.snapshot.connected || busy.value || needsRecovery.value || password.value)
             return;
-        const attempt = `${scope}:${connection}`;
+        if (repeater ? repeaterAutoLoginPaused.value : !autoLoginEnabled.value || !savedAutoLogin(scope)) return;
+        const attempt = JSON.stringify([scope, connection]);
         if (attempt === lastAutoLoginAttempt) return;
+        if (verified.value) {
+            if (repeater) lastAutoLoginAttempt = attempt;
+            return;
+        }
         lastAutoLoginAttempt = attempt;
-        void operate("node-auto-login", { expected_connection_id: connection });
+        void operate(repeater ? "repeater-auto-login" : "node-auto-login", { expected_connection_id: connection });
     },
     { immediate: true, flush: "post" }
 );

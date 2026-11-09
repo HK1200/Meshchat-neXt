@@ -13,14 +13,10 @@
             ><span class="text-[9px]">MC{{ row.unread ? " · " + row.unread : "" }}</span>
         </button>
     </div>
-    <section
-        v-else-if="snapshot.available"
-        class="border-b border-sem-border p-2 space-y-1"
-        aria-label="MeshCore conversations"
-    >
-        <div class="flex items-center justify-between text-xs text-sem-fg-muted">
-            <strong>MeshCore</strong
-            ><span>{{
+    <section v-else-if="snapshot.available" class="space-y-1 px-2 pb-2" aria-label="MeshCore conversations">
+        <div class="sticky top-0 z-10 flex items-center justify-between gap-2 bg-sem-surface px-1 py-2">
+            <h3 class="text-sm font-bold text-sem-fg">MeshCore</h3>
+            <span class="text-xs text-sem-fg-muted">{{
                 snapshot.radios?.length > 1
                     ? `Connected radios: ${snapshot.radios.filter((radio) => radio.connected).length}`
                     : snapshot.connected
@@ -44,13 +40,21 @@
         </label>
         <button
             type="button"
-            class="secondary-chip hidden sm:inline-flex"
+            class="secondary-chip"
+            aria-haspopup="dialog"
             :aria-expanded="showContacts"
-            @click="showContacts = !showContacts"
+            @click="showContacts = true"
         >
             MeshCore contacts
         </button>
-        <MeshCoreMessageContactPicker v-if="showContacts" class="hidden sm:block" @selected="showContacts = false" />
+        <AppModal
+            v-model="showContacts"
+            title="MeshCore contacts"
+            body-class="overflow-y-auto overscroll-contain p-4"
+            show-close
+        >
+            <MeshCoreMessageContactPicker v-if="showContacts" @selected="showContacts = false" />
+        </AppModal>
         <p v-if="error" role="alert" class="text-xs text-sem-danger">{{ error }}</p>
         <button
             v-for="row in visible"
@@ -84,12 +88,12 @@
             </div>
             <p class="text-xs text-sem-fg-muted truncate">{{ voicePreview(row.text) }}</p>
         </button>
-        <div class="pt-2 text-xs text-sem-fg-muted font-semibold">Reticulum</div>
     </section>
 </template>
 <script setup>
 import { voicePreview } from "../../js/meshcoreVoice";
 import { computed, ref } from "vue";
+import AppModal from "../AppModal.vue";
 import MeshCoreMessageContactPicker from "./MeshCoreMessageContactPicker.vue";
 import LxmfUserIcon from "../LxmfUserIcon.vue";
 import { useMeshCoreUi, meshcoreRoute } from "../../js/meshcoreUi";

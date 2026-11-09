@@ -279,17 +279,15 @@
                     placeholder="Write a channel message"
                 />
                 <div class="flex items-center justify-between">
-                    <span class="text-xs text-sem-fg-muted">{{ bytes }}/{{ maximum }} bytes</span
-                    ><button
-                        class="primary-chip"
-                        :disabled="!snapshot.connected || busy || !draft.trim() || bytes > maximum"
-                    >
+                    <span class="text-xs text-sem-fg-muted">
+                        {{ bytes }} of {{ maximum }} bytes per message
+                        <span v-if="parts.length > 1"> · {{ parts.length }} messages</span>
+                    </span>
+                    <button class="primary-chip" :disabled="!canSend">
                         {{ busy ? "Submitting…" : "Send via MeshCore" }}
                     </button>
                 </div>
-                <p v-if="uncertain" class="text-xs text-sem-fg-muted">
-                    The result is uncertain. Check this channel before sending again.
-                </p>
+                <p v-if="sendStatus" role="status" class="text-xs text-sem-fg-muted">{{ sendStatus }}</p>
             </form>
         </template>
         <p v-else class="p-4 text-sm text-sem-fg-muted">
@@ -326,6 +324,7 @@ import ContextMenuPanel from "../contextmenu/ContextMenuPanel.vue";
 import ContextMenuItem from "../contextmenu/ContextMenuItem.vue";
 import MaterialDesignIcon from "../MaterialDesignIcon.vue";
 import DialogUtils from "../../js/DialogUtils";
+import { meshCoreChannelTextBytes, useMeshCoreTextSend } from "../../js/meshcoreTextSend";
 import { apiPath } from "../../js/constants";
 import { useMeshCoreUi, meshcoreChannelRoute } from "../../js/meshcoreUi";
 const detailRow = ref(null);
@@ -351,10 +350,29 @@ const list = ref(null),
     name = ref(""),
     key = ref(""),
     privateChannel = ref(false),
-    busy = ref(false),
-    uncertain = ref(false);
-const bytes = computed(() => new TextEncoder().encode(draft.value).length);
-const maximum = computed(() => Math.max(0, 158 - new TextEncoder().encode(snapshot.value.profile_name || "").length));
+    busy = ref(false);
+const maximum = computed(() => meshCoreChannelTextBytes(snapshot.value.profile_name || ""));
+const {
+    bytes,
+    parts,
+    status: sendStatus,
+    canSend,
+    send,
+} = useMeshCoreTextSend({
+    draft,
+    busy,
+    maximum: () => maximum.value,
+    ready: () => Boolean(selected.value && snapshot.value.connected),
+    context: () => [props.channelId, snapshot.value.owner, snapshot.value.radio_id].join(":"),
+    history: () => snapshot.value.channel_messages,
+    submit: (frame) =>
+        action("channel-message", {
+            ...frame,
+            slot: selected.value.slot,
+            expected_channel_id: props.channelId,
+        }),
+    channel: true,
+});
 const mediaScope = computed(() => selected.value?.scope ?? snapshot.value.channel_default_scope ?? null);
 const states = {
     submitted: "Accepted by radio",
@@ -388,8 +406,7 @@ function escapeMenu(event) {
 }
 onMounted(() => document.addEventListener("keydown", escapeMenu));
 onBeforeUnmount(() => document.removeEventListener("keydown", escapeMenu));
-let pending = null,
-    privateKey = null;
+let privateKey = null;
 onBeforeUnmount(() => {
     key.value = "";
     privateKey = null;
@@ -397,8 +414,6 @@ onBeforeUnmount(() => {
 watch([() => props.channelId, () => snapshot.value.owner], () => {
     draft.value = "";
     closeMenu();
-    pending = null;
-    uncertain.value = false;
     key.value = "";
     privateKey = null;
 });
@@ -530,38 +545,6 @@ async function add() {
     } catch {
         error.value =
             "Could not verify the channel change. Check the radio connection and channel list before trying again.";
-    } finally {
-        busy.value = false;
-    }
-}
-async function send() {
-    if (
-        busy.value ||
-        !selected.value ||
-        !snapshot.value.connected ||
-        !draft.value.trim() ||
-        bytes.value > maximum.value
-    )
-        return;
-    const channel = props.channelId,
-        owner = snapshot.value.owner,
-        text = draft.value;
-    if (!pending || pending.text !== text || pending.expected_channel_id !== channel)
-        pending = { slot: selected.value.slot, text, expected_channel_id: channel, request_id: crypto.randomUUID() };
-    busy.value = true;
-    uncertain.value = false;
-    try {
-        const result = await action("channel-message", pending);
-        if (channel === props.channelId && owner === snapshot.value.owner) {
-            draft.value = "";
-            pending = null;
-            uncertain.value = result.state === "unknown";
-        }
-    } catch {
-        if (channel === props.channelId && owner === snapshot.value.owner) {
-            error.value = "MeshCore did not return a result. Check the saved message before trying again.";
-            uncertain.value = true;
-        }
     } finally {
         busy.value = false;
     }

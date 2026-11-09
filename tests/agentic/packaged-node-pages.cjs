@@ -203,7 +203,7 @@ async function run(mode) {
         await page.getByRole("button", { name: "Manage", exact: true }).click();
         await page.getByText("Radio & routing", { exact: true }).click();
         await page.getByRole("button", { name: "Change radio profile", exact: true }).click();
-        await expect(page.getByRole("button", { name: "Run server action", exact: true })).toBeDisabled();
+        await expect(page.getByRole("button", { name: "Save setting", exact: true })).toBeDisabled();
         await page.getByRole("button", { name: "Messages", exact: true }).click();
         await expect(page.locator("textarea")).toHaveValue("Retain this synthetic draft");
         await page.goto(`${origin}/#/meshcore/nodes/${repeater}`);
@@ -254,6 +254,7 @@ async function run(mode) {
         });
         console.log(JSON.stringify(results.at(-1)));
     } catch (error) {
+        console.error("Synthetic packaged fixture failed:", error);
         console.error("Synthetic packaged fixture diagnostics:", diagnostic);
         if (browser) {
             for (const page of browser.contexts()[0].pages()) {
@@ -280,7 +281,7 @@ async function run(mode) {
             console.error("Failure cleanup: terminating only the owned synthetic fixture process");
             appProcess.kill();
         }
-        fs.rmSync(base, { recursive: true, force: true });
+        fs.rmSync(base, { recursive: true, force: true, maxRetries: 12, retryDelay: 200 });
     }
 }
 (async () => {

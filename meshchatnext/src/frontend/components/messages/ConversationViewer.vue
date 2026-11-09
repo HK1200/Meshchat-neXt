@@ -49,6 +49,42 @@
             @close="close"
         />
 
+        <div
+            v-if="!isSelectedPeerBlocked"
+            class="px-3 py-1 border-b border-sem-border flex flex-wrap items-center gap-2"
+        >
+            <button type="button" class="secondary-chip min-h-9" @click="viewChatLocation">
+                {{ $t("messages.view_chat_location") }}
+            </button>
+            <template v-if="locationShareSession">
+                <span class="text-xs" role="status">{{ $t("messages.location_sharing_active") }}</span>
+                <button type="button" class="secondary-chip min-h-9" @click="stopLocationSharing()">
+                    {{ $t("messages.location_stop_sharing") }}
+                </button>
+            </template>
+            <template v-else>
+                <select
+                    v-model.number="locationShareMinutes"
+                    class="input-field min-h-9 text-xs"
+                    :aria-label="$t('messages.location_share_duration')"
+                    :disabled="sharingLocation"
+                >
+                    <option :value="0">{{ $t("messages.location_share_once_option") }}</option>
+                    <option :value="15">{{ $t("messages.location_share_15") }}</option>
+                    <option :value="60">{{ $t("messages.location_share_60") }}</option>
+                </select>
+                <button
+                    type="button"
+                    class="secondary-chip min-h-9 inline-flex items-center gap-2"
+                    :disabled="sharingLocation"
+                    @click="shareLocation(locationShareMinutes)"
+                >
+                    <MaterialDesignIcon icon-name="map-marker-outline" class="size-4" />
+                    {{ $t(locationShareMinutes ? "messages.location_start_sharing" : "messages.share_location_once") }}
+                </button>
+            </template>
+        </div>
+
         <TelemetryHistoryModal
             v-model="isTelemetryHistoryModalOpen"
             v-model:show-telemetry-in-chat="showTelemetryInChat"
@@ -582,7 +618,10 @@
                                     class="composer-textarea bg-transparent border-0 text-sem-fg text-sm block flex-1 min-w-0 px-2 py-2.5 resize-none transition-all placeholder:text-sem-fg-muted min-h-[40px] max-h-[200px] overflow-y-auto leading-snug focus:outline-none focus:ring-0"
                                     rows="1"
                                     spellcheck="true"
-                                    :placeholder="composeInputPlaceholder"
+                                    :placeholder="
+                                        isMobile ? $t('messages.compose_hint_mobile') : composeInputPlaceholder
+                                    "
+                                    :aria-label="composeInputPlaceholder"
                                     @keydown.enter.exact.prevent="onEnterPressed"
                                     @keydown.enter.shift.exact.prevent="onShiftEnterPressed"
                                     @paste="onMessagePaste"
@@ -1769,7 +1808,13 @@ import {
 import MarkdownRenderer from "../../js/MarkdownRenderer";
 import { handleRichHtmlLinkClick } from "../../js/NomadRichHtmlLinks.js";
 import { findMapUriInContent, mapLinkKindFromMessage, parseMeshchatMapUri } from "../../js/mapLinkUtils.js";
-import { getAndroidPosition, isAndroidLocationSupported } from "../../js/androidLocation.js";
+import { isAndroidLocationSupported } from "../../js/androidLocation.js";
+import {
+    privateLocationSessions,
+    readPrivateLocation,
+    startPrivateLocationSession,
+} from "../../js/timedPrivateLocation.js";
+import { getHistoryX as getLocationHistory } from "../../js/api/telemetry.js";
 import { applyRelayShareLink, findRelayUriInContent, parseRelayUri } from "../../js/relayLinkUtils.js";
 import { LXMF_REACTION_EMOJIS, mergeLxmfReactionRowsIntoMessages } from "../../js/lxmfReactions";
 import { createOutboundQueue } from "../../js/outboundSendQueue";
@@ -1903,7 +1948,9 @@ export default {
             newMessageText: "",
             newMessageImages: [],
             newMessageImageUrls: [],
-            newMessageTelemetry: null,
+            sharingLocation: false,
+            locationShareMinutes: 0,
+            locationShareEpoch: 0,
             newMessageFiles: [],
             pendingSendAsCommandOrRequest: false,
             showLocationActionMenu: false,
@@ -2185,6 +2232,12 @@ export default {
             }
             return this.$t("messages.compose_hint_automatic");
         },
+        locationSessionKey() {
+            return `reticulum:${this._draftIdentityKey()}:${this.selectedPeer?.destination_hash || ""}`;
+        },
+        locationShareSession() {
+            return privateLocationSessions.get(this.locationSessionKey);
+        },
         composerChromeStyle() {
             const bottomPad = this.keyboardInsetPx > 0 ? Math.max(10, this.keyboardInsetPx) : null;
             if (bottomPad != null) {
@@ -2292,10 +2345,7 @@ export default {
 
             // or if any attachments are present
             const hasAttachments =
-                this.newMessageImages.length > 0 ||
-                this.newMessageAudio != null ||
-                this.newMessageFiles.length > 0 ||
-                this.newMessageTelemetry != null;
+                this.newMessageImages.length > 0 || this.newMessageAudio != null || this.newMessageFiles.length > 0;
 
             if (!hasText && !hasAttachments) {
                 return false;
@@ -2461,6 +2511,7 @@ export default {
     watch: {
         selectedPeer: {
             handler(newPeer, oldPeer) {
+                if (newPeer?.destination_hash !== oldPeer?.destination_hash) this.cancelPendingLocationShare();
                 this.messageBubbleTranslation = {};
                 this.cancelAutoLoadAudioAttachments();
                 if (oldPeer) {
@@ -2635,7 +2686,11 @@ export default {
         }
         this.updateKeyboardInset();
     },
+    deactivated() {
+        this.cancelPendingLocationShare();
+    },
     beforeUnmount() {
+        this.cancelPendingLocationShare();
         this.scrollBottomGen += 1;
         if (this._composerOverlayObserver) {
             this._composerOverlayObserver.disconnect();
@@ -3389,6 +3444,7 @@ export default {
             return typeof hash === "string" && hash ? hash : "_";
         },
         onIdentitySwitched(json) {
+            this.cancelPendingLocationShare();
             const dest = this.selectedPeer?.destination_hash;
             const previousKey = this.lastDraftIdentityKey || this._draftIdentityKey();
             const nextKey =
@@ -6126,7 +6182,6 @@ export default {
             this.newMessageImageUrls = [];
             this.revokeNewMessageAudioPreview();
             this.newMessageAudio = null;
-            this.newMessageTelemetry = null;
             this.newMessageFiles = [];
             this.clearFileInput();
             this.replyingTo = null;
@@ -6140,10 +6195,6 @@ export default {
                 (this.replyingTo && this.getRepliedMessage(this.replyingTo.lxmf_message?.hash)?.content) || null;
 
             const fields = {};
-
-            if (this.newMessageTelemetry) {
-                fields["telemetry"] = this.newMessageTelemetry;
-            }
 
             let fileAttachmentsTotalSize = 0;
             if (this.newMessageFiles.length > 0) {
@@ -6197,10 +6248,7 @@ export default {
             }
 
             const canOptimisticPending =
-                this.newMessageFiles.length === 0 &&
-                this.newMessageAudio == null &&
-                this.newMessageTelemetry == null &&
-                this.newMessageImages.length <= 1;
+                this.newMessageFiles.length === 0 && this.newMessageAudio == null && this.newMessageImages.length <= 1;
 
             return {
                 destinationHash,
@@ -6602,117 +6650,117 @@ export default {
                 handler: () => this.$router.push({ name: "settings", query: { section: "location" } }),
             };
         },
-        async shareLocation() {
+        cancelPendingLocationShare() {
+            this.locationShareEpoch += 1;
+            this.locationShareMinutes = 0;
+        },
+        stopLocationSharing() {
+            this.locationShareSession?.stop();
+            this.cancelPendingLocationShare();
+        },
+        async shareLocation(minutes = 0) {
+            const peer = this.selectedPeer;
+            if (!peer || this.sharingLocation || this.locationShareSession || this.isSelectedPeerBlocked) return;
             const toastKey = "location_share";
+            const identity = this._draftIdentityKey();
+            const identityStore = useIdentityStore();
+            const configStore = useConfigStore();
+            const sessionKey = this.locationSessionKey;
+            const destinationHash = peer.destination_hash;
+            const source = this.config?.location_source;
+            const epoch = this.locationShareEpoch;
+            const sameConversation = () =>
+                !this._unmounted &&
+                !this.isSelectedPeerBlocked &&
+                this.locationShareEpoch === epoch &&
+                this.config?.location_source === source &&
+                this._hexEqual(this.selectedPeer?.destination_hash, destinationHash) &&
+                this._draftIdentityKey() === identity;
+            const sendFix = async (position) => {
+                const { latitude, longitude } = position;
+                if (
+                    !Number.isFinite(latitude) ||
+                    Math.abs(latitude) > 90 ||
+                    !Number.isFinite(longitude) ||
+                    Math.abs(longitude) > 180
+                ) {
+                    throw new Error("Invalid location");
+                }
+                await window.api.post(apiPath("/lxmf-messages/send"), {
+                    lxmf_message: {
+                        destination_hash: destinationHash,
+                        content: "",
+                        fields: {
+                            telemetry: {
+                                time: { utc: Math.floor((position.time || Date.now()) / 1000) },
+                                location: {
+                                    latitude,
+                                    longitude,
+                                    altitude: position.altitude || 0,
+                                    speed: (position.speed || 0) * 3.6,
+                                    bearing: position.bearing || 0,
+                                    accuracy: position.accuracy || 0,
+                                    last_update: Math.floor((position.time || Date.now()) / 1000),
+                                },
+                            },
+                        },
+                    },
+                });
+            };
+
+            const name = peer.custom_display_name || peer.display_name || destinationHash;
+            this.sharingLocation = true;
             try {
-                if (this.config?.location_source === "disabled") {
-                    ToastUtils.show(this.$t("messages.location_disabled"), "error", 8000, toastKey, {
-                        label: this.$t("common.configure"),
-                        handler: () => this.$router.push({ name: "settings", query: { section: "location" } }),
-                    });
+                if (source === "disabled" || (source === "android" && !isAndroidLocationSupported())) {
+                    const key =
+                        source === "disabled" ? "messages.location_disabled" : "messages.location_android_unavailable";
+                    ToastUtils.show(this.$t(key), "error", 8000, toastKey, this.locationSettingsToastAction());
                     return;
                 }
-
-                if (this.config?.location_source === "manual") {
-                    const lat = parseFloat(this.config.location_manual_lat);
-                    const lon = parseFloat(this.config.location_manual_lon);
-                    const alt = parseFloat(this.config.location_manual_alt);
-
-                    if (isNaN(lat) || isNaN(lon)) {
-                        ToastUtils.error("Invalid manual coordinates in settings", 5000, toastKey);
-                        return;
-                    }
-
-                    this.newMessageTelemetry = {
-                        latitude: lat,
-                        longitude: lon,
-                        altitude: isNaN(alt) ? 0 : alt,
-                        speed: 0,
-                        bearing: 0,
-                        accuracy: 0,
-                        last_update: Math.floor(Date.now() / 1000),
-                    };
-                    this.sendMessage();
-                    ToastUtils.success(this.$t("messages.location_sent"), 3000, toastKey);
+                const confirmation = minutes
+                    ? "messages.share_location_timed_confirm"
+                    : "messages.share_location_once_confirm";
+                if (!(await DialogUtils.confirm(this.$t(confirmation, { name, minutes }))) || !sameConversation())
                     return;
-                }
-
-                if (this.config?.location_source === "android") {
-                    if (!isAndroidLocationSupported()) {
-                        ToastUtils.show(
-                            this.$t("messages.location_android_unavailable"),
-                            "error",
-                            8000,
-                            toastKey,
-                            this.locationSettingsToastAction()
-                        );
-                        return;
-                    }
-                    ToastUtils.loading(this.$t("messages.fetching_location"), 0, toastKey);
-                    try {
-                        const pos = await getAndroidPosition();
-                        this.newMessageTelemetry = {
-                            latitude: pos.latitude,
-                            longitude: pos.longitude,
-                            altitude: pos.altitude || 0,
-                            speed: (pos.speed || 0) * 3.6, // m/s to km/h
-                            bearing: pos.bearing || 0,
-                            accuracy: pos.accuracy || 0,
-                            last_update: Math.floor(pos.time ? pos.time / 1000 : Date.now() / 1000),
-                        };
-                        this.sendMessage();
-                        ToastUtils.success(this.$t("messages.location_sent"), 3000, toastKey);
-                    } catch (err) {
-                        const key =
-                            err?.code === "permission_denied"
-                                ? "messages.location_permission_denied"
-                                : err?.code === "location_disabled"
-                                  ? "messages.location_service_off"
-                                  : "messages.location_failed";
-                        ToastUtils.show(this.$t(key), "error", 8000, toastKey, this.locationSettingsToastAction());
-                    }
-                    return;
-                }
-
-                if (!navigator.geolocation) {
-                    DialogUtils.alert(this.$t("map.geolocation_not_supported"));
-                    return;
-                }
 
                 ToastUtils.loading(this.$t("messages.fetching_location"), 0, toastKey);
+                const deadline = Date.now() + minutes * 60_000;
+                const fix = await readPrivateLocation(source, this.config);
+                if (!sameConversation() || document.hidden) {
+                    ToastUtils.info(this.$t("messages.location_share_chat_changed"), 5000, toastKey);
+                    return;
+                }
+                await sendFix(fix);
+                ToastUtils.success(this.$t("messages.location_queued"), 4000, toastKey);
 
-                navigator.geolocation.getCurrentPosition(
-                    (position) => {
-                        this.newMessageTelemetry = {
-                            latitude: position.coords.latitude,
-                            longitude: position.coords.longitude,
-                            altitude: position.coords.altitude || 0,
-                            speed: (position.coords.speed || 0) * 3.6, // m/s to km/h
-                            bearing: position.coords.heading || 0,
-                            accuracy: position.coords.accuracy || 0,
-                            last_update: Math.floor(Date.now() / 1000),
-                        };
-                        this.sendMessage();
-                        ToastUtils.success(this.$t("messages.location_sent"), 3000, toastKey);
-                    },
-                    () => {
-                        ToastUtils.show(
-                            this.$t("messages.location_failed"),
-                            "error",
-                            8000,
-                            toastKey,
-                            this.locationSettingsToastAction()
-                        );
-                    },
-                    {
-                        enableHighAccuracy: true,
-                        timeout: 30000,
-                        maximumAge: 0,
-                    }
-                );
-            } catch (e) {
-                console.log(e);
-                ToastUtils.error(`Error: ${e.message}`, 5000, toastKey);
+                if (minutes && sameConversation() && !document.hidden) {
+                    startPrivateLocationSession(sessionKey, name, {
+                        deadline,
+                        firstFix: fix,
+                        getFix: () => readPrivateLocation(source, configStore.config),
+                        sendFix,
+                        isCurrent: () => {
+                            const config = configStore.config;
+                            return (
+                                (config?.identity_hash || config?.lxmf_address_hash || "_") === identity &&
+                                config?.location_source === source &&
+                                !identityStore.blockedDestinations.some(
+                                    (row) => row.destination_hash === destinationHash
+                                )
+                            );
+                        },
+                    });
+                }
+            } catch (err) {
+                const key =
+                    err?.code === "permission_denied" || err?.code === 1
+                        ? "messages.location_permission_denied"
+                        : err?.code === "location_disabled"
+                          ? "messages.location_service_off"
+                          : "messages.location_failed";
+                ToastUtils.show(this.$t(key), "error", 8000, toastKey, this.locationSettingsToastAction());
+            } finally {
+                this.sharingLocation = false;
             }
         },
         async requestLocation() {
@@ -6874,7 +6922,28 @@ export default {
                 ToastUtils.error(`Failed to send command/request: ${e.message}`);
             }
         },
-        viewLocationOnMap(location) {
+        async viewChatLocation() {
+            const peer = this.selectedPeer;
+            const epoch = this.locationShareEpoch;
+            if (!peer) return;
+            try {
+                const { data } = await getLocationHistory(peer.destination_hash);
+                if (
+                    this._unmounted ||
+                    epoch !== this.locationShareEpoch ||
+                    !this._hexEqual(this.selectedPeer?.destination_hash, peer.destination_hash)
+                )
+                    return;
+                const location = (data.telemetry || [])
+                    .map((row) => row.telemetry?.location)
+                    .find((fix) => Number.isFinite(fix?.latitude) && Number.isFinite(fix?.longitude));
+                if (location) this.viewLocationOnMap(location, peer.custom_display_name || peer.display_name);
+                else ToastUtils.info(this.$t("messages.no_saved_chat_location"));
+            } catch {
+                ToastUtils.error(this.$t("messages.chat_location_load_failed"));
+            }
+        },
+        viewLocationOnMap(location, label) {
             // navigate to map and center on location
             this.$router.push({
                 name: "map",
@@ -6882,6 +6951,7 @@ export default {
                     lat: location.latitude,
                     lon: location.longitude,
                     zoom: 15,
+                    ...(label ? { label } : {}),
                 },
             });
         },

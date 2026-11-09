@@ -103,8 +103,8 @@ export const CORE_NAV_ENTRIES: NavEntry[] = [
         id: "interfaces",
         route: { name: "interfaces" },
         icon: "router",
-        labelKey: "app.interfaces",
-        navTier: "primary",
+        labelKey: "app.rns_interfaces",
+        navTier: "more",
         group: "app",
     },
     {
@@ -112,7 +112,7 @@ export const CORE_NAV_ENTRIES: NavEntry[] = [
         route: { name: "tools" },
         icon: "wrench",
         labelKey: "app.tools",
-        navTier: "primary",
+        navTier: "more",
         group: "app",
     },
     {
@@ -120,7 +120,7 @@ export const CORE_NAV_ENTRIES: NavEntry[] = [
         route: { name: "settings" },
         icon: "cog",
         labelKey: "app.settings",
-        navTier: "primary",
+        navTier: "more",
         group: "app",
     },
     {

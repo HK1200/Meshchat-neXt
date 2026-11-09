@@ -57,7 +57,7 @@ async def test_only_verified_login_saved_and_storage_failure_preserves_login():
     result = await nodes.login(PEER, "secret", remember=True)
     assert result["password_saved"] is True
     await nodes.login(PEER, use_saved_role="admin")
-    nodes._exchange.assert_awaited_with(PEER, "login", "secret", room_only=False)
+    nodes._exchange.assert_awaited_with(PEER, "login", "secret", contact_kinds=(2, 3))
     vault.save = lambda *args: (_ for _ in ()).throw(RuntimeError("do not disclose"))
     result = await nodes.login(PEER, "secret", remember=True)
     assert result["state"] == "verified" and result["password_saved"] is False

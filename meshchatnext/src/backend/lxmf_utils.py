@@ -230,15 +230,12 @@ def is_user_facing_lxmf_payload(fields, content, title) -> bool:
 
     Messages that should NOT raise the notification bell:
       - reaction-only payloads (FIELD_REACTION with no body or attachments)
-      - bare telemetry updates with no coordinates, no stream, and no
-        Sideband location-request command (FIELD_TELEMETRY body-only noise)
+      - telemetry-only updates, including coordinates and streams
       - icon-only / appearance-only updates (no body, no attachment)
       - empty pings (no content, no title, no attachment)
 
-    Location shares (telemetry including location), telemetry streams,
-    Sideband commands entries with key 0x01 (location request), and
-    reaction hybrids that also carry body or attachments ARE treated as
-    user-facing so the bell and previews stay informative.
+    Sideband location requests and messages with a body or attachments
+    remain user-facing.
 
     The helper is intentionally tolerant: fields may be the rich dict
     produced by convert_lxmf_message_to_dict (string keys), the raw
@@ -332,16 +329,6 @@ def is_user_facing_lxmf_payload(fields, content, title) -> bool:
         return True
     raw_files = fields.get(LXMF_FILE_ATTACHMENTS_FIELD)
     if isinstance(raw_files, list) and len(raw_files) > 0:
-        return True
-
-    telemetry = fields.get("telemetry")
-    if isinstance(telemetry, dict):
-        loc = telemetry.get("location")
-        if isinstance(loc, dict) and loc:
-            return True
-
-    ts = fields.get("telemetry_stream")
-    if isinstance(ts, list) and len(ts) > 0:
         return True
 
     commands = fields.get("commands")

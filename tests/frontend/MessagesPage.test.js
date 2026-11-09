@@ -102,7 +102,12 @@ describe("MessagesPage.vue", () => {
         const wrapper = mountMessagesPage();
         await wrapper.find('button[title="app.compose"]').trigger("click");
         const dialog = wrapper.find('[role="dialog"]');
-        await dialog
+        const meshcore = dialog.get('section[aria-labelledby="compose-meshcore"]');
+        const reticulum = dialog.get('section[aria-labelledby="compose-reticulum"]');
+        expect(meshcore.get("h4").text()).toBe("MeshCore");
+        expect(reticulum.get("h4").text()).toBe("Reticulum");
+        expect(reticulum.get("#mobile-compose-destination").exists()).toBe(true);
+        await meshcore
             .findAll("button")
             .find((button) => button.text() === "MeshCore contacts")
             .trigger("click");
@@ -501,7 +506,7 @@ describe("MessagesPage.vue", () => {
         expect(convCalls).toHaveLength(0);
     });
 
-    it("sets sidebar preview i18n key for outbound telemetry location on lxmf_message_created", async () => {
+    it("keeps the sidebar preview unchanged for silent outbound telemetry", async () => {
         const destHash = "a".repeat(32);
         const wrapper = mountMessagesPage();
         await wrapper.vm.$nextTick();
@@ -533,7 +538,7 @@ describe("MessagesPage.vue", () => {
             }),
         });
 
-        expect(wrapper.vm.conversations[0].latest_message_preview).toBe("messages.conversation_location_share_you");
+        expect(wrapper.vm.conversations[0].latest_message_preview).toBe("old");
         const convCalls = axiosMock.get.mock.calls.filter((c) => c[0] === "/api/v1/lxmf/conversations");
         expect(convCalls).toHaveLength(0);
     });

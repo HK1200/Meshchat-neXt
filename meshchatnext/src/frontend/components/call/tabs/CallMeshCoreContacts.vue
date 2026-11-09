@@ -34,9 +34,12 @@
             <p class="text-xs text-sem-fg-muted">
                 Use the full 64-character MeshCore public key. This creates a separate MeshCore contact.
             </p>
-            <button type="submit" class="primary-chip" :disabled="!snapshot.connected || busy">
-                Save MeshCore contact
-            </button>
+            <div class="flex flex-wrap gap-2">
+                <button type="submit" class="primary-chip" :disabled="!snapshot.connected || busy">
+                    Save MeshCore contact
+                </button>
+                <button type="button" class="secondary-chip" @click="openDiscovery">Discover contacts</button>
+            </div>
         </form>
         <div v-if="!discovery" class="flex gap-2 text-sm" role="group" aria-label="MeshCore contact source">
             <button type="button" class="secondary-chip" :aria-pressed="!showDiscovery" @click="showDiscovery = false">
@@ -127,6 +130,11 @@ async function add(contact) {
     } finally {
         busy.value = "";
     }
+}
+function openDiscovery() {
+    showAdd.value = false;
+    showDiscovery.value = true;
+    search.value = "";
 }
 function addManual() {
     return add({ peer: key.value.trim(), name: name.value.trim() });

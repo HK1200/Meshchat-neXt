@@ -338,6 +338,37 @@ class MessageDAO:
             f"THEN lxmf_messages.{field} ELSE EXCLUDED.{field} END"
         )
 
+    # Keep telemetry history in lxmf_messages without treating a map update as
+    # the latest chat. A delivery with a caption or attachment is still a chat.
+    _TELEMETRY_ONLY_SQL = """
+        COALESCE(has_telemetry, 0) = 1
+        AND trim(COALESCE(content, ''), char(9, 10, 11, 12, 13, 32)) = ''
+        AND trim(COALESCE(title, ''), char(9, 10, 11, 12, 13, 32)) = ''
+        AND COALESCE(has_image, 0) = 0
+        AND COALESCE(has_audio, 0) = 0
+        AND COALESCE(has_files, 0) = 0
+        AND NOT EXISTS (
+            SELECT 1 FROM json_each(
+                CASE WHEN json_valid(fields_meta) THEN fields_meta ELSE '{}' END,
+                '$.commands'
+            ) AS command
+            WHERE command.type = 'object' AND command.value -> '0x01' IS NOT NULL
+        )
+    """
+
+    def refresh_telemetry_conversation_summaries(self):
+        rows = self.provider.fetchall(
+            f"""
+            SELECT peer_hash FROM lxmf_messages
+            WHERE id IN (
+                SELECT latest_message_id FROM lxmf_conversation_summaries
+                WHERE has_telemetry = 1
+            ) AND ({self._TELEMETRY_ONLY_SQL})
+            """,
+        )
+        for row in rows:
+            self.refresh_conversation_summary(row["peer_hash"])
+
     def refresh_conversation_summary(self, peer_hash):
         """Rebuild the materialized list row for one peer.
 
@@ -350,7 +381,7 @@ class MessageDAO:
         if not peer_hash:
             return
         row = self.provider.fetchone(
-            """
+            f"""
             SELECT
                 id, hash, source_hash, destination_hash, peer_hash, state, progress,
                 is_incoming, title,
@@ -362,7 +393,7 @@ class MessageDAO:
                 COALESCE(has_reaction, 0) AS has_reaction,
                 COALESCE(has_telemetry, 0) AS has_telemetry
             FROM lxmf_messages
-            WHERE peer_hash = ?
+            WHERE peer_hash = ? AND NOT ({self._TELEMETRY_ONLY_SQL})
             ORDER BY id DESC
             LIMIT 1
             """,
