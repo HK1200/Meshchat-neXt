@@ -192,6 +192,8 @@ ignore = [
 parallel = true
 
 [tool.mutmut]
+# Keep Hypothesis test state from stats collection out of later pytest runs.
+process_isolation = "forkserver"
 paths_to_mutate = ["meshchatnext/src/backend/"]
 # Packaged source payloads must keep their original bytes. The changed-module
 # mutation job already excludes /data/ from its targets.

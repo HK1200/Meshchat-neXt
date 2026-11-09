@@ -215,6 +215,7 @@ def test_backend_runner_reads_actual_mutmut_json_export(tmp_path, survivors, suc
         'shift; exec "$TEST_PYTHON" "$@"\n'
     )
     uv.chmod(0o700)
+    report_path = tmp_path / "mutmut-cicd-stats.json"
     result = subprocess.run(
         ["bash", str(scripts / "mutation-backend.sh")],
         cwd=tmp_path,
@@ -223,12 +224,13 @@ def test_backend_runner_reads_actual_mutmut_json_export(tmp_path, survivors, suc
             "PATH": str(binary) + os.pathsep + os.environ["PATH"],
             "TEST_PYTHON": sys.executable,
             "MUTMUT_MIN_SCORE": "50",
+            "MUTMUT_STATS_FILE": str(report_path),
         },
         capture_output=True,
         text=True,
     )
     assert (result.returncode == 0) == success, result.stdout + result.stderr
-    report = json.loads((tmp_path / "mutmut-cicd-stats.json").read_text())
+    report = json.loads(report_path.read_text())
     assert report["killed"] == 1
     assert report["survived"] == survivors
 

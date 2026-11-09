@@ -151,6 +151,9 @@ def main():
     )
     dependencies = link[link.index("libbaresip.a") :]
     dependencies[0] = str(work / "baresip-build/libbaresip.a")
+    # Match libre's thread API so its headers use the same types as the library.
+    re_cache = (work / "re-build/CMakeCache.txt").read_text().splitlines()
+    thread_defines = ["-DHAVE_THREADS"] if "HAVE_THREADS:BOOL=ON" in re_cache else []
     run(
         [
             "cc",
@@ -159,6 +162,7 @@ def main():
             "-Wextra",
             "-Werror",
             "-Wl,--wrap=socket",
+            *thread_defines,
             "-I" + str(work / "re-4.12.0/include"),
             "-I" + str(work / "baresip-4.12.0/include"),
             ROOT / "native/sip/desktop_sip.c",
