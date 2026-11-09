@@ -23,6 +23,7 @@ import android.os.Looper;
 import android.os.PowerManager;
 import android.content.IntentFilter;
 import android.provider.Settings;
+import android.view.View;
 import android.view.WindowManager;
 import android.webkit.CookieManager;
 import android.webkit.GeolocationPermissions;
@@ -50,7 +51,10 @@ import androidx.appcompat.app.AlertDialog;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.core.content.FileProvider;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
 import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
 import androidx.appcompat.app.AppCompatActivity;
@@ -209,9 +213,21 @@ public class MainActivity extends AppCompatActivity {
         );
         getTheme().applyStyle(R.style.OptOutEdgeToEdgeEnforcement, false);
         super.onCreate(savedInstanceState);
-        WindowCompat.setDecorFitsSystemWindows(getWindow(), true);
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+        getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         try {
             setContentView(R.layout.activity_main);
+            View content = findViewById(R.id.mainContent);
+            ViewCompat.setOnApplyWindowInsetsListener(content, (view, insets) -> {
+                Insets safe = insets.getInsets(
+                    WindowInsetsCompat.Type.systemBars()
+                        | WindowInsetsCompat.Type.displayCutout()
+                        | WindowInsetsCompat.Type.ime()
+                );
+                view.setPadding(safe.left, safe.top, safe.right, safe.bottom);
+                return WindowInsetsCompat.CONSUMED;
+            });
+            ViewCompat.requestApplyInsets(content);
         } catch (Throwable layoutError) {
             // WebView inflation throws when the provider is missing, disabled,
             // or mid-update (Vanadium/System WebView). Show a readable error

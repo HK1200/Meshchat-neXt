@@ -7,6 +7,7 @@ import GlobalEmitter from "@/js/GlobalEmitter";
 import * as TranslationService from "@/js/TranslationService.js";
 import { useConfigStore } from "@/js/stores/configStore";
 import { useIdentityStore } from "@/js/stores/identityStore";
+import { privateLocationSessions, stopAllPrivateLocationSessions } from "@/js/timedPrivateLocation.js";
 import { clickOutsideDirective } from "@/libs/clickOutside.js";
 
 vi.mock("@/js/TranslationService.js", () => ({
@@ -652,7 +653,7 @@ describe("ConversationViewer.vue button interactions", () => {
             sendSpy.mockRestore();
         });
 
-        it("shareLocation with manual coordinates sets telemetry and calls sendMessage", async () => {
+        it("shares location privately with the confirmed peer and keeps the draft", async () => {
             const wrapper = mountViewer({
                 config: {
                     location_source: "manual",
@@ -661,15 +662,42 @@ describe("ConversationViewer.vue button interactions", () => {
                     location_manual_alt: "9",
                 },
             });
-            const sendSpy = vi.spyOn(wrapper.vm, "sendMessage").mockResolvedValue(undefined);
+            wrapper.vm.newMessageText = "An unsent draft";
             await wrapper.vm.shareLocation();
-            expect(sendSpy).toHaveBeenCalled();
-            expect(wrapper.vm.newMessageTelemetry).toMatchObject({
-                latitude: 12.34,
-                longitude: 56.78,
-                altitude: 9,
+            expect(DialogUtils.confirm).toHaveBeenCalled();
+            expect(axiosMock.post).toHaveBeenCalledWith("/api/v1/lxmf-messages/send", {
+                lxmf_message: {
+                    destination_hash: "a".repeat(32),
+                    content: "",
+                    fields: {
+                        telemetry: expect.objectContaining({
+                            location: expect.objectContaining({ latitude: 12.34, longitude: 56.78, altitude: 9 }),
+                        }),
+                    },
+                },
             });
-            sendSpy.mockRestore();
+            expect(wrapper.vm.newMessageText).toBe("An unsent draft");
+        });
+
+        it("keeps an explicitly started share after leaving its chat", async () => {
+            const config = {
+                identity_hash: "c".repeat(32),
+                location_source: "manual",
+                location_manual_lat: "12.34",
+                location_manual_lon: "56.78",
+            };
+            useConfigStore().config = config;
+            const wrapper = mountViewer({ config });
+            try {
+                await wrapper.vm.shareLocation(15);
+                expect(privateLocationSessions.size).toBe(1);
+                wrapper.unmount();
+                expect(privateLocationSessions.size).toBe(1);
+                privateLocationSessions.values().next().value.stop();
+                expect(privateLocationSessions.size).toBe(0);
+            } finally {
+                stopAllPrivateLocationSessions();
+            }
         });
 
         it("openConversationPopout opens a popout URL with the peer hash", () => {

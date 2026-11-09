@@ -135,8 +135,9 @@ describe("registerCoreContributions", () => {
 
     it("demotes secondary nav entries to the more tier", () => {
         const moreIds = CORE_NAV_ENTRIES.filter((entry) => entry.navTier === "more").map((entry) => entry.id);
-        expect(moreIds).toEqual(expect.arrayContaining(["archives", "blocked", "identities", "about"]));
-        expect(moreIds).not.toContain("interfaces");
+        expect(moreIds).toEqual(
+            expect.arrayContaining(["archives", "blocked", "identities", "about", "interfaces", "tools", "settings"])
+        );
         expect(moreIds).not.toContain("network-visualiser");
         const primaryIds = CORE_NAV_ENTRIES.filter((entry) => entry.navTier === "primary").map((entry) => entry.id);
         expect(primaryIds).toEqual(
@@ -147,13 +148,10 @@ describe("registerCoreContributions", () => {
                 "nomadnetwork",
                 "map",
                 "network-visualiser",
-                "interfaces",
-                "tools",
-                "settings",
             ])
         );
         const interfaces = CORE_NAV_ENTRIES.find((entry) => entry.id === "interfaces");
-        expect(interfaces).toMatchObject({ navTier: "primary", group: "app" });
+        expect(interfaces).toMatchObject({ navTier: "more", group: "app", labelKey: "app.rns_interfaces" });
         const visualiser = CORE_NAV_ENTRIES.find((entry) => entry.id === "network-visualiser");
         expect(visualiser).toMatchObject({ navTier: "primary", group: "explore" });
     });

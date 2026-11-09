@@ -378,8 +378,16 @@
 
                 <!-- conversations -->
                 <div class="flex flex-col h-full min-h-0">
-                    <div class="shrink-0 max-h-[40%] overflow-y-auto"><slot name="network-conversations" /></div>
-                    <div v-if="isLoading" class="w-full p-3 space-y-3">
+                    <div class="overflow-y-auto" :class="appFeatures.reticulum ? 'shrink-0 max-h-[40%]' : 'min-h-0'">
+                        <slot name="network-conversations" />
+                    </div>
+                    <h3
+                        v-if="appFeatures.reticulum"
+                        class="shrink-0 border-t-2 border-sem-border bg-sem-surface px-3 py-2 text-sm font-bold text-sem-fg"
+                    >
+                        Reticulum
+                    </h3>
+                    <div v-if="appFeatures.reticulum && isLoading" class="w-full p-3 space-y-3">
                         <div v-for="n in 6" :key="'conv-skel-' + n" class="flex items-center gap-3">
                             <Skeleton variant="avatar" />
                             <div class="flex-1 space-y-2 min-w-0">
@@ -389,7 +397,10 @@
                         </div>
                         <LoadingState :message="$t('messages.loading_conversations')" root-class="py-4" />
                     </div>
-                    <div v-else-if="displayedConversations.length > 0" class="w-full flex-1 min-h-0">
+                    <div
+                        v-else-if="appFeatures.reticulum && displayedConversations.length > 0"
+                        class="w-full flex-1 min-h-0"
+                    >
                         <SidebarVirtualList
                             v-if="displayedConversations.length >= MIN_VIRTUAL_SIDEBAR_ITEMS"
                             class="h-full"
@@ -793,7 +804,7 @@
                             <MaterialDesignIcon icon-name="loading" class="size-6 animate-spin text-sem-fg-muted" />
                         </div>
                     </div>
-                    <div v-else class="mx-auto mt-3 w-full text-center leading-5 px-3">
+                    <div v-else-if="appFeatures.reticulum" class="mx-auto mt-3 w-full text-center leading-5 px-3">
                         <LoadingState v-if="isLoading" :message="$t('messages.loading_conversations')" />
 
                         <EmptyState

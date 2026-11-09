@@ -764,7 +764,8 @@
         "ui_font_jetbrains_mono": "JetBrains Mono",
         "ui_font_ibm_plex_sans": "IBM Plex Sans",
         "ui_font_space_grotesk": "Space Grotesk",
-        "nav_reorder_sidebar": "Изменить порядок боковой панели"
+        "nav_reorder_sidebar": "Изменить порядок боковой панели",
+        "rns_interfaces": "RNS Interfaces"
     },
     "helptips": {
         "title_send_failed": "Что можно попробовать",
@@ -2470,7 +2471,26 @@
         "filters_custom_query": "напр. семья, мама, a1b2c3",
         "filters_custom_add": "Добавить фильтр",
         "filters_custom_remove": "Удалить свой фильтр",
-        "translate_auto_conversation": "Auto-translate this conversation"
+        "translate_auto_conversation": "Auto-translate this conversation",
+        "compose_hint_mobile": "Message",
+        "share_location_once": "Share my location once",
+        "share_location_once_confirm": "Share your current location privately with {name} once? It will appear on their map if they allow location sharing.",
+        "share_location_timed_confirm": "Share your location privately with {name} for up to {minutes} minutes? Sharing continues as you use neXt and stops if you put the app in the background.",
+        "location_share_duration": "Location sharing duration",
+        "location_share_once_option": "One time",
+        "location_share_15": "15 minutes",
+        "location_share_60": "60 minutes",
+        "location_start_sharing": "Start sharing",
+        "location_stop_sharing": "Stop sharing",
+        "location_sharing_active": "Sharing location",
+        "location_sharing_with": "Sharing location with {name}",
+        "view_chat_location": "View on map",
+        "no_saved_chat_location": "This contact has no saved location yet.",
+        "chat_location_load_failed": "Could not load this contact’s location.",
+        "location_sharing_stopped": "Location sharing stopped",
+        "location_sharing_interrupted": "Location sharing stopped because an update could not be sent",
+        "location_share_chat_changed": "The chat changed. Your location was not shared.",
+        "location_queued": "Location queued to send"
     },
     "settings": {
         "tabs": {
@@ -2487,7 +2507,9 @@
             "maintenance": "Обслуживание",
             "maintenance_desc": "Очистка, экспорт, импорт и источники",
             "plugins": "Плагины",
-            "plugins_desc": "Установка и управление плагинами Meshchat neXt"
+            "plugins_desc": "Установка и управление плагинами Meshchat neXt",
+            "family": "neXt Family",
+            "family_desc": "Private location sharing"
         },
         "nav_label": "Разделы настроек",
         "nav_mode_label": "Режим настроек",
@@ -2652,7 +2674,14 @@
         "no_search_results": "Настройки по вашему запросу не найдены",
         "try_different_search": "Попробуйте изменить поисковый запрос",
         "clear_search": "Очистить поиск",
-        "archived_pages_flush_failed": "Не удалось очистить архивные страницы"
+        "archived_pages_flush_failed": "Не удалось очистить архивные страницы",
+        "family_intro": "Share your location privately with people using neXt Family.",
+        "family_active_shares": "Active location shares",
+        "family_no_shares": "You are not sharing your location.",
+        "family_how_to_share": "Open a direct chat to share once or start a timed session. In MeshCore, expand Share my location to manage that contact’s permissions.",
+        "family_guardian": "Approve contacts and location sharing in Guardian settings on the Family device.",
+        "family_open_chats": "Open chats",
+        "family_open_map": "Open map"
     },
     "debug": {
         "title": "Журнал отладки",

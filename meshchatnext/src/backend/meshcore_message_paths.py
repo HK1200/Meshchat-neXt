@@ -86,6 +86,13 @@ def describe_paths(row, observations, announces, positions, *, owner, kind, targ
         )
     # Firmware queue metadata survives when a full RX packet was unavailable.
     hops = event.get("path_len")
+    # Even the smallest unscoped DM frame is 2 bytes of header, 4 bytes of
+    # encrypted envelope, and AES-padded timestamp, flags and text.
+    repeat_log_oversize = False
+    if kind == "direct" and row["direction"] == "out" and row.get("heard_repeats") == 0:
+        plaintext_bytes = 5 + len(row["text"].encode("utf-8"))
+        padded_bytes = (plaintext_bytes + 15) // 16 * 16
+        repeat_log_oversize = 2 + 4 + padded_bytes > 173
     return {
         "owner": owner,
         "kind": kind,
@@ -94,6 +101,8 @@ def describe_paths(row, observations, announces, positions, *, owner, kind, targ
         "direction": row["direction"],
         "state": row["state"],
         "heard_repeats": row.get("heard_repeats"),
+        "repeat_log_oversize": repeat_log_oversize,
+        "sent_route": row.get("sent_route"),
         "reported_hops": hops if type(hops) is int and 0 <= hops <= 63 else None,
         "direct_routing": hops == 255,
         "snr": event.get("SNR"),

@@ -17,6 +17,8 @@ from meshchatnext.src.backend.meshcore_store import public_key
 
 
 class MeshCoreMessaging:
+    DIRECT_ROUTE_MAX_AGE = 300
+
     def __init__(self, session, store, *, event_types=None):
         self.session = session
         self.store = store
@@ -43,6 +45,8 @@ class MeshCoreMessaging:
         self._channel_keys = {}
         self._repeat_private = None
         self._repeat_export_disabled = False
+        self._direct_routes = {}
+        self._flood_retries = set()
 
     def _check(self):
         if self._failure is not None:
@@ -84,6 +88,11 @@ class MeshCoreMessaging:
                         self._types.MESSAGES_WAITING, self._on_waiting
                     ),
                 ]
+                path_type = getattr(self._types, "PATH_UPDATE", None)
+                if path_type is not None:
+                    self._subscriptions.append(
+                        self._client.subscribe(path_type, self._on_path_update)
+                    )
                 log_type = getattr(self._types, "RX_LOG_DATA", None)
                 if log_type is not None:
                     from meshchatnext.src.backend.meshcore_repeats import RepeatTracker
@@ -221,7 +230,7 @@ class MeshCoreMessaging:
             self._repeat_tracker = None
             self._repeat_private = None
 
-    async def _track_direct_repeat(self, row):
+    async def _track_direct_repeat(self, row, attempt=0):
         if self._repeat_tracker is None or self._repeat_export_disabled:
             return
         try:
@@ -247,6 +256,7 @@ class MeshCoreMessaging:
                 row["peer"],
                 row["timestamp"],
                 row["text"],
+                attempt=attempt,
             )
             await self._track_repeat("direct", row["id"], packet)
         except Exception:
@@ -289,6 +299,73 @@ class MeshCoreMessaging:
                         await asyncio.to_thread(
                             self.store.touch_announce, self.owner, peer, heard
                         )
+
+    def _on_path_update(self, event):
+        try:
+            peer = public_key(event.payload.get("public_key"))
+        except ValueError:
+            return
+        self._direct_routes[peer] = time.monotonic()
+
+    async def _reset_direct_path(self, peer):
+        self._direct_routes.pop(peer, None)
+        result = await self._client.commands.reset_path(peer)
+        if result is None or result.type != self._types.OK:
+            raise ConnectionError("The companion did not confirm flood routing")
+
+    @staticmethod
+    def _send_receipt(event):
+        ack = event.payload["expected_ack"]
+        if not isinstance(ack, bytes) or len(ack) != 4:
+            raise ValueError("Invalid companion receipt token")
+        timeout = float(event.payload["suggested_timeout"]) / 1000
+        if not 0 <= timeout <= 86400:
+            raise ValueError("Invalid companion receipt timeout")
+        route = {0: "direct", 1: "flood"}.get(event.payload.get("type"))
+        return ack.hex(), max(5, timeout * 1.2), route
+
+    async def _retry_on_flood(self, row, timeout):
+        # Keep the first timestamp and request ID. The attempt changes the
+        # packet and receipt token while the recipient can deduplicate the text.
+        await asyncio.sleep(timeout)
+        async with self.session._lock:
+            try:
+                self._check()
+                peer, text, request_id = row["peer"], row["text"], row["id"]
+                current = await asyncio.to_thread(
+                    self.store.send_result, self.owner, peer, text, request_id
+                )
+                if current["state"] not in ("accepted", "unconfirmed"):
+                    return
+                await asyncio.to_thread(
+                    self.store.require_chat_contact, self.owner, peer
+                )
+                await self._track_direct_repeat(row, attempt=1)
+                await self._reset_direct_path(peer)
+                current = await asyncio.to_thread(
+                    self.store.send_result, self.owner, peer, text, request_id
+                )
+                if current["state"] == "delivered":
+                    return
+                event = await self._client.commands.send_msg(
+                    peer, text, timestamp=row["timestamp"], attempt=1
+                )
+                if event is not None and event.type == self._types.MSG_SENT:
+                    ack, wait, route = self._send_receipt(event)
+                    await asyncio.to_thread(
+                        self.store.result,
+                        self.owner,
+                        request_id,
+                        "accepted",
+                        ack,
+                        wait,
+                        route="direct_then_flood" if route == "flood" else route,
+                        retry=True,
+                    )
+            except Exception:
+                # The first attempt remains in history with its receipt token.
+                # An unconfirmed fallback is never submitted a second time.
+                return
 
     def _on_ack(self, event):
         if self._failure is not None:
@@ -442,24 +519,36 @@ class MeshCoreMessaging:
             try:
                 if not room:
                     await self._track_direct_repeat(row)
+                    learned = self._direct_routes.get(row["peer"])
+                    if (
+                        learned is None
+                        or time.monotonic() - learned > self.DIRECT_ROUTE_MAX_AGE
+                    ):
+                        try:
+                            await self._reset_direct_path(row["peer"])
+                        except Exception:
+                            return await asyncio.to_thread(
+                                self.store.result, self.owner, request_id, "rejected"
+                            )
                 event = await self._client.commands.send_msg(
                     peer, text, timestamp=row["timestamp"], attempt=0
                 )
                 if event is not None and event.type == self._types.MSG_SENT:
-                    ack = event.payload["expected_ack"]
-                    if not isinstance(ack, bytes) or len(ack) != 4:
-                        raise ValueError("Invalid companion receipt token")
-                    timeout = float(event.payload["suggested_timeout"]) / 1000
-                    if not 0 <= timeout <= 86400:
-                        raise ValueError("Invalid companion receipt timeout")
-                    return await asyncio.to_thread(
+                    ack, timeout, route = self._send_receipt(event)
+                    result = await asyncio.to_thread(
                         self.store.result,
                         self.owner,
                         request_id,
                         "accepted",
-                        ack.hex(),
-                        max(5, timeout * 1.2),
+                        ack,
+                        timeout,
+                        route=route,
                     )
+                    if not room and route == "direct" and result["state"] == "accepted":
+                        retry = asyncio.create_task(self._retry_on_flood(row, timeout))
+                        self._flood_retries.add(retry)
+                        retry.add_done_callback(self._flood_retries.discard)
+                    return result
                 # Firmware numeric rejection proves no packet was accepted. A timeout
                 # or local transport error cannot establish whether it transmitted.
                 rejected = (
@@ -735,6 +824,12 @@ class MeshCoreMessaging:
         for subscription in self._subscriptions:
             subscription.unsubscribe()
         self._subscriptions.clear()
+        retries = tuple(self._flood_retries)
+        for retry in retries:
+            retry.cancel()
+        if retries:
+            await asyncio.gather(*retries, return_exceptions=True)
+        self._direct_routes.clear()
         with contextlib.suppress(Exception):
             await self._flush_repeats()
         if self._failure is None:

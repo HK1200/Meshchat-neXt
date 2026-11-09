@@ -161,6 +161,14 @@ class MeshCoreStore(PrivateLocationStore):
                 if "heard_repeats" not in message_columns:
                     db.execute(f"ALTER TABLE {table} ADD COLUMN heard_repeats INTEGER")
 
+            message_columns = {
+                row[1] for row in db.execute("PRAGMA table_info(messages)")
+            }
+            if "prior_ack" not in message_columns:
+                db.execute("ALTER TABLE messages ADD COLUMN prior_ack TEXT")
+            if "sent_route" not in message_columns:
+                db.execute("ALTER TABLE messages ADD COLUMN sent_route TEXT")
+
             columns = {
                 row[1] for row in db.execute("PRAGMA table_info(channel_preferences)")
             }
@@ -349,6 +357,23 @@ class MeshCoreStore(PrivateLocationStore):
                 return dict(row)
         return None
 
+    @staticmethod
+    def _require_chat_contact(db, owner, peer, kind):
+        candidates = db.execute(
+            "SELECT peer,kind FROM contacts WHERE owner=? AND active=1 AND substr(peer,1,12)=?",
+            (owner, peer[:12]),
+        ).fetchall()
+        if (
+            len(candidates) != 1
+            or candidates[0]["peer"] != peer
+            or candidates[0]["kind"] != kind
+        ):
+            raise ValueError("Choose an unambiguous active chat contact")
+
+    def require_chat_contact(self, owner, peer):
+        with self._lock, self._connect() as db:
+            self._require_chat_contact(db, owner, public_key(peer), 1)
+
     def prepare_send(
         self, owner, peer, text, request_id, *, room=False, timestamp_floor=0
     ):
@@ -374,16 +399,7 @@ class MeshCoreStore(PrivateLocationStore):
                 ):
                     raise ValueError("Message request ID has already been used")
                 return dict(existing), False
-            candidates = db.execute(
-                "SELECT peer,kind FROM contacts WHERE owner=? AND active=1 AND substr(peer,1,12)=?",
-                (owner, peer[:12]),
-            ).fetchall()
-            if (
-                len(candidates) != 1
-                or candidates[0]["peer"] != peer
-                or candidates[0]["kind"] != (3 if room else 1)
-            ):
-                raise ValueError("Choose an unambiguous active chat contact")
+            self._require_chat_contact(db, owner, peer, 3 if room else 1)
             row = db.execute(
                 "SELECT stamp FROM clocks WHERE owner=? AND peer=?", (owner, peer)
             ).fetchone()
@@ -406,14 +422,30 @@ class MeshCoreStore(PrivateLocationStore):
                 ).fetchone()
             ), True
 
-    def result(self, owner, message_id, state, ack=None, timeout=None):
+    def result(
+        self,
+        owner,
+        message_id,
+        state,
+        ack=None,
+        timeout=None,
+        *,
+        route=None,
+        retry=False,
+    ):
         with self._lock, self._connect() as db:
             db.execute(
-                "UPDATE messages SET state=?,ack=?,deadline=? WHERE owner=? AND id=?",
+                """UPDATE messages SET
+                    state=CASE WHEN state='delivered' THEN state ELSE ? END,
+                    prior_ack=CASE WHEN ? THEN ack ELSE prior_ack END,
+                    ack=?, deadline=?, sent_route=COALESCE(?, sent_route)
+                    WHERE owner=? AND id=?""",
                 (
                     state,
+                    retry,
                     ack,
                     time.time() + timeout if timeout is not None else None,
+                    route,
                     owner,
                     message_id,
                 ),
@@ -429,23 +461,29 @@ class MeshCoreStore(PrivateLocationStore):
     def _reconcile(db, owner):
         # A 32-bit receipt code is not globally unique. Do not guess on collisions.
         rows = db.execute(
-            "SELECT id,ack,created FROM messages WHERE owner=? AND ack IS NOT NULL AND state IN ('accepted','unconfirmed')",
+            """SELECT id,ack,prior_ack,created FROM messages
+               WHERE owner=? AND ack IS NOT NULL AND state IN ('accepted','unconfirmed')""",
             (owner,),
         ).fetchall()
         for row in rows:
-            count = db.execute(
-                "SELECT count(*) FROM messages WHERE owner=? AND ack=?",
-                (owner, row["ack"]),
-            ).fetchone()[0]
-            receipt = db.execute(
-                "SELECT 1 FROM receipts WHERE owner=? AND code=? AND received>=? LIMIT 1",
-                (owner, row["ack"], row["created"]),
-            ).fetchone()
-            if count == 1 and receipt:
-                db.execute(
-                    "UPDATE messages SET state='delivered' WHERE owner=? AND id=?",
-                    (owner, row["id"]),
-                )
+            for code in {row["ack"], row["prior_ack"]} - {None}:
+                receipt = db.execute(
+                    "SELECT 1 FROM receipts WHERE owner=? AND code=? AND received>=? LIMIT 1",
+                    (owner, code, row["created"]),
+                ).fetchone()
+                if (
+                    receipt
+                    and db.execute(
+                        "SELECT count(*) FROM messages WHERE owner=? AND (ack=? OR prior_ack=?)",
+                        (owner, code, code),
+                    ).fetchone()[0]
+                    == 1
+                ):
+                    db.execute(
+                        "UPDATE messages SET state='delivered' WHERE owner=? AND id=?",
+                        (owner, row["id"]),
+                    )
+                    break
 
     def receipt(self, owner, code, received):
         if not isinstance(code, str) or len(code) != 8 or len(bytes.fromhex(code)) != 4:

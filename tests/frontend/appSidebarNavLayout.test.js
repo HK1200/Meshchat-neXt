@@ -124,6 +124,24 @@ describe("appSidebarNavLayout", () => {
         ).toEqual(["messages", "call", "nomadnetwork", "contacts"]);
     });
 
+    it("moves the previous sidebar entries once without losing other placements", () => {
+        const placements = {
+            map: { group: "app", tier: "primary" },
+            interfaces: { group: "app", tier: "primary" },
+            tools: { group: "app", tier: "primary" },
+            settings: { group: "app", tier: "primary" },
+        };
+        localStorage.setItem(APP_SIDEBAR_NAV_LAYOUT_KEY, JSON.stringify({ version: 1, placements }));
+        const migrated = loadAppSidebarNavLayout();
+        expect(migrated.placements.map).toEqual(placements.map);
+        for (const id of ["interfaces", "tools", "settings"]) {
+            expect(migrated.placements[id].tier).toBe("more");
+        }
+        migrated.placements.settings.tier = "primary";
+        saveAppSidebarNavLayout(migrated);
+        expect(loadAppSidebarNavLayout().placements.settings.tier).toBe("primary");
+    });
+
     it("round-trips through localStorage", () => {
         const base = captureNavLayout(applyNavLayout(ITEMS, null).primaryGroups, applyNavLayout(ITEMS, null).moreItems);
         const moved = moveNavItem(base, "map", { type: "item", id: "nomadnetwork", position: "before" }, ITEMS);

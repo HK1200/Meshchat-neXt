@@ -198,10 +198,10 @@ describe("MeshCore node sessions", () => {
         });
         expect(wrapper.text()).toContain("Administrator login verified");
         await button("Restart server").trigger("click");
-        expect(button("Run server action").attributes("disabled")).toBeDefined();
+        expect(button("Confirm restart").attributes("disabled")).toBeDefined();
         await wrapper.find('[aria-label="MeshCore administrator controls"] input[type="checkbox"]').setValue(true);
         window.api.post.mockResolvedValueOnce({ data: { result: { state: "submitted", text: "Restart submitted" } } });
-        await button("Run server action").trigger("submit");
+        await button("Confirm restart").trigger("submit");
         await flushPromises();
         expect(window.api.post).toHaveBeenCalledWith(
             "/api/v1/meshcore/node-admin",
@@ -254,7 +254,46 @@ describe("MeshCore node sessions", () => {
         expect(wrapper.find('[aria-label="MeshCore server password"]').attributes("disabled")).toBeDefined();
     });
 
-    it("shows one recovery error and reconnects only MeshCore after an admin timeout", async () => {
+    it("runs firmware and repeat reads on tap and confirms repeat changes inline", async () => {
+        setup(2);
+        await wrapper.setProps({
+            snapshot: {
+                owner,
+                connected: true,
+                messages: [],
+                node_sessions: { [peer]: { state: "verified", is_admin: true } },
+            },
+        });
+        window.api.post.mockResolvedValueOnce({
+            data: { result: { state: "admin_response", text: "Version fixture" } },
+        });
+        await button("View firmware version").trigger("click");
+        await flushPromises();
+        expect(button("View firmware version").element.closest("details").textContent).toContain("Version fixture");
+        expect(window.api.post).toHaveBeenCalledExactlyOnceWith(
+            "/api/v1/meshcore/node-admin",
+            { peer, expected_owner: owner, action: "version", value: "", confirmed: false },
+            { timeout: 150000 }
+        );
+        window.api.post.mockResolvedValueOnce({ data: { result: { state: "admin_response", text: "> on" } } });
+        await button("View repeat setting").trigger("click");
+        await flushPromises();
+        expect(button("View repeat setting").element.closest("details").textContent).toContain("> on");
+        await button("Change repeat setting").trigger("click");
+        expect(window.api.post).toHaveBeenCalledTimes(2);
+        expect(button("Save repeat setting").attributes("disabled")).toBeDefined();
+        await wrapper.get('[aria-label="Repeater forwarding"]').setValue("off");
+        window.api.post.mockResolvedValueOnce({ data: { result: { state: "admin_response", text: "OK" } } });
+        await button("Save repeat setting").trigger("submit");
+        await flushPromises();
+        expect(window.api.post).toHaveBeenLastCalledWith(
+            "/api/v1/meshcore/node-admin",
+            { peer, expected_owner: owner, action: "set-repeat", value: "off", confirmed: false },
+            { timeout: 150000 }
+        );
+    });
+
+    it("allows another admin command without reconnecting after a timeout", async () => {
         setup();
         const snapshot = {
             owner,
@@ -264,22 +303,20 @@ describe("MeshCore node sessions", () => {
         };
         await wrapper.setProps({ snapshot });
         window.api.post.mockResolvedValueOnce({ data: { result: { state: "uncertain" } } });
-        await button("Run server action").trigger("submit");
+        await button("View firmware version").trigger("click");
         await flushPromises();
         expect(wrapper.findAll('[role="alert"]')).toHaveLength(1);
-        expect(button("Reconnect MeshCore")).toBeDefined();
-        window.api.get = vi.fn().mockResolvedValue({
-            data: { connection: { kind: "ble", target: "radio" }, receiving: true, auto_reconnect: true },
+        expect(button("Reconnect MeshCore")).toBeUndefined();
+        await wrapper.setProps({
+            snapshot: { ...snapshot, node_operations: { [peer]: { operation: "admin", stage: "server_timeout" } } },
         });
-        window.api.post.mockResolvedValue({ data: {} });
-        await button("Reconnect MeshCore").trigger("click");
+        window.api.post.mockResolvedValueOnce({
+            data: { result: { state: "admin_unverified_response", text: "> on" } },
+        });
+        await button("View firmware version").trigger("click");
         await flushPromises();
-        expect(window.api.post).toHaveBeenCalledWith("/api/v1/meshcore/disconnect", {});
-        expect(window.api.post).toHaveBeenCalledWith(
-            "/api/v1/meshcore/connect",
-            { kind: "ble", target: "radio", receive: true, auto_reconnect: true },
-            { timeout: 150000 }
-        );
+        expect(window.api.post).toHaveBeenCalledTimes(2);
+        expect(wrapper.text()).toContain("Unverified reply (may be from an earlier command): > on");
         expect(wrapper.findAll('[role="alert"]')).toHaveLength(0);
     });
 
@@ -300,9 +337,9 @@ describe("MeshCore node sessions", () => {
         await value.setValue("temporary");
         await confirm.setValue("different");
         await wrapper.find('[aria-label="MeshCore administrator controls"] input[type="checkbox"]').setValue(true);
-        expect(button("Run server action").attributes("disabled")).toBeDefined();
+        expect(button("Save room password").attributes("disabled")).toBeDefined();
         await confirm.setValue("temporary");
-        expect(button("Run server action").attributes("disabled")).toBeUndefined();
+        expect(button("Save room password").attributes("disabled")).toBeUndefined();
         let finish;
         window.api.post.mockImplementationOnce(
             () =>
@@ -310,7 +347,7 @@ describe("MeshCore node sessions", () => {
                     finish = resolve;
                 })
         );
-        await button("Run server action").trigger("submit");
+        await button("Save room password").trigger("submit");
         expect(value.element.value).toBe("");
         expect(confirm.element.value).toBe("");
         expect(window.api.post).toHaveBeenCalledWith(
@@ -323,7 +360,7 @@ describe("MeshCore node sessions", () => {
         expect(wrapper.text()).not.toContain("temporary");
         await value.setValue("x".repeat(16));
         await confirm.setValue("x".repeat(16));
-        expect(button("Run server action").attributes("disabled")).toBeDefined();
+        expect(button("Save room password").attributes("disabled")).toBeDefined();
         await wrapper.setProps({ node: { peer, kind: 2, name: "Repeater" } });
         expect(button("Change room password (non-administrator)")).toBeUndefined();
     });
@@ -339,12 +376,12 @@ describe("MeshCore node sessions", () => {
         };
         await wrapper.setProps({ snapshot });
         window.api.post.mockResolvedValueOnce({ data: { result: { state: "uncertain" } } });
-        await button("Run server action").trigger("submit");
+        await button("View firmware version").trigger("click");
         await flushPromises();
         expect(wrapper.findAll('[role="alert"]')).toHaveLength(1);
         await wrapper.setProps({ snapshot: { ...snapshot, connection_id: "second" } });
         expect(wrapper.findAll('[role="alert"]')).toHaveLength(0);
-        expect(button("Run server action").attributes("disabled")).toBeUndefined();
+        expect(button("View firmware version").attributes("disabled")).toBeUndefined();
     });
 
     it("does not turn an app-rejected admin request into a radio timeout", async () => {
@@ -358,11 +395,11 @@ describe("MeshCore node sessions", () => {
             },
         });
         window.api.post.mockRejectedValueOnce({ response: { status: 400 } });
-        await button("Run server action").trigger("submit");
+        await button("View firmware version").trigger("click");
         await flushPromises();
         expect(wrapper.text()).toContain("The app rejected this request");
         expect(button("Reconnect MeshCore")).toBeUndefined();
-        expect(button("Run server action").attributes("disabled")).toBeUndefined();
+        expect(button("View firmware version").attributes("disabled")).toBeUndefined();
     });
     it("discards an administrator response after switching the selected radio", async () => {
         setup(2);
@@ -381,7 +418,7 @@ describe("MeshCore node sessions", () => {
                     finish = resolve;
                 })
         );
-        await button("Run server action").trigger("submit");
+        await button("View firmware version").trigger("click");
         await wrapper.setProps({ snapshot: { ...snapshot, radio_id: "second" } });
         finish({ data: { result: { state: "admin_response", text: "Old radio private response" } } });
         await flushPromises();
@@ -406,6 +443,54 @@ describe("Task-based node navigation and room author names", () => {
         expect(panel("Node status").isVisible()).toBe(true);
         expect(panel("Room conversation").exists()).toBe(false);
     });
+    it("logs in to the selected repeater once and honors logout until the next visit", async () => {
+        setup(2);
+        const snapshot = { ...wrapper.props("snapshot"), radio_id: "travel", connection_id: "current" };
+        await wrapper.setProps({ snapshot, visit: "first" });
+        await flushPromises();
+        expect(window.api.post).toHaveBeenCalledExactlyOnceWith(
+            "/api/v1/meshcore/repeater-auto-login",
+            { peer, expected_owner: owner, expected_connection_id: "current" },
+            { timeout: 150000, params: { radio: "travel" } }
+        );
+        await wrapper.setProps({ snapshot: { ...snapshot, node_sessions: { [peer]: { state: "verified" } } } });
+        window.api.post.mockResolvedValueOnce({ data: { result: { state: "submitted" } } });
+        await button("Log out").trigger("click");
+        await flushPromises();
+        await wrapper.setProps({ snapshot: { ...snapshot } });
+        expect(window.api.post).toHaveBeenCalledTimes(2);
+        await wrapper.setProps({ visit: "second" });
+        await flushPromises();
+        expect(window.api.post).toHaveBeenCalledTimes(3);
+        expect(window.api.post.mock.calls[2][0]).toBe("/api/v1/meshcore/repeater-auto-login");
+    });
+
+    it("pings a repeater without a saved or verified login", async () => {
+        setup(2);
+        const snapshot = { ...wrapper.props("snapshot"), connection_id: "current" };
+        window.api.post.mockResolvedValueOnce({ data: { result: { state: "no_saved_password" } } });
+        await wrapper.setProps({ snapshot });
+        await flushPromises();
+        expect(button("Request status").attributes("disabled")).toBeDefined();
+        window.api.post.mockResolvedValueOnce({
+            data: {
+                result: {
+                    state: "route_received",
+                    out_hops: 0,
+                    in_hops: 0,
+                },
+            },
+        });
+        await button("Ping repeater").trigger("click");
+        await flushPromises();
+        expect(window.api.post).toHaveBeenLastCalledWith(
+            "/api/v1/meshcore/node-route",
+            { peer, expected_owner: owner },
+            { timeout: 150000 }
+        );
+        expect(wrapper.text()).toContain("Direct connection");
+    });
+
     it("automatically logs in once per connection after opting in and stays off after logout", async () => {
         setup();
         const connected = { ...wrapper.props("snapshot"), radio_id: "travel", connection_id: "first" };

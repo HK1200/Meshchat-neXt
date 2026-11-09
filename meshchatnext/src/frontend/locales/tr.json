@@ -764,7 +764,8 @@
         "ui_font_jetbrains_mono": "JetBrains Mono",
         "ui_font_ibm_plex_sans": "IBM Plex Sans",
         "ui_font_space_grotesk": "Space Grotesk",
-        "nav_reorder_sidebar": "Kenar çubuğunu yeniden sırala"
+        "nav_reorder_sidebar": "Kenar çubuğunu yeniden sırala",
+        "rns_interfaces": "RNS Interfaces"
     },
     "helptips": {
         "title_send_failed": "Denenecek şeyler",
@@ -2470,7 +2471,26 @@
         "filters_custom_query": "ör. aile, anne, a1b2c3",
         "filters_custom_add": "Filtre ekle",
         "filters_custom_remove": "Özel filtreyi kaldır",
-        "translate_auto_conversation": "Auto-translate this conversation"
+        "translate_auto_conversation": "Auto-translate this conversation",
+        "compose_hint_mobile": "Message",
+        "share_location_once": "Share my location once",
+        "share_location_once_confirm": "Share your current location privately with {name} once? It will appear on their map if they allow location sharing.",
+        "share_location_timed_confirm": "Share your location privately with {name} for up to {minutes} minutes? Sharing continues as you use neXt and stops if you put the app in the background.",
+        "location_share_duration": "Location sharing duration",
+        "location_share_once_option": "One time",
+        "location_share_15": "15 minutes",
+        "location_share_60": "60 minutes",
+        "location_start_sharing": "Start sharing",
+        "location_stop_sharing": "Stop sharing",
+        "location_sharing_active": "Sharing location",
+        "location_sharing_with": "Sharing location with {name}",
+        "view_chat_location": "View on map",
+        "no_saved_chat_location": "This contact has no saved location yet.",
+        "chat_location_load_failed": "Could not load this contact’s location.",
+        "location_sharing_stopped": "Location sharing stopped",
+        "location_sharing_interrupted": "Location sharing stopped because an update could not be sent",
+        "location_share_chat_changed": "The chat changed. Your location was not shared.",
+        "location_queued": "Location queued to send"
     },
     "settings": {
         "tabs": {
@@ -2487,7 +2507,9 @@
             "maintenance": "Bakım",
             "maintenance_desc": "Temizlik, dışa aktarma, içe aktarma ve kaynaklar",
             "plugins": "Eklentiler",
-            "plugins_desc": "Meshchat neXt eklentilerini kur ve yönet"
+            "plugins_desc": "Meshchat neXt eklentilerini kur ve yönet",
+            "family": "neXt Family",
+            "family_desc": "Private location sharing"
         },
         "nav_label": "Ayarlar bölümleri",
         "nav_mode_label": "Ayar modu",
@@ -2652,7 +2674,14 @@
         "no_search_results": "Aramanla eşleşen ayar bulunamadı",
         "try_different_search": "Farklı bir arama sorgusu dene",
         "clear_search": "Aramayı temizle",
-        "archived_pages_flush_failed": "Arşivlenen sayfalar temizlenemedi"
+        "archived_pages_flush_failed": "Arşivlenen sayfalar temizlenemedi",
+        "family_intro": "Share your location privately with people using neXt Family.",
+        "family_active_shares": "Active location shares",
+        "family_no_shares": "You are not sharing your location.",
+        "family_how_to_share": "Open a direct chat to share once or start a timed session. In MeshCore, expand Share my location to manage that contact’s permissions.",
+        "family_guardian": "Approve contacts and location sharing in Guardian settings on the Family device.",
+        "family_open_chats": "Open chats",
+        "family_open_map": "Open map"
     },
     "debug": {
         "title": "Hata Ayıklama Günlükleri",

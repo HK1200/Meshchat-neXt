@@ -46,6 +46,19 @@
             @open-interfaces="onOpenInterfacesForRecovery"
         />
 
+        <div v-if="showMainShell && locationSessions.size" class="shrink-0 border-b border-sem-border bg-sem-surface">
+            <div
+                v-for="[key, session] in locationSessions"
+                :key="key"
+                class="flex flex-wrap items-center gap-2 px-3 py-1 text-sm"
+            >
+                <span>{{ $t("messages.location_sharing_with", { name: session.name }) }}</span>
+                <button type="button" class="secondary-chip min-h-9" @click="session.stop()">
+                    {{ $t("messages.location_stop_sharing") }}
+                </button>
+            </div>
+        </div>
+
         <main v-if="$route.name === 'auth'" id="main-content" role="main">
             <RouterView />
         </main>
@@ -529,6 +542,7 @@ import { useConfigStore } from "../js/stores/configStore";
 import { useInterfaceChangesStore } from "../js/stores/interfaceChangesStore.js";
 import { useUnreadStore } from "../js/stores/unreadStore";
 import { useIdentityStore } from "../js/stores/identityStore";
+import { privateLocationSessions, stopAllPrivateLocationSessions } from "../js/timedPrivateLocation.js";
 import { getCurrentInstance, watch } from "vue";
 import { prewarmEmojiPicker } from "../js/emojiPickerPrewarm.js";
 import SidebarLink from "./SidebarLink.vue";
@@ -763,6 +777,9 @@ export default {
     computed: {
         appFeatures() {
             return appFeatures;
+        },
+        locationSessions() {
+            return privateLocationSessions;
         },
         ...mapStores(useAuthStore),
         showMainShell() {
@@ -1013,6 +1030,9 @@ export default {
         },
     },
     watch: {
+        showMainShell(visible) {
+            if (!visible) stopAllPrivateLocationSessions();
+        },
         $route(to, from) {
             if (
                 this.isSidebarOpen &&
@@ -1061,6 +1081,7 @@ export default {
         },
     },
     beforeUnmount() {
+        stopAllPrivateLocationSessions();
         this._removeAndroidBackNavigation?.();
         this._stopAutomaticUpdates?.();
         if (this.identitySaveTimer != null) {
@@ -1721,6 +1742,7 @@ export default {
             GlobalEmitter.emit(EMITTER_EVENTS.WEBSOCKET_RECONNECTED, { degraded: failed.length > 0, failed });
         },
         onIdentitySwitchingStartShell() {
+            stopAllPrivateLocationSessions();
             this.isSwitchingIdentity = true;
             setTimeout(() => {
                 if (this.isSwitchingIdentity) {
@@ -1735,6 +1757,7 @@ export default {
             this.applyIdentitySwitched(payload).catch(() => {});
         },
         async applyIdentitySwitched(json) {
+            stopAllPrivateLocationSessions();
             const hash = json?.identity_hash;
             const endSwitchUi = (aborted = false) => {
                 this.isSwitchingIdentity = false;

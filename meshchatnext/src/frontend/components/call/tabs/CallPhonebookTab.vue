@@ -74,6 +74,14 @@
                                         </span>
                                     </div>
                                     <button
+                                        v-if="announce.identity_hash"
+                                        type="button"
+                                        class="secondary-chip shrink-0"
+                                        @click="$emit('add', announce)"
+                                    >
+                                        Add contact
+                                    </button>
+                                    <button
                                         type="button"
                                         class="text-[10px] bg-sem-info/15 text-sem-info dark:bg-sem-info/15 dark:text-sem-info px-3 py-1 rounded-full font-bold uppercase tracking-wider hover:bg-sem-info/15 dark:hover:bg-sem-info/15 transition-colors shrink-0"
                                         @click="$emit('call', announce.destination_hash)"
@@ -141,7 +149,7 @@ export default {
             required: true,
         },
     },
-    emits: ["update:discoverySearch", "search-input", "copy-hash", "load-more", "call"],
+    emits: ["update:discoverySearch", "search-input", "copy-hash", "load-more", "call", "add"],
     methods: {
         onSearchInput(value) {
             this.$emit("update:discoverySearch", value);

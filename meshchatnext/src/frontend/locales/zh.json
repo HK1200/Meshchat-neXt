@@ -764,7 +764,8 @@
         "ui_font_jetbrains_mono": "JetBrains Mono",
         "ui_font_ibm_plex_sans": "IBM Plex Sans",
         "ui_font_space_grotesk": "Space Grotesk",
-        "nav_reorder_sidebar": "重新排列侧边栏"
+        "nav_reorder_sidebar": "重新排列侧边栏",
+        "rns_interfaces": "RNS Interfaces"
     },
     "helptips": {
         "title_send_failed": "可尝试的方法",
@@ -2470,7 +2471,26 @@
         "filters_custom_query": "例如 family, mom, a1b2c3",
         "filters_custom_add": "添加筛选",
         "filters_custom_remove": "删除自定义筛选",
-        "translate_auto_conversation": "Auto-translate this conversation"
+        "translate_auto_conversation": "Auto-translate this conversation",
+        "compose_hint_mobile": "Message",
+        "share_location_once": "Share my location once",
+        "share_location_once_confirm": "Share your current location privately with {name} once? It will appear on their map if they allow location sharing.",
+        "share_location_timed_confirm": "Share your location privately with {name} for up to {minutes} minutes? Sharing continues as you use neXt and stops if you put the app in the background.",
+        "location_share_duration": "Location sharing duration",
+        "location_share_once_option": "One time",
+        "location_share_15": "15 minutes",
+        "location_share_60": "60 minutes",
+        "location_start_sharing": "Start sharing",
+        "location_stop_sharing": "Stop sharing",
+        "location_sharing_active": "Sharing location",
+        "location_sharing_with": "Sharing location with {name}",
+        "view_chat_location": "View on map",
+        "no_saved_chat_location": "This contact has no saved location yet.",
+        "chat_location_load_failed": "Could not load this contact’s location.",
+        "location_sharing_stopped": "Location sharing stopped",
+        "location_sharing_interrupted": "Location sharing stopped because an update could not be sent",
+        "location_share_chat_changed": "The chat changed. Your location was not shared.",
+        "location_queued": "Location queued to send"
     },
     "settings": {
         "tabs": {
@@ -2487,7 +2507,9 @@
             "maintenance": "维护",
             "maintenance_desc": "清理、导出、导入和源",
             "plugins": "插件",
-            "plugins_desc": "安装和管理 Meshchat neXt 插件"
+            "plugins_desc": "安装和管理 Meshchat neXt 插件",
+            "family": "neXt Family",
+            "family_desc": "Private location sharing"
         },
         "nav_label": "设置分组",
         "nav_mode_label": "设置模式",
@@ -2652,7 +2674,14 @@
         "no_search_results": "没有与您搜索匹配的设置",
         "try_different_search": "请尝试其他搜索词",
         "clear_search": "清除搜索",
-        "archived_pages_flush_failed": "清空存档页面失败"
+        "archived_pages_flush_failed": "清空存档页面失败",
+        "family_intro": "Share your location privately with people using neXt Family.",
+        "family_active_shares": "Active location shares",
+        "family_no_shares": "You are not sharing your location.",
+        "family_how_to_share": "Open a direct chat to share once or start a timed session. In MeshCore, expand Share my location to manage that contact’s permissions.",
+        "family_guardian": "Approve contacts and location sharing in Guardian settings on the Family device.",
+        "family_open_chats": "Open chats",
+        "family_open_map": "Open map"
     },
     "debug": {
         "title": "调试日志",

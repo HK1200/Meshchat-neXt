@@ -127,6 +127,31 @@ describe("CallPage.vue", () => {
         return wrapper;
     };
 
+    it("prefills the Reticulum contact form from the Phonebook announcement", async () => {
+        const announce = {
+            destination_hash: "a".repeat(32),
+            identity_hash: "b".repeat(32),
+            lxmf_destination_hash: "c".repeat(32),
+            display_name: "Discovered Alice",
+        };
+        const wrapper = mountCallPage({ tab: "phonebook" });
+        await flushPromises();
+        await wrapper.setData({ discoveryAnnounces: [announce] });
+        const phonebook = wrapper.findComponent({ name: "CallPhonebookTab" });
+        await phonebook
+            .findAll("button")
+            .find((button) => button.text() === "Add contact")
+            .trigger("click");
+        expect(wrapper.vm.isContactModalOpen).toBe(true);
+        expect(wrapper.vm.contactForm).toMatchObject({
+            name: "Discovered Alice",
+            remote_identity_hash: announce.identity_hash,
+            lxst_address: announce.destination_hash,
+            lxmf_address: announce.lxmf_destination_hash,
+        });
+        expect(axiosMock.post.mock.calls.some(([url]) => url === "/api/v1/telephone/contacts")).toBe(false);
+    });
+
     it("respects tab query parameter on mount", async () => {
         const wrapper = mountCallPage({ tab: "voicemail" });
         await wrapper.vm.$nextTick();
@@ -198,11 +223,14 @@ describe("CallPage.vue", () => {
         const wrapper = mountCallPage();
         await wrapper.vm.$nextTick();
 
-        // The tabs are hardcoded strings: Phone, Phonebook, Voicemail, Contacts
-        expect(wrapper.text()).toContain("Phone");
-        expect(wrapper.text()).toContain("Phonebook");
-        expect(wrapper.text()).toContain("Voicemail");
-        expect(wrapper.text()).toContain("Contacts");
+        const tabs = wrapper.findComponent({ name: "CallTabBar" }).findAll("button");
+        expect(tabs.map((button) => button.text())).toEqual([
+            "Phone",
+            "Contacts",
+            "Voicemail",
+            "RNS Phonebook",
+            "call.ringtone",
+        ]);
     });
 
     it("switches tabs when clicked", async () => {
@@ -214,12 +242,12 @@ describe("CallPage.vue", () => {
 
         // Click Phonebook tab
         const buttons = wrapper.findAll("button");
-        const phonebookTab = buttons.find((b) => b.text() === "Phonebook");
+        const phonebookTab = buttons.find((b) => b.text() === "RNS Phonebook");
         if (phonebookTab) {
             await phonebookTab.trigger("click");
             expect(wrapper.vm.activeTab).toBe("phonebook");
         } else {
-            throw new Error("Phonebook tab not found");
+            throw new Error("RNS Phonebook tab not found");
         }
     });
 

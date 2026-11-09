@@ -1,5 +1,14 @@
 # Meshchat neXt changelog
 
+## 0.1.9
+
+- Conversations separates MeshCore and Reticulum threads and makes the network clear when starting a chat. Contact pickers can add a discovered contact after you choose the correct identity.
+- Long MeshCore texts split into smaller radio messages. neXt waits for confirmation before sending the next part and keeps unsent text in the draft. Private messages start with flood routing unless a direct route was learned recently, and a direct send without an acknowledgment can fall back to flood once.
+- Saved MeshCore repeaters try their stored administrator password first. Repeater administration has grouped access controls, a route check without a password, immediate read actions, and a control for repeating. Admin requests use the companion’s round-trip estimate. An unconfirmed command leaves the session open and later replies are labeled unverified when they could be delayed.
+- Share private locations with approved contacts once or for a set duration while neXt is in the foreground. Timed sharing continues when you leave the conversation and updates less often while stationary. Open a received location from the chat or the map. Private telemetry stays out of chat history and message notifications.
+- Relay Chat opens its hub and room list from the sidebar. Back from a room returns to the list.
+- More groups RNS Interfaces, Tools and Settings. The app labels RNS Identities and RNS Phonebook explicitly. Telephone puts Contacts ahead of the RNS Phonebook and separates its MeshCore, Reticulum and SIP/HOIP sections.
+
 ## 0.1.8
 
 - Keep MeshCore room and repeater tabs selected during background refreshes.

@@ -2,6 +2,7 @@
 
 import re
 
+from .messages import MessageDAO
 from .provider import DatabaseProvider
 
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -47,7 +48,7 @@ def _validate_identifier(name: str, label: str = "identifier") -> str:
 
 
 class DatabaseSchema:
-    LATEST_VERSION = 59
+    LATEST_VERSION = 60
 
     def __init__(self, provider: DatabaseProvider):
         self.provider = provider
@@ -1859,3 +1860,6 @@ class DatabaseSchema:
                 "announce_count",
                 "INTEGER NOT NULL DEFAULT 1",
             )
+
+        if current_version < 60 and target_version >= 60:
+            MessageDAO(self.provider).refresh_telemetry_conversation_summaries()

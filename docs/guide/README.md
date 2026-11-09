@@ -1,6 +1,6 @@
 # Meshchat neXt · User guide
 
-User guide for Meshchat neXt 0.1.5. Features vary by platform, firmware and peer application.
+User guide for Meshchat neXt 0.1.9. Features vary by platform, firmware and peer application.
 
 ## One app, independent services
 
@@ -273,8 +273,8 @@ MeshCore DMs appear in the shared Conversations area with a MeshCore label. The 
 
 ### How to
 
-1. Open a MeshCore contact, or add a user from MeshCore announces. Check the public key and network label.
-2. Send a short text and inspect its state. A DM acknowledgment and the number of heard repeats are separate observations.
+1. Open the MeshCore section of Conversations. Use the add menu to select a contact or add a discovered user after checking the public key.
+2. Send a text and inspect its state. Long messages go out in parts, with a confirmation required before each next part. Unsent text stays in the draft. A DM acknowledgment and the number of heard repeats are separate observations.
 3. For a linked person, choose the MeshCore messaging action explicitly. Their Reticulum conversation remains its own thread.
 4. Use the media controls in the DM composer for supported photos and recorded voice only after Radio2 setup is working.
 5. Choose Details on a message to inspect captured paths, signal readings and outgoing repeats. Known short-hash matches can be ambiguous. View captured paths or reported client locations on the map when available; missing hops are not joined.
@@ -346,13 +346,13 @@ Saved nodes are separate from person-to-person contacts. Discovery finds candida
 
 1. Open MeshCore Nodes and use Discover new nodes to look for repeaters, room servers and sensors. Allow time for radio responses.
 2. Save the intended node and open its page. A route showing 0 outbound and 0 inbound hops means direct radio routing, not successful login.
-3. Enter a guest or administrator password only on your device. A verified administrator login exposes the actions supported for that node and firmware.
+3. Enter passwords only on your device. A saved repeater tries its stored administrator password first. The route check works without a password, and verified administrator login exposes the actions supported by the firmware.
 4. Use Request status or a read-only query before making changes. Password saving is optional and uses the platform’s secure credential support where available.
 5. For a room server, log in and use its room conversation. neXt keeps the session unless it discovers disconnection; a reconnect or identity change may require renewed login.
 
 ### Keep in mind
 
-- A timeout or “no confirmed server response” means the outcome was not verified. It is not proof that a write failed. Read status/reconnect before repeating a potentially applied change.
+- An admin command can run without a confirmed reply. The session stays open after a timeout, and neXt marks potentially delayed replies as unverified. Check the setting before repeating a write.
 - Firmware determines admin actions such as guest access, passwords, time, position, advert intervals and path hashes. Discovery is not permission to administer someone else’s node.
 - Room servers are not ordinary hashtag channels or SIP servers.
 
@@ -881,4 +881,4 @@ No. It is a local reading aid. Checklists save browser progress only; no keys, r
 
 ## Review boundaries
 
-This guide describes Meshchat neXt 0.1.5. Compatibility is specific to the firmware, codec, server and package in use; it does not imply support for every ATAK deployment. A firmware assistant is not included. External projects and firmware change. Check the exact neXt release notes and hardware before flashing.
+This guide describes Meshchat neXt 0.1.9. Compatibility is specific to the firmware, codec, server and package in use; it does not imply support for every ATAK deployment. A firmware assistant is not included. External projects and firmware change. Check the exact neXt release notes and hardware before flashing.

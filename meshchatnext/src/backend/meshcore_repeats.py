@@ -25,7 +25,7 @@ def channel_packet(key, name, timestamp, text):
     return 5, hashlib.sha256(key).digest()[:1] + encrypted(key, plaintext)
 
 
-def direct_packet(private, owner, peer, timestamp, text, *, incoming=False):
+def direct_packet(private, owner, peer, timestamp, text, *, incoming=False, attempt=0):
     from Crypto.Protocol.DH import key_agreement
     from Crypto.PublicKey import ECC
 
@@ -41,7 +41,7 @@ def direct_packet(private, owner, peer, timestamp, text, *, incoming=False):
         static_pub=ECC.construct(curve="Curve25519", point_x=u),
         kdf=lambda value: value,
     )
-    plaintext = timestamp.to_bytes(4, "little") + b"\0" + text.encode()
+    plaintext = timestamp.to_bytes(4, "little") + bytes((attempt & 3,)) + text.encode()
     return 2, (
         bytes.fromhex(owner if incoming else peer)[:1]
         + bytes.fromhex(peer if incoming else owner)[:1]

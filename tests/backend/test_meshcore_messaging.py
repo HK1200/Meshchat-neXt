@@ -18,6 +18,7 @@ class Types(Enum):
     RX_LOG_DATA = auto()
     ADVERTISEMENT = auto()
     NEW_CONTACT = auto()
+    PATH_UPDATE = auto()
     OK = auto()
     CHANNEL_INFO = auto()
     ACK = auto()
@@ -42,6 +43,9 @@ class Client:
         self.commands = self
         self.subscribers = []
         self.sent = 0
+        self.attempts = []
+        self.resets = []
+        self.out_path_len = -1
         self.early_ack = False
         self.response = None
         self.incoming = []
@@ -69,14 +73,26 @@ class Client:
             raise AssertionError("Unexpected write")
         return event(Types.CONTACTS, self.contacts)
 
+    async def reset_path(self, peer):
+        self.resets.append(peer)
+        self.out_path_len = -1
+        return event(Types.OK, {})
+
     async def send_msg(self, peer, text, **kwargs):
         self.sent += 1
+        self.attempts.append(kwargs)
         if self.early_ack:
             self.emit(Types.ACK, {"code": "01020304"})
             await asyncio.sleep(0)
         return self.response or event(
             Types.MSG_SENT,
-            {"expected_ack": bytes.fromhex("01020304"), "suggested_timeout": 100},
+            {
+                "expected_ack": bytes.fromhex(
+                    "01020304" if kwargs.get("attempt") == 0 else "02030405"
+                ),
+                "suggested_timeout": 100,
+                "type": int(self.out_path_len == -1),
+            },
         )
 
     async def get_msg(self):
@@ -212,6 +228,54 @@ class MessagingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.client.fetches, 0)
         self.assertEqual(self.client.sent, 0)
         self.assertEqual(len(self.store.contacts(OWNER)), 1)
+
+    async def test_flood_is_default_and_expired_routes_are_reset(self):
+        import time
+
+        self.client.out_path_len = 1
+        self.client.emit(Types.PATH_UPDATE, {"public_key": PEER})
+        self.messenger._direct_routes[PEER] = time.monotonic() - 301
+        result = await self.messenger.send_direct(PEER, "hello", request_id="flood")
+        self.assertEqual(result["sent_route"], "flood")
+        self.assertEqual(self.client.resets, [PEER])
+        self.assertFalse(self.messenger._flood_retries)
+
+    async def test_flood_retry_keeps_timestamp_and_accepts_the_original_late_ack(self):
+        from unittest.mock import patch
+
+        self.client.out_path_len = 1
+        self.client.emit(Types.PATH_UPDATE, {"public_key": PEER})
+        original = self.messenger._send_receipt
+
+        def immediate(event):
+            ack, _, route = original(event)
+            return ack, 0, route
+
+        with patch.object(self.messenger, "_send_receipt", side_effect=immediate):
+            result = await self.messenger.send_direct(PEER, "hello", request_id="retry")
+            self.assertEqual(result["sent_route"], "direct")
+            await asyncio.gather(*self.messenger._flood_retries)
+        first, second = self.client.attempts
+        self.assertEqual(first["timestamp"], second["timestamp"])
+        self.assertEqual((first["attempt"], second["attempt"]), (0, 1))
+        self.assertEqual(self.client.resets, [PEER])
+        self.client.emit(Types.ACK, {"code": "01020304"})
+        await self.messenger._acks.join()
+        row = await self.messenger.send_direct(PEER, "hello", request_id="retry")
+        self.assertEqual(row["state"], "delivered")
+        self.assertEqual(row["sent_route"], "direct_then_flood")
+        self.assertEqual(self.client.sent, 2)
+
+    async def test_direct_ack_cancels_flood_retry(self):
+        self.client.out_path_len = 1
+        self.client.early_ack = True
+        self.client.emit(Types.PATH_UPDATE, {"public_key": PEER})
+        result = await self.messenger.send_direct(PEER, "hello", request_id="confirmed")
+        await self.messenger._acks.join()
+        await self.messenger._retry_on_flood(result, 0)
+        self.assertEqual(self.client.sent, 1)
+        self.assertEqual(self.client.resets, [])
+        self.assertEqual((await self.messenger.history(PEER))[0]["state"], "delivered")
 
     async def test_fast_ack_and_idempotency_survive_reopening_database(self):
         self.client.early_ack = True

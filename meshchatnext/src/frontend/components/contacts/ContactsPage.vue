@@ -400,7 +400,7 @@
             <div
                 role="dialog"
                 aria-modal="true"
-                class="w-full max-w-lg rounded-2xl bg-sem-surface shadow-2xl overflow-hidden"
+                class="w-full max-w-lg max-h-[90dvh] flex flex-col rounded-2xl bg-sem-surface shadow-2xl overflow-hidden"
             >
                 <div class="px-5 py-4 border-b border-sem-border flex items-center justify-between">
                     <h3 class="text-lg font-bold text-sem-fg">{{ $t("contacts.add_contact") }}</h3>
@@ -413,15 +413,34 @@
                         <MaterialDesignIcon icon-name="close" class="size-5" />
                     </button>
                 </div>
-                <div class="p-5 space-y-4">
+                <div class="p-5 space-y-4 overflow-y-auto min-h-0">
                     <label class="block text-xs font-semibold"
-                        >Network<select v-model="newContactNetwork" class="input-field">
+                        >Network<select
+                            v-model="newContactNetwork"
+                            class="input-field"
+                            @change="showContactDiscovery = false"
+                        >
                             <option v-if="appFeatures.reticulum" value="rns">Reticulum</option>
                             <option v-if="appFeatures.meshcore && mcSnapshot.available" value="meshcore">
                                 MeshCore
                             </option>
                         </select></label
                     >
+                    <button
+                        type="button"
+                        class="secondary-chip"
+                        :aria-expanded="showContactDiscovery"
+                        @click="showContactDiscovery = !showContactDiscovery"
+                    >
+                        Discover contacts
+                    </button>
+                    <DiscoveredContacts
+                        v-if="showContactDiscovery"
+                        :meshcore="newContactNetwork === 'meshcore' ? mcSnapshot : null"
+                        :own-address="config?.lxmf_address_hash || ''"
+                        :saved-addresses="contacts.map((contact) => contact.lxmf_address)"
+                        @select="useDiscoveredContact"
+                    />
                     <p v-if="newContactNetwork === 'meshcore'" class="text-xs text-sem-fg-muted">
                         Enter the full 64-character MeshCore public key. Adding this contact does not link it to a
                         Reticulum identity.
@@ -476,7 +495,7 @@
                         </button>
                     </div>
                 </div>
-                <div class="px-5 py-4 border-t border-sem-border flex justify-end gap-2">
+                <div class="shrink-0 px-5 py-4 border-t border-sem-border flex justify-end gap-2">
                     <button data-app-back type="button" class="secondary-chip" @click="closeAddDialog">
                         {{ $t("common.cancel") }}
                     </button>
@@ -727,6 +746,7 @@ import AppModal from "../AppModal.vue";
 import SipContactLink from "../sip/SipContactLink.vue";
 import MeshCoreIdentityShare from "../meshcore/MeshCoreIdentityShare.vue";
 import MeshCoreContactNetworks from "../meshcore/MeshCoreContactNetworks.vue";
+import DiscoveredContacts from "./DiscoveredContacts.vue";
 import QRCode from "qrcode";
 import Utils from "../../js/Utils";
 import EmptyState from "../EmptyState.vue";
@@ -761,6 +781,7 @@ export default {
     name: "ContactsPage",
     components: {
         AppModal,
+        DiscoveredContacts,
         MeshCoreContactNetworks,
         MeshCoreIdentityShare,
         SipContactBook,
@@ -777,7 +798,13 @@ export default {
     },
     setup() {
         const mc = useMeshCoreUi();
-        return { appFeatures, MIN_VIRTUAL_SIDEBAR_ITEMS, mcSnapshot: mc.snapshot, mcRefresh: mc.refresh };
+        return {
+            appFeatures,
+            MIN_VIRTUAL_SIDEBAR_ITEMS,
+            mcSnapshot: mc.snapshot,
+            mcRefresh: mc.refresh,
+            mcAction: mc.action,
+        };
     },
     data() {
         return {
@@ -797,6 +824,7 @@ export default {
             isMyIdentityDialogOpen: false,
 
             isAddDialogOpen: false,
+            showContactDiscovery: false,
             isSubmitting: false,
             newContactName: "",
             newContactInput: "",
@@ -1014,7 +1042,13 @@ export default {
                 ToastUtils.error(e?.response?.data?.message || this.$t("contacts.export_failed"));
             }
         },
+        useDiscoveredContact(contact) {
+            this.newContactName = contact.name;
+            this.newContactInput = contact.address;
+            this.showContactDiscovery = false;
+        },
         closeAddDialog() {
+            this.showContactDiscovery = false;
             this.isAddDialogOpen = false;
             this.pendingLxmaImport = false;
         },
@@ -1049,12 +1083,10 @@ export default {
                 if (this.isSubmitting) return;
                 this.isSubmitting = true;
                 try {
-                    await window.api.post(apiPath("/meshcore/contact-add"), {
+                    await this.mcAction("contact-add", {
                         peer: this.newContactInput.trim().toLowerCase(),
                         name: this.newContactName.trim(),
-                        expected_owner: this.mcSnapshot.owner,
                     });
-                    await this.mcRefresh();
                     this.closeAddDialog();
                 } catch {
                     ToastUtils.error(

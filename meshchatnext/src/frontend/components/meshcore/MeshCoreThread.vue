@@ -31,11 +31,15 @@
                     >{{ peer }}
                 </p>
             </div>
+            <button v-if="snapshot.owner" type="button" class="secondary-chip shrink-0" @click="viewContactOnMap">
+                View on map
+            </button>
         </header>
         <MeshCorePrivateLocation
             v-if="snapshot.contacts.some((c) => c.peer === peer && c.kind === 1 && c.active) && snapshot.owner"
             :owner="snapshot.owner"
             :peer="peer"
+            :name="name"
             :radio-id="snapshot.radio_id"
             :context-key="$route.query.meshcoreRadio || null"
             :connected="snapshot.connected"
@@ -99,6 +103,16 @@
                 <p class="text-xs text-sem-fg-muted mt-1">
                     {{ new Date(row.created * 1000).toLocaleString() }} ·
                     {{ row.direction === "in" ? "Received via MeshCore" : labels[row.state] || row.state }}
+                    <span v-if="row.direction === 'out' && row.sent_route">
+                        ·
+                        {{
+                            row.sent_route === "direct_then_flood"
+                                ? "Flood retry"
+                                : row.sent_route === "direct"
+                                  ? "Direct"
+                                  : "Flood"
+                        }}
+                    </span>
                     <span
                         v-if="row.direction === 'out' && Number.isInteger(row.heard_repeats)"
                         title="Overheard matching retransmissions; not unique repeaters or proof of delivery"
@@ -131,14 +145,15 @@
                 placeholder="Write a MeshCore message"
             />
             <div class="flex items-center justify-between gap-2">
-                <span class="text-xs text-sem-fg-muted">{{ bytes }}/160 bytes</span
-                ><button class="primary-chip" :disabled="!snapshot.connected || !draft.trim() || bytes > 160 || busy">
+                <span class="text-xs text-sem-fg-muted">
+                    {{ bytes }} of {{ REPEAT_TEXT_BYTES }} bytes per message
+                    <span v-if="parts.length > 1"> · {{ parts.length }} messages</span>
+                </span>
+                <button class="primary-chip" :disabled="!canSend">
                     {{ busy ? "Submitting…" : "Send via MeshCore" }}
                 </button>
             </div>
-            <p v-if="uncertain" class="text-xs text-sem-fg-muted">
-                The result is uncertain. Check this conversation before sending again.
-            </p>
+            <p v-if="sendStatus" role="status" class="text-xs text-sem-fg-muted">{{ sendStatus }}</p>
         </form>
         <MeshCoreMessageDetails
             :row="detailRow"
@@ -164,6 +179,7 @@ import { computed, ref, watch } from "vue";
 import MaterialDesignIcon from "../MaterialDesignIcon.vue";
 import LxmfUserIcon from "../LxmfUserIcon.vue";
 import { useMeshCoreUi } from "../../js/meshcoreUi";
+import { REPEAT_TEXT_BYTES, useMeshCoreTextSend } from "../../js/meshcoreTextSend";
 import { apiPath } from "../../js/constants";
 const detailRow = ref(null);
 const props = defineProps({ peer: { type: String, required: true } });
@@ -171,9 +187,7 @@ const { snapshot, error, action } = useMeshCoreUi(() => props.peer);
 useMeshCoreNotificationContext(() => snapshot.value.active_notification_key);
 const draft = ref(""),
     busy = ref(false),
-    uncertain = ref(false),
     list = ref(null);
-let pending = null;
 const labels = {
     submitting: "Submitting",
     accepted: "Accepted by radio",
@@ -187,21 +201,40 @@ watch([() => snapshot.value.owner, () => props.peer], () => {
 });
 const rawRows = computed(() => [...(snapshot.value.messages || [])].sort((a, b) => a.created - b.created));
 const name = computed(() => snapshot.value.contacts.find((c) => c.peer === props.peer)?.name || "MeshCore contact");
-const bytes = computed(() => new TextEncoder().encode(draft.value).length);
+function viewContactOnMap() {
+    const { owner, radio_id: radio } = snapshot.value;
+    if (!owner) return;
+    void router.push({
+        name: "map",
+        query: { meshcoreNode: props.peer, meshcoreOwner: owner, ...(radio ? { meshcoreRadio: radio } : {}) },
+    });
+}
+
+const {
+    bytes,
+    parts,
+    status: sendStatus,
+    canSend,
+    send,
+} = useMeshCoreTextSend({
+    draft,
+    busy,
+    maximum: () => REPEAT_TEXT_BYTES,
+    ready: () => snapshot.value.connected,
+    context: () => [props.peer, snapshot.value.owner, snapshot.value.radio_id].join(":"),
+    history: () => snapshot.value.messages,
+    submit: (frame) => action("message", { ...frame, peer: props.peer }),
+});
 watch(
     () => props.peer,
     () => {
         draft.value = "";
-        pending = null;
-        uncertain.value = false;
     }
 );
 watch(
     () => [snapshot.value.owner, snapshot.value.radio_id],
     ([owner, radioId], [previous, previousRadio]) => {
         if (previous && owner !== previous) {
-            pending = null;
-            uncertain.value = false;
             if (radioId && previousRadio && radioId !== previousRadio) {
                 error.value = ""; // An explicit sending-radio choice keeps the unsent draft.
             } else {
@@ -228,29 +261,4 @@ const {
     markRead: (through) =>
         window.api.post(apiPath("/meshcore/read"), { peer: props.peer, through, expected_owner: snapshot.value.owner }),
 });
-async function send() {
-    if (busy.value || !snapshot.value.connected || !draft.value.trim() || bytes.value > 160) return;
-    const peer = props.peer,
-        owner = snapshot.value.owner,
-        text = draft.value;
-    if (!pending || pending.peer !== peer || pending.text !== text)
-        pending = { peer, text, request_id: crypto.randomUUID() };
-    busy.value = true;
-    uncertain.value = false;
-    try {
-        const result = await action("message", pending);
-        if (props.peer === peer && snapshot.value.owner === owner) {
-            draft.value = "";
-            pending = null;
-            uncertain.value = result.state === "unknown";
-        }
-    } catch {
-        if (props.peer === peer && snapshot.value.owner === owner) {
-            error.value = "MeshCore did not return a result. Check the saved message before trying again.";
-            uncertain.value = true;
-        }
-    } finally {
-        busy.value = false;
-    }
-}
 </script>

@@ -45,6 +45,13 @@ export const SETTINGS_TABS = [
         sections: ["archiver", "nomadRenderer"],
     },
     {
+        id: "family",
+        labelKey: "settings.tabs.family",
+        descriptionKey: "settings.tabs.family_desc",
+        icon: "account-group-outline",
+        sections: ["family"],
+    },
+    {
         id: "privacy",
         labelKey: "settings.tabs.privacy",
         descriptionKey: "settings.tabs.privacy_desc",

@@ -443,7 +443,9 @@
                 >
                     <div
                         v-if="selectedHub && selectedRoom"
+                        data-app-back-scope
                         class="flex items-center justify-between gap-3 px-2 py-2.5 border-b border-sem-border bg-sem-canvas sm:px-3"
+                        @app-back="onBackFromRoom"
                     >
                         <div class="flex min-w-0 items-center gap-2">
                             <button
@@ -2269,6 +2271,13 @@ export default {
         },
     },
     watch: {
+        $route(to, from) {
+            // Reopening the sidebar destination while already here returns to the room list.
+            if (to.name === "relay-chat" && to.fullPath === from?.fullPath && !to.query?.room) {
+                if (this.selectedRoom) this.onBackFromRoom();
+                this.view = "chat";
+            }
+        },
         relaySidebarCollapsed(collapsed) {
             saveFeatureSidebarCollapsed("relayChat", collapsed);
             this.persistRelayLayout();
@@ -2851,11 +2860,7 @@ export default {
             }
             const saved = loadRelayLayout(this._scopedIdentityKey());
             if (!saved) {
-                this.selectDefaultRoom();
                 return;
-            }
-            if (["chat", "discovery", "host", "bots", "search"].includes(saved.view)) {
-                this.view = saved.view;
             }
             if (typeof saved.relaySidebarCollapsed === "boolean") {
                 this.relaySidebarCollapsed = saved.relaySidebarCollapsed;
@@ -2875,35 +2880,7 @@ export default {
             if (saved.selectedHubHash && this.hubs.some((h) => h.hub_hash === saved.selectedHubHash)) {
                 this._setSelectedHub(saved.selectedHubHash);
                 this.expandedHubs[saved.selectedHubHash] = true;
-                const hub = this.hubs.find((h) => h.hub_hash === saved.selectedHubHash);
-                const rooms = hub ? this.orderedRoomsFor(hub) : [];
-                if (saved.selectedRoom && rooms.includes(saved.selectedRoom)) {
-                    this.selectRoom(saved.selectedHubHash, saved.selectedRoom);
-                } else if (rooms.length > 0) {
-                    this.selectRoom(saved.selectedHubHash, rooms[0]);
-                }
-            } else {
-                this.selectDefaultRoom();
             }
-        },
-        selectDefaultRoom() {
-            // Land on the first room of the selected hub so a fresh layout
-            // (or one whose hub is gone) opens a usable view instead of an
-            // empty pane.
-            if (this.selectedRoom) {
-                return;
-            }
-            const hub = this.hubs.find((h) => h.hub_hash === this.selectedHubHash) || this.hubs[0];
-            if (!hub) {
-                return;
-            }
-            const rooms = this.orderedRoomsFor(hub);
-            if (rooms.length === 0) {
-                return;
-            }
-            this._setSelectedHub(hub.hub_hash);
-            this.expandedHubs[hub.hub_hash] = true;
-            this.selectRoom(hub.hub_hash, rooms[0]);
         },
         orderedRoomsFor(hub) {
             if (!hub || !Array.isArray(hub.known_rooms)) {
@@ -3916,13 +3893,20 @@ export default {
         },
         onBackFromRoom() {
             this.saveCurrentRoomDraft();
+            this.roomSelectSequence += 1;
             this.selectedRoom = null;
+            window.api.post(apiPath("/rrc/active/clear")).catch(() => {});
             this.unreadDividerSeq = null;
             this.composer = "";
             this.nickCycle = null;
             this.relayAtBottom = true;
             this.newMessagesBelow = 0;
             this.restoreViewAfterRoomClose();
+            if (this.$route?.name === "relay-chat" && this.$route.query?.room) {
+                const query = { ...this.$route.query };
+                delete query.room;
+                this.$router.replace({ name: "relay-chat", query });
+            }
         },
         restoreViewAfterRoomClose() {
             if (this._viewBeforeRoomOpen && this._viewBeforeRoomOpen !== this.view) {

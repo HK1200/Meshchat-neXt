@@ -63,6 +63,19 @@ def test_dm_incoming_fingerprint_matches_sender_without_changing_crypto():
     )
 
 
+def test_old_full_size_dm_warns_when_standard_companion_cannot_log_repeats(store):
+    for size, warning in [(91, False), (155, False), (160, True)]:
+        message_id = f"packet-{size}"
+        store.prepare_send(OWNER, PEER, "x" * size, message_id)
+        store.repeat_observation(OWNER, "direct", message_id)
+        details = store.message_details(OWNER, "direct", PEER, message_id)
+        assert details["repeat_log_oversize"] is warning
+    store.repeat_observation(OWNER, "direct", "packet-160", 1)
+    assert not store.message_details(OWNER, "direct", PEER, "packet-160")[
+        "repeat_log_oversize"
+    ]
+
+
 def test_persistent_paths_are_message_owner_and_target_scoped_and_bounded(store):
     row, _ = store.prepare_send(OWNER, PEER, "one", "send-one")
     store.save_message_paths(OWNER, "direct", row["id"], [observation()] * 40)

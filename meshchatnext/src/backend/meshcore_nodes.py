@@ -17,6 +17,9 @@ class MeshCoreNodes:
     DISCOVERY_WINDOW = 12
     DISCOVERY_COOLDOWN = 30
     TIMEOUT = 30
+    ADMIN_FALLBACK_TIMEOUT = 120
+    ADMIN_MIN_TIMEOUT = 10
+    MAX_REPLY_TIMEOUT = 120
     LOGIN_LIFETIME = 300
     CLI_POLL_INTERVAL = 1.0
 
@@ -27,6 +30,7 @@ class MeshCoreNodes:
         self.logins = {}
         self._automatic_login_attempts = set()
         self.uncertain = set()
+        self.unconfirmed_admin_requests = set()
         self.operations = {}
         self._last_discovery = None
 
@@ -210,7 +214,19 @@ class MeshCoreNodes:
             raise ValueError("Choose an unambiguous active repeater or room server")
         return matches[0]
 
-    async def _exchange(self, peer, operation, password=None, *, room_only=False):
+    def _reply_timeout(self, sent, *, minimum, fallback):
+        # The companion reports its estimated round trip in milliseconds.
+        estimate = getattr(sent, "payload", {}).get("suggested_timeout")
+        if (
+            isinstance(estimate, bool)
+            or not isinstance(estimate, (int, float))
+            or not math.isfinite(estimate)
+            or estimate <= 0
+        ):
+            return fallback
+        return min(self.MAX_REPLY_TIMEOUT, max(minimum, estimate / 1000 * 1.5))
+
+    async def _exchange(self, peer, operation, password=None, *, contact_kinds=(2, 3)):
         diagnostic = {
             "operation": operation,
             "stage": "sending",
@@ -219,7 +235,7 @@ class MeshCoreNodes:
         }
         self.operations[peer] = diagnostic
         try:
-            contact = await self._contact(peer, kinds=(3,) if room_only else (2, 3))
+            contact = await self._contact(peer, kinds=contact_kinds)
         except Exception as error:
             diagnostic.update(
                 stage="contact_check_failed", error_type=type(error).__name__
@@ -298,15 +314,9 @@ class MeshCoreNodes:
                     self.uncertain.add(peer)
                 diagnostic["stage"] = "radio_unconfirmed"
                 return {"state": "uncertain", "reason": "radio_unconfirmed"}
-            suggested = result.payload.get("suggested_timeout")
-            # The companion estimates the mesh round trip in milliseconds.
-            timeout = self.TIMEOUT
-            if (
-                type(suggested) in (int, float)
-                and math.isfinite(suggested)
-                and suggested > 0
-            ):
-                timeout = min(120, max(timeout, suggested / 1000 * 1.5))
+            timeout = self._reply_timeout(
+                result, minimum=self.TIMEOUT, fallback=self.TIMEOUT
+            )
             diagnostic.update(stage="waiting_for_server", timeout_seconds=timeout)
             try:
                 response = await asyncio.wait_for(future, timeout)
@@ -390,12 +400,27 @@ class MeshCoreNodes:
         if peer in self._automatic_login_attempts or peer in self.uncertain:
             return {"state": "automatic_login_skipped"}
         self._automatic_login_attempts.add(peer)
+        return await self._login_saved(peer, 3, ("member",))
+
+    async def login_saved_repeater(self, peer):
+        peer = public_key(peer)
+        saved = await asyncio.to_thread(self.messages.store.nodes, self.messages.owner)
+        if not any(node["peer"] == peer and node["kind"] == 2 for node in saved):
+            raise ValueError("Select a saved repeater")
+        if peer in self.snapshot():
+            return {"state": "already_verified"}
+        if peer in self.uncertain:
+            return {"state": "automatic_login_skipped"}
+        return await self._login_saved(peer, 2, ("admin", "member"))
+
+    async def _login_saved(self, peer, kind, roles):
         status = await self.password_status(peer)
         if not status["available"]:
             return {"state": "password_storage_unavailable"}
-        if "member" not in status["saved_roles"]:
+        role = next((role for role in roles if role in status["saved_roles"]), None)
+        if role is None:
             return {"state": "no_saved_password"}
-        return await self.login(peer, use_saved_role="member", room_only=True)
+        return await self.login(peer, use_saved_role=role, contact_kinds=(kind,))
 
     async def login(
         self,
@@ -404,7 +429,7 @@ class MeshCoreNodes:
         remember=False,
         use_saved_role=None,
         *,
-        room_only=False,
+        contact_kinds=(2, 3),
     ):
         peer = public_key(peer)
         if type(remember) is not bool:
@@ -425,7 +450,9 @@ class MeshCoreNodes:
             raise ValueError("Password must contain at most 64 UTF-8 bytes without NUL")
         self.logins.pop(peer, None)
         self._automatic_login_attempts.add(peer)
-        result = await self._exchange(peer, "login", password, room_only=room_only)
+        result = await self._exchange(
+            peer, "login", password, contact_kinds=contact_kinds
+        )
         if remember and result.get("state") == "verified":
             try:
                 await self.password_save(
@@ -476,6 +503,7 @@ class MeshCoreNodes:
             "radio": "get radio",
             "tx": "get tx",
             "hash": "get path.hash.mode",
+            "repeat": "get repeat",
             "clock": "clock",
             "latitude": "get lat",
             "longitude": "get lon",
@@ -493,7 +521,13 @@ class MeshCoreNodes:
             and contact["kind"] != 3
         ):
             raise ValueError("Choose a room server for room access settings")
-        if action == "room-access":
+        if action in ("repeat", "set-repeat") and contact["kind"] != 2:
+            raise ValueError("Choose a repeater to configure forwarding")
+        if action == "set-repeat":
+            if value not in ("on", "off"):
+                raise ValueError("Choose on or off for repeating")
+            command = "set repeat " + value
+        elif action == "room-access":
             command = "get allow.read.only"
             if value:
                 raise ValueError("Read actions do not accept values")
@@ -739,7 +773,7 @@ class MeshCoreNodes:
                 return {"state": "rejected", "reason": "radio_rejected"}
             if sent is None or sent.type != types.MSG_SENT:
                 diagnostic["stage"] = "radio_unconfirmed"
-                self.uncertain.add(peer)
+                self.unconfirmed_admin_requests.add(peer)
                 return {"state": "uncertain"}
             if action == "reboot":
                 diagnostic["stage"] = "restart_submitted"
@@ -748,9 +782,14 @@ class MeshCoreNodes:
                     "state": "submitted",
                     "text": "Restart submitted. The server sends no reply; log in again after it restarts.",
                 }
-            diagnostic["stage"] = "waiting_for_server"
+            timeout = self._reply_timeout(
+                sent,
+                minimum=self.ADMIN_MIN_TIMEOUT,
+                fallback=self.ADMIN_FALLBACK_TIMEOUT,
+            )
+            diagnostic.update(stage="waiting_for_server", timeout_seconds=timeout)
             try:
-                async with asyncio.timeout(self.TIMEOUT):
+                async with asyncio.timeout(timeout):
                     while not future.done():
                         try:
                             await asyncio.wait_for(
@@ -777,8 +816,17 @@ class MeshCoreNodes:
                     text = future.result()
             except TimeoutError:
                 diagnostic["stage"] = "server_timeout"
-                self.uncertain.add(peer)
+                self.unconfirmed_admin_requests.add(peer)
                 return {"state": "uncertain"}
+            if peer in self.unconfirmed_admin_requests:
+                # MeshCore CLI replies identify the peer but do not echo a
+                # request ID. This may be a delayed reply to an earlier command.
+                diagnostic.update(
+                    stage="admin_unverified_response", matching_responses=1
+                )
+                if secret_action:
+                    text = "A reply arrived, but the password change could not be verified."
+                return {"state": "admin_unverified_response", "text": text}
             if action == "hash":
                 mode = text.strip().removeprefix(">").strip()
                 if mode in ("0", "1", "2"):
@@ -791,7 +839,7 @@ class MeshCoreNodes:
         except BaseException as error:
             diagnostic.update(stage="local_error", error_type=type(error).__name__)
             if may_have_sent:
-                self.uncertain.add(peer)
+                self.unconfirmed_admin_requests.add(peer)
             raise
         finally:
             subscription.unsubscribe()

@@ -1030,6 +1030,60 @@
                             @show-discovered-change="onVisualiserShowDiscoveredChange"
                         />
 
+                        <section
+                            v-show="showSection('family')"
+                            data-settings-section="family"
+                            class="settings-section break-inside-avoid"
+                        >
+                            <header class="settings-section__header">
+                                <div>
+                                    <h2>{{ $t("settings.tabs.family") }}</h2>
+                                    <p>{{ $t("settings.family_intro") }}</p>
+                                </div>
+                            </header>
+                            <div class="settings-section__body space-y-4">
+                                <div class="space-y-2">
+                                    <h3 class="font-medium">{{ $t("settings.family_active_shares") }}</h3>
+                                    <p v-if="!familyLocationSessions.size" class="text-sm text-sem-fg-muted">
+                                        {{ $t("settings.family_no_shares") }}
+                                    </p>
+                                    <div
+                                        v-for="[key, session] in familyLocationSessions"
+                                        :key="key"
+                                        class="flex flex-wrap items-center gap-2"
+                                    >
+                                        <span>{{ $t("messages.location_sharing_with", { name: session.name }) }}</span>
+                                        <button type="button" class="secondary-chip min-h-9" @click="session.stop()">
+                                            {{ $t("messages.location_stop_sharing") }}
+                                        </button>
+                                    </div>
+                                </div>
+                                <p class="text-sm text-sem-fg-muted">{{ $t("settings.family_how_to_share") }}</p>
+                                <p class="text-sm text-sem-fg-muted">{{ $t("settings.family_guardian") }}</p>
+                                <div class="flex flex-wrap gap-2">
+                                    <button
+                                        type="button"
+                                        class="secondary-chip min-h-9"
+                                        @click="$router.push({ name: 'settings', query: { section: 'location' } })"
+                                    >
+                                        {{ $t("app.location_source") }}
+                                    </button>
+                                    <RouterLink
+                                        :to="{ name: 'messages' }"
+                                        class="secondary-chip min-h-9 inline-flex items-center"
+                                    >
+                                        {{ $t("settings.family_open_chats") }}
+                                    </RouterLink>
+                                    <RouterLink
+                                        :to="{ name: 'map' }"
+                                        class="secondary-chip min-h-9 inline-flex items-center"
+                                    >
+                                        {{ $t("settings.family_open_map") }}
+                                    </RouterLink>
+                                </div>
+                            </div>
+                        </section>
+
                         <!-- Location (map & coordinates) -->
                         <section
                             v-show="showSection('location')"
@@ -3092,6 +3146,7 @@ import {
 import { getAllSettingsSectionKeywords } from "../../js/registries/settingsSectionRegistry";
 import { isMicronWasmBundled } from "../../js/MicronWasmLoader.js";
 import { isAndroidLocationSupported } from "../../js/androidLocation.js";
+import { privateLocationSessions } from "../../js/timedPrivateLocation.js";
 import { apiPath, EMITTER_EVENTS, STORAGE_KEYS, WS_EVENTS } from "../../js/constants";
 import { getMicronWasmRuntimeOverride } from "../../js/MicronWasmRuntimeOverride.js";
 import { getEffectiveMicronWasmReleaseLabel, MICRON_WASM_OVERRIDE_CHANGED_EVENT } from "../../js/micronWasmVersion.js";
@@ -3339,6 +3394,9 @@ export default {
         };
     },
     computed: {
+        familyLocationSessions() {
+            return privateLocationSessions;
+        },
         ...mapStores(useConfigStore),
         sectionKeywords() {
             return getAllSettingsSectionKeywords();

@@ -76,6 +76,21 @@ export default {
                 event.preventDefault();
                 return;
             }
+            if (
+                this.to.name === "relay-chat" &&
+                this.$route?.name === "relay-chat" &&
+                !Object.keys(this.$route.query || {}).length &&
+                event.button === 0 &&
+                !event.defaultPrevented &&
+                !event.metaKey &&
+                !event.altKey &&
+                !event.ctrlKey &&
+                !event.shiftKey
+            ) {
+                event.preventDefault();
+                this.$router.replace({ ...this.to, force: true });
+                return;
+            }
             navigate(event);
         },
     },

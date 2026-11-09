@@ -28,7 +28,11 @@ MeshCore users appear in the existing Contacts area. Linking a MeshCore contact 
 
 ## Direct messages and announces
 
-MeshCore direct messages appear in Conversations with a MeshCore label. Reticulum conversations remain separate. Direct messages retain delivery acknowledgments; heard-repeat counts are a separate measurement.
+MeshCore and Reticulum have separate sections in **Conversations**. Use the add menu to choose the network and select or add a discovered contact. Check the public key before saving.
+
+Long texts are split according to the UTF-8 byte budget. For a direct message, neXt waits for a delivery acknowledgment or a matching flood repeat before sending the next part. For a channel message, it waits for a matching repeat. If confirmation is missing, the remaining text stays in the draft. A direct message starts as a flood unless a direct route was learned recently. A direct attempt without an acknowledgment can retry once as a flood.
+
+A delivery acknowledgment and a heard repeat measure different events. A nearby recipient can receive an original flood directly even when neither radio hears a repeater retransmit it.
 
 Under Announces, select Reticulum or MeshCore for independent lists. A repeated announce updates the existing device entry rather than adding another row.
 
@@ -46,7 +50,9 @@ Outgoing channel messages show radio acceptance, not recipient delivery receipts
 
 Use **MeshCore Nodes** to save and open advertised repeaters and room servers. Login and response verification are separate from route discovery. Zero outbound and inbound hops means a direct route; it does not mean login succeeded.
 
-Enter passwords on the device. A verified administrator login exposes the supported management actions; ordinary room access provides room messaging. After an unconfirmed response, read the displayed recovery guidance rather than repeatedly replaying a write. Radio firmware and permissions determine the available actions.
+Enter passwords on the device. A saved repeater tries its stored administrator password first, then uses a stored member password if no administrator password is saved. Use the route check without credentials. Verified admin access exposes supported controls, including whether the repeater forwards traffic.
+
+Admin commands use the companion’s round-trip estimate with a 10-second minimum and a two-minute cap. If the estimate is unavailable, neXt allows up to two minutes. An admin timeout leaves the session open. A later reply may belong to an earlier command and appears as unverified. Read the setting before repeating a change. Radio firmware and permissions determine the available actions.
 
 ## Optional Radio2 / MediaMesh profile
 
@@ -95,7 +101,7 @@ The terminal sends one explicitly confirmed administrator command at a time and 
 Open a saved MeshCore user’s direct conversation and expand **Private location**. The two permissions start off and are separate from saving the contact:
 
 - **Show this contact’s private locations on my map** accepts their private location frames. Turn it off to remove their private position from the map.
-- **Allow one-time location sharing with this contact** enables **Share my location once**. Clicking that button requests device location permission and submits one encrypted direct message through the selected companion. There are no background private beacons or automatic retries. At most one private submission per contact and companion is allowed each minute, including after reconnecting or changing permissions.
+- **Allow private location sharing with this contact** enables a single fix or sharing for 15 or 60 minutes. Each fix is sent through the selected companion as an encrypted direct message. Timed sharing continues when you leave the chat and stops when neXt goes into the background. You can stop it early in the conversation or in the **neXt Family** settings. While stationary, updates are sent less often. At most one private submission per contact and companion is allowed each minute.
 
 Permissions can be reviewed or withdrawn while offline. Sending requires a connected selected companion.
 

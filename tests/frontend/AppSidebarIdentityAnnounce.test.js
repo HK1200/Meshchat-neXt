@@ -485,19 +485,20 @@ describe("App.vue sidebar identity label and announce control", () => {
         expect(wrapper.vm.$route.name).toBe("nomadnetwork");
     });
 
-    it("shows Interfaces in the App group without opening More", async () => {
+    it("shows RNS Interfaces, Tools and Settings under More", async () => {
         registerCoreContributions();
         wrapper = makeMountedApp();
         await readyShell(wrapper.vm.$router);
-        const appGroup = wrapper.vm.primaryNavGroups.find((group) => group.id === "app");
-        expect(appGroup?.items.map((item) => item.id)).toEqual(
-            expect.arrayContaining(["interfaces", "tools", "settings"])
-        );
-        expect(appGroup.items[0].id).toBe("interfaces");
-        expect(wrapper.vm.moreNavItems.map((item) => item.id)).not.toContain("interfaces");
+        const primaryIds = wrapper.vm.primaryNavGroups.flatMap((group) => group.items.map((item) => item.id));
+        const moved = ["interfaces", "tools", "settings"];
+        expect(primaryIds.filter((id) => moved.includes(id))).toEqual([]);
+        expect(wrapper.vm.moreNavItems.map((item) => item.id)).toEqual(expect.arrayContaining(moved));
         expect(wrapper.vm.isShowingMoreNav).toBe(false);
         const nav = wrapper.findComponent({ name: "AppSidebarNav" });
-        expect(nav.text()).toContain("Interfaces");
+        expect(nav.text()).not.toContain("RNS Interfaces");
+        wrapper.vm.isShowingMoreNav = true;
+        await wrapper.vm.$nextTick();
+        expect(nav.text()).toContain("RNS Interfaces");
     });
 
     it("shows Network Visualiser in the Explore group without opening More", async () => {
