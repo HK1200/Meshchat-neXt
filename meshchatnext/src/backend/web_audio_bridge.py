@@ -14,6 +14,7 @@ from LXST.Sinks import LocalSink
 from LXST.Sources import LocalSource
 
 from .telephone_manager import Tee
+from .lxst_audio_processing import prepare_capture_filters
 
 _HOSTLESS_AUDIO_INSTALLED = False
 _ORIG_LINE_SOURCE = None
@@ -44,7 +45,7 @@ class HostlessAudioSource(LocalSource):
         self.preferred_device = preferred_device
         self.target_frame_ms = target_frame_ms or 60
         self.sink = sink
-        self.filters = filters
+        self.filters = prepare_capture_filters(filters)
         self.gain = gain
         self.ease_in = ease_in
         self.skip = skip
@@ -81,6 +82,8 @@ class HostlessAudioSource(LocalSource):
             if samples.size == 0:
                 return
             samples = samples.reshape(-1, 1)
+            for audio_filter in self.filters:
+                samples = audio_filter.handle_frame(samples, self.samplerate)
             frame = Raw(channels=1, bitdepth=16).encode(samples)
             if self.sink.can_receive(from_source=self):
                 self.sink.handle_frame(frame, self)
@@ -183,9 +186,10 @@ class WebAudioSource(LocalSource):
     # ~2.7s of 48 kHz mono int16. Normal frames are tens of ms.
     MAX_PCM_BYTES = 256 * 1024
 
-    def __init__(self, target_frame_ms: int, sink: Mixer):
+    def __init__(self, target_frame_ms: int, sink: Mixer, filters=None):
         self.target_frame_ms = target_frame_ms or 60
         self.sink = sink
+        self.filters = prepare_capture_filters(filters)
         self.codec = Raw(channels=1, bitdepth=16)
         self.channels = 1
         self.samplerate = WEB_AUDIO_SAMPLE_RATE
@@ -228,7 +232,10 @@ class WebAudioSource(LocalSource):
                 if self.sink and self.sink.can_receive(from_source=self):
                     pcm = ready[offset:offset + self._frame_bytes]
                     samples = np.frombuffer(pcm, dtype="<i2").astype(np.float32) / 32768.0
-                    self.sink.handle_frame(self.codec.encode(samples.reshape(-1, 1)), self)
+                    samples = samples.reshape(-1, 1)
+                    for audio_filter in self.filters:
+                        samples = audio_filter.handle_frame(samples, self.samplerate)
+                    self.sink.handle_frame(self.codec.encode(samples), self)
         except Exception as exc:
             RNS.log(f"WebAudioSource: failed to push pcm: {exc}", RNS.LOG_ERROR)
 
@@ -446,6 +453,7 @@ class WebAudioBridge:
             self.tx_source = WebAudioSource(
                 target_frame_ms=getattr(tele, "target_frame_time_ms", 60),
                 sink=tele.transmit_mixer,
+                filters=getattr(getattr(tele, "active_call", None), "filters", None),
             )
             tele.audio_input = self.tx_source
             if tele.transmit_mixer and not tele.transmit_mixer.should_run:

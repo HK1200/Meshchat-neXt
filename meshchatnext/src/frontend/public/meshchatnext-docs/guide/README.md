@@ -1,6 +1,6 @@
 # Meshchat neXt · User guide
 
-User guide for Meshchat neXt 0.1.11. Features vary by platform, firmware and peer application.
+User guide for Meshchat neXt 0.1.12. Features vary by platform, firmware and peer application.
 
 ## One app, independent services
 
@@ -881,4 +881,4 @@ No. It is a local reading aid. Checklists save browser progress only; no keys, r
 
 ## Review boundaries
 
-This guide describes Meshchat neXt 0.1.11. Compatibility is specific to the firmware, codec, server and package in use; it does not imply support for every ATAK deployment. A firmware assistant is not included. External projects and firmware change. Check the exact neXt release notes and hardware before flashing.
+This guide describes Meshchat neXt 0.1.12. Compatibility is specific to the firmware, codec, server and package in use; it does not imply support for every ATAK deployment. A firmware assistant is not included. External projects and firmware change. Check the exact neXt release notes and hardware before flashing.

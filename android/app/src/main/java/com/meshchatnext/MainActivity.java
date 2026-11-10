@@ -77,6 +77,18 @@ import okhttp3.Response;
 import org.json.JSONObject;
 
 public class MainActivity extends AppCompatActivity {
+    @Override public boolean dispatchKeyEvent(android.view.KeyEvent event) {
+        int key = event.getKeyCode();
+        if (key == android.view.KeyEvent.KEYCODE_VOLUME_UP
+                || key == android.view.KeyEvent.KEYCODE_VOLUME_DOWN
+                || key == android.view.KeyEvent.KEYCODE_VOLUME_MUTE) {
+            android.media.AudioManager audio = getSystemService(android.media.AudioManager.class);
+            setVolumeControlStream(audio != null && audio.getMode() == android.media.AudioManager.MODE_IN_COMMUNICATION
+                    ? android.media.AudioManager.STREAM_VOICE_CALL : android.media.AudioManager.USE_DEFAULT_STREAM_TYPE);
+        }
+        return super.dispatchKeyEvent(event);
+    }
+
     private static final String SHELL_PREFS = "meshchatnext_shell";
     private static final String PREF_UI_THEME = "ui_theme";
     private static final String PREF_BLOCK_SCREENSHOTS = "block_screenshots";

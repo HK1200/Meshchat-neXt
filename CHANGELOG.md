@@ -1,5 +1,10 @@
 # Meshchat neXt changelog
 
+## 0.1.12
+
+- Restore the configured microphone speech filters for Android and browser Reticulum calls, including automatic level control. Correct legacy LXST amplitude gain conversion.
+- Direct Android volume buttons to call volume during calls.
+
 ## 0.1.11
 
 - MeshCore rooms use saved passwords to sign in in the background when the companion connects. Leaving the room screen keeps the session.
