@@ -884,6 +884,16 @@ public final class TelephoneNativeAudioSession {
         bluetoothRoute.start();
     }
 
+    public boolean setSpeaker(boolean enabled) {
+        TelephoneBluetoothRoute route = bluetoothRoute;
+        return running.get() && route != null && route.setSpeaker(enabled);
+    }
+
+    public boolean isSpeakerOn() {
+        TelephoneBluetoothRoute route = bluetoothRoute;
+        return running.get() && route != null && route.isSpeakerOn();
+    }
+
     private void releaseCallAudioMode() {
         if (bluetoothRoute != null) {
             bluetoothRoute.stop();

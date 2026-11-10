@@ -8,11 +8,13 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 
-/** Owns only the Bluetooth communication route for one native call session. */
+/** Owns the selected communication route for one native call session. */
 final class TelephoneBluetoothRoute {
     private static final String TAG = "MeshchatNextCallRoute";
     private final AudioManager manager;
     private boolean active;
+    private boolean speakerRequested;
+    private boolean lastRequestAccepted;
     private boolean registered;
     private boolean routeOwned;
     private int selectedId = -1;
@@ -35,22 +37,40 @@ final class TelephoneBluetoothRoute {
         refresh();
     }
 
+    synchronized boolean setSpeaker(boolean enabled) {
+        if (!active) return false;
+        speakerRequested = enabled;
+        clearRoute();
+        refresh();
+        return lastRequestAccepted;
+    }
+
+    synchronized boolean isSpeakerOn() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            AudioDeviceInfo device = manager.getCommunicationDevice();
+            return device != null && device.getType() == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER;
+        }
+        return manager.isSpeakerphoneOn();
+    }
+
     private synchronized void refresh() {
         if (!active) return;
+        lastRequestAccepted = true;
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 AudioDeviceInfo chosen = null;
                 for (AudioDeviceInfo device : manager.getAvailableCommunicationDevices()) {
                     int type = device.getType();
-                    if (type == AudioDeviceInfo.TYPE_BLE_HEADSET
-                            || type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO) {
+                    if (speakerRequested ? type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
+                            : type == AudioDeviceInfo.TYPE_BLE_HEADSET || type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO) {
                         if (chosen == null || device.getId() == selectedId) chosen = device;
                     }
                 }
                 if (chosen != null) {
                     if (routeOwned && chosen.getId() == selectedId) return;
                     boolean accepted = manager.setCommunicationDevice(chosen);
-                    Log.i(TAG, "Bluetooth call route requested: " + accepted);
+                    lastRequestAccepted = accepted;
+                    Log.i(TAG, "Call audio route requested: " + accepted);
                     if (accepted) {
                         routeOwned = true;
                         selectedId = chosen.getId();
@@ -62,6 +82,11 @@ final class TelephoneBluetoothRoute {
                     Log.i(TAG, "Bluetooth disconnected; restored default call route");
                 }
             } else {
+                if (speakerRequested) {
+                    manager.setSpeakerphoneOn(true);
+                    routeOwned = true;
+                    return;
+                }
                 boolean available = false;
                 for (AudioDeviceInfo device : manager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)) {
                     if (device.getType() == AudioDeviceInfo.TYPE_BLUETOOTH_SCO) available = true;
@@ -75,7 +100,8 @@ final class TelephoneBluetoothRoute {
                 }
             }
         } catch (RuntimeException e) {
-            Log.w(TAG, "Bluetooth call route unavailable; keeping default audio", e);
+            lastRequestAccepted = false;
+            Log.w(TAG, "Call audio route unavailable; keeping default audio", e);
         }
     }
 
@@ -97,6 +123,7 @@ final class TelephoneBluetoothRoute {
             } else {
                 manager.stopBluetoothSco();
                 manager.setBluetoothScoOn(false);
+                manager.setSpeakerphoneOn(false);
             }
         } catch (RuntimeException e) {
             Log.w(TAG, "Could not clear Bluetooth call route", e);

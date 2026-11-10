@@ -210,6 +210,8 @@
                     <MaterialDesignIcon :icon-name="isMicMuted ? 'microphone-off' : 'microphone'" class="size-5" />
                 </button>
 
+                <CallSpeakerRoute />
+
                 <!-- Mute Speaker -->
                 <button
                     type="button"
@@ -341,6 +343,7 @@
 import MaterialDesignIcon from "../MaterialDesignIcon.vue";
 import LxmfUserIcon from "../LxmfUserIcon.vue";
 import AudioWaveformPlayer from "../messages/AudioWaveformPlayer.vue";
+import CallSpeakerRoute from "./CallSpeakerRoute.vue";
 import Utils from "../../js/Utils";
 import { apiPath } from "../../js/constants";
 import ToastUtils from "../../js/ToastUtils";
@@ -348,7 +351,7 @@ import { promptMicrophoneAccessFromWindow } from "../../js/webAudioMicPermission
 
 export default {
     name: "CallOverlay",
-    components: { MaterialDesignIcon, LxmfUserIcon, AudioWaveformPlayer },
+    components: { MaterialDesignIcon, LxmfUserIcon, AudioWaveformPlayer, CallSpeakerRoute },
     props: {
         activeCall: {
             type: Object,

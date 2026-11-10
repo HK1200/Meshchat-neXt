@@ -2,6 +2,7 @@
 
 ## 0.1.12
 
+- Add a visible Android speaker routing control to both Reticulum call views.
 - Restore the configured microphone speech filters for Android and browser Reticulum calls, including automatic level control. Correct legacy LXST amplitude gain conversion.
 - Direct Android volume buttons to call volume during calls.
 

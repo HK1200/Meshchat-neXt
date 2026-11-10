@@ -2500,6 +2500,16 @@ public class MainActivity extends AppCompatActivity {
         }
 
         @JavascriptInterface
+        public boolean setTelephoneSpeaker(boolean enabled) {
+            return activity.telephoneNativeSession != null && activity.telephoneNativeSession.setSpeaker(enabled);
+        }
+
+        @JavascriptInterface
+        public boolean isTelephoneSpeakerOn() {
+            return activity.telephoneNativeSession != null && activity.telephoneNativeSession.isSpeakerOn();
+        }
+
+        @JavascriptInterface
         public String startTelephoneNativeAudio() {
             try {
                 if (activity.telephoneNativeSession == null) {

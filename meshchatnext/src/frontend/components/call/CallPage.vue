@@ -517,6 +517,8 @@
                                                     />
                                                 </button>
 
+                                                <CallSpeakerRoute />
+
                                                 <!-- mute/unmute speaker -->
                                                 <button
                                                     type="button"
@@ -1835,6 +1837,7 @@ import CallVoicemailTab from "./tabs/CallVoicemailTab.vue";
 import CallMeshCoreContacts from "./tabs/CallMeshCoreContacts.vue";
 import SipPhone from "../sip/SipPhone.vue";
 import SipContactBook from "../sip/SipContactBook.vue";
+import CallSpeakerRoute from "./CallSpeakerRoute.vue";
 import CallTabBar from "./tabs/CallTabBar.vue";
 
 // Keep this as a same-origin static asset URL so strict CSP can load it.
@@ -1843,6 +1846,7 @@ const telephonePcmCaptureWorkletUrl = "/assets/js/telephone-pcm-capture.worklet.
 export default {
     name: "CallPage",
     components: {
+        CallSpeakerRoute,
         DiscoveredContacts,
         MaterialDesignIcon,
         SearchInput,
