@@ -1030,6 +1030,9 @@ export default {
         },
     },
     watch: {
+        activeCall(current, previous) {
+            if (Boolean(current) !== Boolean(previous)) this.startShellPollIntervals();
+        },
         showMainShell(visible) {
             if (!visible) stopAllPrivateLocationSessions();
         },
@@ -1493,7 +1496,7 @@ export default {
             }
             const prefs = loadBatterySaverPrefs();
             const ready = this.liveTransportReady === true;
-            const telephoneMs = ready ? 15000 : 1000;
+            const telephoneMs = ready && !this.activeCall ? 15000 : 1000;
             const unreadMs = ready ? 30000 : 5000;
             const appInfoMs = 15000;
             this.reloadInterval = setInterval(
@@ -1502,7 +1505,7 @@ export default {
                     this.updatePropagationNodeStatus();
                     this.lastAnnouncedTick += 1;
                 },
-                applyBackgroundPollInterval(telephoneMs, prefs)
+                this.activeCall ? telephoneMs : applyBackgroundPollInterval(telephoneMs, prefs)
             );
             this.appInfoInterval = setInterval(
                 () => {

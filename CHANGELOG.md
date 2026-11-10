@@ -2,6 +2,7 @@
 
 ## 0.1.12
 
+- Refresh active call state each second so a missed live hang-up event does not leave the call screen connected for the idle polling interval.
 - Add a visible Android speaker routing control to both Reticulum call views.
 - Restore the configured microphone speech filters for Android and browser Reticulum calls, including automatic level control. Correct legacy LXST amplitude gain conversion.
 - Direct Android volume buttons to call volume during calls.

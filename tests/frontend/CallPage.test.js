@@ -1,6 +1,7 @@
 import { flushPromises, mount } from "@vue/test-utils";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import CallPage from "@/components/call/CallPage.vue";
+import { useNetworkStore } from "@/js/stores/networkStore";
 
 describe("CallPage.vue", () => {
     let axiosMock;
@@ -173,6 +174,26 @@ describe("CallPage.vue", () => {
         await selector.findAll("button")[0].trigger("click");
         expect(wrapper.findComponent({ name: "CallContactsTab" }).props("active")).toBe(true);
         expect(wrapper.findComponent({ name: "CallMeshCoreContacts" }).exists()).toBe(false);
+    });
+
+    it("clears a remotely ended call within one second when the live end event is missing", async () => {
+        const wrapper = mountCallPage();
+        await flushPromises();
+        const network = useNetworkStore();
+        const previousReady = network.liveTransportReady;
+        vi.useFakeTimers();
+        try {
+            network.liveTransportReady = true;
+            wrapper.vm.activeCall = { hash: "remote-call", status: 6 };
+            await wrapper.vm.$nextTick();
+            await vi.advanceTimersByTimeAsync(1000);
+            await flushPromises();
+            expect(wrapper.vm.activeCall).toBeNull();
+        } finally {
+            clearInterval(wrapper.vm.statusInterval);
+            network.liveTransportReady = previousReady;
+            vi.useRealTimers();
+        }
     });
 
     it("performs optimistic mute updates", async () => {

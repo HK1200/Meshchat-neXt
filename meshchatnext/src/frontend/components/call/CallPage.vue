@@ -2207,10 +2207,8 @@ export default {
                 clearInterval(this.statusInterval);
                 this.statusInterval = null;
             }
-            // Notification answer happens outside Vue. Refresh ringing state
-            // quickly even while the live transport still reports connected.
-            const ringing = this.activeCall?.status === 4;
-            const statusMs = useNetworkStore().liveTransportReady && !ringing ? 15000 : 1000;
+            // Reconcile active calls promptly if a live answer or hang-up event is lost.
+            const statusMs = useNetworkStore().liveTransportReady && !this.activeCall ? 15000 : 1000;
             this.statusInterval = setInterval(() => {
                 this.getStatus();
                 this.getVoicemailStatus();
