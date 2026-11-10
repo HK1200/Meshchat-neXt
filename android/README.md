@@ -56,3 +56,9 @@ See repo root scripts/sign-android-apks.sh (default glob targets outputs/apk/rel
 4. Re-run ./gradlew :app:assembleDebug after changing meshchatnext/ assets. Sync runs on merge Python sources tasks.
 
 See [../LICENSE](../LICENSE) for full text and notices.
+
+### Repairing a Codec2 extension without its Python initializer
+
+The Android pycodec2/pycodec2.so must export PyInit_pycodec2. Bundling libcodec2.so alone does not make an extension importable. Use scripts/android/rebuild-pycodec2-wheel.py with the pycodec2 4.1.1 input wheel, the matching NumPy 1.26.2 wheel, the Chaquopy Python 3.11 target ZIP for that ABI, and the Android NDK 27.3.13750724 LLVM toolchain directory. Pass a new wheel filename under a separate output directory to --output, preserving the original wheel.
+
+The script verifies the pinned generated C source and downloads checksum-pinned Codec2 headers. It compiles the extension for Android API 24 with 16 KiB alignment, verifies the exported initializer, updates the wheel RECORD, and writes input/output provenance. Repeat with --abi arm64-v8a, --abi x86_64, and --abi armeabi-v7a using their respective inputs. Copy the repaired wheels into the private vendor directory before building. Test actual encode and decode on Android before publishing.
