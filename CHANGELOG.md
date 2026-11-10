@@ -1,5 +1,11 @@
 # Meshchat neXt changelog
 
+## 0.1.11
+
+- MeshCore rooms use saved passwords to sign in in the background when the companion connects. Leaving the room screen keeps the session.
+- Correct an ahead-of-phone companion clock before submitting a room post. Distinguish a future saved send timestamp from the companion clock, and keep uncertain send attempts from being retried as new posts.
+- Include the checksum-pinned Android Codec2 rebuild tool used to repair the low-bandwidth audio module.
+
 ## 0.1.10
 
 - Correct Reticulum call playback pitch and timing and match the negotiated microphone framing when the call profile changes.
