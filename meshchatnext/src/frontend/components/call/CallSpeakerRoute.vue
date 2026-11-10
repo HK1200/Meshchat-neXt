@@ -2,11 +2,16 @@
     <button
         v-if="supported"
         type="button"
-        class="px-3 py-2 rounded-full bg-sem-surface-muted text-sem-fg-secondary"
+        class="px-3 py-2 rounded-full"
+        :class="
+            speakerOn
+                ? 'bg-sem-action-primary text-sem-action-primary-text'
+                : 'bg-sem-surface-muted text-sem-fg-secondary'
+        "
         :aria-pressed="speakerOn"
         @click="toggle"
     >
-        {{ $t(speakerOn ? "call.speaker_on" : "call.speaker_off") }}
+        {{ $t("call.speaker") }}
     </button>
 </template>
 
@@ -34,7 +39,7 @@ export default {
         },
         toggle() {
             if (!window.MeshchatNextAndroid?.setTelephoneSpeaker(!this.speakerOn)) {
-                ToastUtils.error(this.$t("call.speaker_unavailable"));
+                ToastUtils.error(this.$t("call.failed_to_toggle_speaker"));
                 return;
             }
             setTimeout(() => window.dispatchEvent(new Event("meshchatnext-call-route")), 200);

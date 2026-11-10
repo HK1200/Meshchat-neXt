@@ -4839,9 +4839,6 @@
         "copied_to_clipboard": "Copied to clipboard"
     },
     "call": {
-        "speaker_on": "Speaker on",
-        "speaker_off": "Speaker off",
-        "speaker_unavailable": "Speaker routing is unavailable. Try again once call audio is connected.",
         "phone": "Phone",
         "voicemail": "Voicemail",
         "settings": "Settings",
