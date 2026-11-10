@@ -14,4 +14,7 @@ def release_versions(source: Path) -> tuple[str, str]:
     if not match:
         raise ValueError("Windows package review requires a stable patch release")
     major, minor, patch = match.groups()
-    return version, f"{major}.{minor}.{int(patch) - 1}"
+    # v0.1.11 was a source tag without a public installer release.
+    published_baselines = {"0.1.12": "0.1.10"}
+    baseline = published_baselines.get(version, f"{major}.{minor}.{int(patch) - 1}")
+    return version, baseline
