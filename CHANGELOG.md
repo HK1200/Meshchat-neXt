@@ -1,5 +1,12 @@
 # Meshchat neXt changelog
 
+## 0.1.10
+
+- Correct Reticulum call playback pitch and timing and match the negotiated microphone framing when the call profile changes.
+- Group Android communication notifications while keeping incoming call answer and decline controls accessible.
+- Refresh a peer’s advertised name in conversations without changing a locally saved nickname.
+- Show the last location update on selected map pins.
+
 ## 0.1.9
 
 - Conversations separates MeshCore and Reticulum threads and makes the network clear when starting a chat. Contact pickers can add a discovered contact after you choose the correct identity.
