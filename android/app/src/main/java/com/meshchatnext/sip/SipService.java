@@ -17,7 +17,7 @@ import org.json.*;
 
 /** Dedicated process: DNS, SIP and RTP are bound together to an allowed network. */
 public final class SipService extends Service {
-    private static final int NOTIFICATION = AppBackgroundNotification.ID, INCOMING = 6401;
+    private static final int NOTIFICATION = AppBackgroundNotification.SIP_ID, INCOMING = 6401;
     private static final String CALL_CHANNEL = "sip_incoming_calls_v2";
     private static final long[] CALL_VIBRATION = {0, 600, 300, 600, 1200};
     private volatile boolean foregroundActive;
@@ -399,7 +399,6 @@ public final class SipService extends Service {
         AppBackgroundNotification.saveSipStatus(this, status);
         lastBackgroundStatus = status;
         Notification n = AppBackgroundNotification.build(this, status);
-        getSystemService(NotificationManager.class).cancel(AppBackgroundNotification.LEGACY_SIP_ID);
         if (Build.VERSION.SDK_INT >= 29)
             startForeground(NOTIFICATION, n,
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL
@@ -407,11 +406,13 @@ public final class SipService extends Service {
         else
             startForeground(NOTIFICATION, n);
         foregroundActive = true;
+        AppBackgroundNotification.sync(this);
     }
     private synchronized void leaveForeground() {
         foregroundActive = false;
         AppBackgroundNotification.clearSipStatus(this);
         stopForeground(STOP_FOREGROUND_REMOVE);
+        AppBackgroundNotification.sync(this);
     }
     private synchronized void refreshBackgroundStatus() {
         if (!foregroundActive) return;
@@ -420,6 +421,7 @@ public final class SipService extends Service {
             lastBackgroundStatus = status;
             AppBackgroundNotification.saveSipStatus(this, status);
             getSystemService(NotificationManager.class).notify(NOTIFICATION, AppBackgroundNotification.build(this, status));
+            AppBackgroundNotification.sync(this);
         }
     }
     private JSONObject find(String id) throws JSONException {

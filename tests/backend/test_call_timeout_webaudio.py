@@ -95,7 +95,7 @@ def test_web_audio_drops_exact_oversize_boundary():
     src = WebAudioSource(target_frame_ms=60, sink=sink)
     src.push_pcm(b"\x00" * (WebAudioSource.MAX_PCM_BYTES + 1))
     assert sink.frames == []
-    src.push_pcm(np.zeros(160, dtype=np.int16).tobytes())
+    src.push_pcm(np.zeros(2880, dtype=np.int16).tobytes())
     assert len(sink.frames) == 1
 
 

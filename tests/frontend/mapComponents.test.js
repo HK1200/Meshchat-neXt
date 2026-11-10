@@ -316,6 +316,7 @@ describe("MapMarkerPanel", () => {
                 latitude: 1.2,
                 longitude: 3.4,
                 interface: "eth0",
+                last_heard: 1700000000,
             },
         };
         const wrapper = mount(MapMarkerPanel, {
@@ -327,6 +328,8 @@ describe("MapMarkerPanel", () => {
         });
         expect(wrapper.text()).toContain("NodeA");
         expect(wrapper.text()).toContain("1.200000");
+        expect(wrapper.text()).toContain("Last heard");
+        expect(wrapper.get("time").attributes("datetime")).toBe(new Date(1700000000000).toISOString());
         await wrapper.find("button.text-sem-fg-muted").trigger("click");
         expect(wrapper.emitted("close")).toHaveLength(1);
     });
@@ -359,7 +362,7 @@ describe("MapMarkerPanel", () => {
             telemetry: {
                 destination_hash: "aabbccddeeff00112233445566778899",
                 timestamp: 1700000000,
-                telemetry: { location: { latitude: -1.286, longitude: 36.817 } },
+                telemetry: { location: { latitude: -1.286, longitude: 36.817, last_update: 1699990000 } },
             },
         };
         const wrapper = mount(MapMarkerPanel, {
@@ -382,6 +385,8 @@ describe("MapMarkerPanel", () => {
             expect.objectContaining({ hasRef: true, refLat: -1.28, refLon: 36.81 })
         );
         expect(wrapper.text()).toContain("SHORT+CODE");
+        expect(wrapper.text()).toContain("Last updated");
+        expect(wrapper.get("time").attributes("datetime")).toBe(new Date(1699990000000).toISOString());
         spy.mockRestore();
     });
 });

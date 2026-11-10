@@ -21,6 +21,7 @@
     <string name="notification_call_answer">Answer</string>
     <string name="notification_missed_call_label">Missed call</string>
     <string name="notification_background_title">Meshchat neXt is running</string>
+    <string name="notification_communication_summary">Calls and messages</string>
     <string name="notification_background_text">Meshchat neXt is active in the background. Tap to return.</string>
     <string name="notification_new_message_fallback">New message</string>
     <string name="shortcut_messages_short">Messages</string>

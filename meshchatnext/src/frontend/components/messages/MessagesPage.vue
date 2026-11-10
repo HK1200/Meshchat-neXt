@@ -1463,6 +1463,11 @@ export default {
                 merged.display_name = existing.display_name;
             }
             this.peers[announce.destination_hash] = merged;
+            const name = announce.display_name;
+            if (!name || name === "Anonymous Peer") return;
+            const conversation = this.conversations.find((item) => item.destination_hash === announce.destination_hash);
+            if (conversation) conversation.display_name = name;
+            this.applyToPanePeers(announce.destination_hash, { display_name: name });
         },
         onUpdatePeerTracking({ destination_hash, is_tracking }) {
             if (this.peers[destination_hash]) {

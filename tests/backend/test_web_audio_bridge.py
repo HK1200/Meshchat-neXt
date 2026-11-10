@@ -25,12 +25,19 @@ class _DummySink:
         self.frames.append(frame)
 
 
-def test_web_audio_source_pushes_frames():
+@pytest.mark.parametrize(("frame_ms", "wire_frames", "expected"), [(20, 1, 3), (60, 2, 2), (200, 4, 1)])
+def test_web_audio_source_reframes_pcm_for_current_profile(frame_ms, wire_frames, expected):
     sink = _DummySink()
-    src = WebAudioSource(target_frame_ms=60, sink=sink)
-    zeros = np.zeros(160, dtype=np.int16)
-    src.push_pcm(zeros.tobytes())
-    assert len(sink.frames) == 1
+    src = WebAudioSource(target_frame_ms=frame_ms, sink=sink)
+    pcm = np.arange(2880 * wire_frames, dtype="<i2").tobytes()
+    for offset in range(0, len(pcm), 5760):
+        src.push_pcm(pcm[offset:offset + 5760])
+    assert len(sink.frames) == expected
+    assert all(src.codec.decode(frame).shape == (frame_ms * 48, 1) for frame in sink.frames)
+
+    src.stop()
+    src.push_pcm(b"\0" * (frame_ms * 96 - 2))
+    assert len(sink.frames) == expected
 
 
 def test_web_audio_source_empty_pcm_does_not_push():
@@ -51,7 +58,7 @@ def test_web_audio_source_respects_sink_can_receive_false():
     sink = MagicMock()
     sink.can_receive.return_value = False
     src = WebAudioSource(target_frame_ms=60, sink=sink)
-    src.push_pcm(np.zeros(8, dtype=np.int16).tobytes())
+    src.push_pcm(np.zeros(2880, dtype=np.int16).tobytes())
     sink.handle_frame.assert_not_called()
 
 
@@ -105,6 +112,28 @@ async def test_web_audio_sink_numpy_frame_clips_to_int16_range():
     out = np.frombuffer(sent[0], dtype=np.int16)
     assert out[0] == 32767
     assert out[1] == -32767
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("rate", [24000, 48000])
+async def test_web_audio_sink_preserves_pitch_and_duration_for_stereo(rate):
+    sent = []
+    ready = asyncio.Event()
+
+    async def _send_bytes(data):
+        sent.append(data)
+        ready.set()
+
+    sink = WebAudioSink(asyncio.get_running_loop(), _send_bytes)
+    tone = np.sin(2 * np.pi * 450 * np.arange(rate // 10) / rate).astype(np.float32)
+    stereo = np.column_stack((tone * 0.8, tone * 0.4))
+    source = MagicMock(samplerate=rate)
+    sink.handle_frame(stereo, source)
+    await asyncio.wait_for(ready.wait(), timeout=1)
+    pcm = np.frombuffer(sent[0], dtype="<i2")
+    assert len(pcm) == 4800
+    assert np.argmax(np.abs(np.fft.rfft(pcm))) * 10 == 450
+    assert max(pcm) == pytest.approx(0.6 * 32767, rel=0.01)
 
 
 @pytest.mark.asyncio

@@ -18,6 +18,7 @@ from .telephone_manager import Tee
 _HOSTLESS_AUDIO_INSTALLED = False
 _ORIG_LINE_SOURCE = None
 _ORIG_LINE_SINK = None
+WEB_AUDIO_SAMPLE_RATE = 48000
 
 
 class HostlessAudioSource(LocalSource):
@@ -187,16 +188,19 @@ class WebAudioSource(LocalSource):
         self.sink = sink
         self.codec = Raw(channels=1, bitdepth=16)
         self.channels = 1
-        self.samplerate = 48000
+        self.samplerate = WEB_AUDIO_SAMPLE_RATE
         self.bitdepth = 16
+        self._frame_bytes = max(2, round(self.samplerate * self.target_frame_ms / 1000) * 2)
+        self._pending = bytearray()
+        self._pending_lock = threading.Lock()
 
     def start(self):
         # Nothing to start, as frames are pushed from the websocket thread.
         pass
 
     def stop(self):
-        # Nothing to stop, but kept for interface compatibility.
-        pass
+        with self._pending_lock:
+            self._pending.clear()
 
     def can_receive(self, from_source=None):
         return True
@@ -215,15 +219,16 @@ class WebAudioSource(LocalSource):
                     RNS.LOG_WARNING,
                 )
                 return
-            samples = (
-                np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32) / 32768.0
-            )
-            if samples.size == 0:
-                return
-            samples = samples.reshape(-1, 1)
-            frame = self.codec.encode(samples)
-            if self.sink and self.sink.can_receive(from_source=self):
-                self.sink.handle_frame(frame, self)
+            with self._pending_lock:
+                self._pending.extend(pcm_bytes)
+                complete_bytes = len(self._pending) // self._frame_bytes * self._frame_bytes
+                ready = bytes(self._pending[:complete_bytes])
+                del self._pending[:complete_bytes]
+            for offset in range(0, complete_bytes, self._frame_bytes):
+                if self.sink and self.sink.can_receive(from_source=self):
+                    pcm = ready[offset:offset + self._frame_bytes]
+                    samples = np.frombuffer(pcm, dtype="<i2").astype(np.float32) / 32768.0
+                    self.sink.handle_frame(self.codec.encode(samples.reshape(-1, 1)), self)
         except Exception as exc:
             RNS.log(f"WebAudioSource: failed to push pcm: {exc}", RNS.LOG_ERROR)
 
@@ -240,10 +245,19 @@ class WebAudioSink(LocalSink):
 
     def handle_frame(self, frame, source):
         try:
-            # frame is expected to be numpy float PCM from receive mixer
-            if hasattr(frame, "astype"):
-                samples = np.clip(frame, -1.0, 1.0).astype(np.float32)
-                pcm = (samples * 32767.0).astype(np.int16).tobytes()
+            if isinstance(frame, np.ndarray):
+                # Android and the browser both play this stream as 48 kHz mono.
+                samples = np.asarray(frame, dtype=np.float32)
+                if samples.ndim == 2:
+                    samples = samples.mean(axis=1)
+                if not samples.size:
+                    return
+                rate = getattr(source, "samplerate", None)
+                if isinstance(rate, (int, float)) and 0 < rate != WEB_AUDIO_SAMPLE_RATE:
+                    output_count = round(samples.size * WEB_AUDIO_SAMPLE_RATE / rate)
+                    positions = np.arange(output_count) * (rate / WEB_AUDIO_SAMPLE_RATE)
+                    samples = np.interp(positions, np.arange(samples.size), samples)
+                pcm = (np.clip(samples, -1.0, 1.0) * 32767.0).astype("<i2").tobytes()
             else:
                 pcm = frame
             self.loop.call_soon_threadsafe(asyncio.create_task, self.send_bytes(pcm))
@@ -367,6 +381,8 @@ class WebAudioBridge:
                 self._ensure_rx_tee(tele)
             # Do not feed PCM while mic is muted or half-duplex PTT is released.
             if getattr(self.telephone_manager, "transmit_muted", False) is True:
+                if self.tx_source is not None:
+                    self.tx_source.stop()
                 return
             is_squelched = getattr(
                 self.telephone_manager,
@@ -376,6 +392,8 @@ class WebAudioBridge:
             if callable(is_squelched):
                 try:
                     if is_squelched() is True:
+                        if self.tx_source is not None:
+                            self.tx_source.stop()
                         return
                 except Exception:
                     pass

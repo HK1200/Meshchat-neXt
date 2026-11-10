@@ -185,6 +185,7 @@ public final class AndroidNotificationBridge {
                 } catch (Exception ignored) {
                 }
                 postedMessageNotificationIds.remove(id);
+                AppBackgroundNotification.sync(ctx);
             }
         );
     }
@@ -218,6 +219,7 @@ public final class AndroidNotificationBridge {
                     nm.cancel(NOTIFY_BASE_ID);
                 } catch (Exception ignored) {
                 }
+                AppBackgroundNotification.sync(ctx);
             }
         );
     }
@@ -381,7 +383,8 @@ public final class AndroidNotificationBridge {
         b.setDefaults(NotificationCompat.DEFAULT_ALL);
 
         try {
-            nm.notify(id, b.build());
+            nm.notify(id, AppBackgroundNotification.groupDismissible(ctx, b).build());
+            AppBackgroundNotification.sync(ctx);
         } catch (SecurityException ignored) {
         }
     }
@@ -461,7 +464,8 @@ public final class AndroidNotificationBridge {
             .setOnlyAlertOnce(false);
 
         try {
-            nm.notify(id, b.build());
+            nm.notify(id, AppBackgroundNotification.groupDismissible(ctx, b).build());
+            AppBackgroundNotification.sync(ctx);
             postedMessageNotificationIds.add(id);
         } catch (SecurityException ignored) {
         }

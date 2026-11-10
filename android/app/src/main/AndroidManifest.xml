@@ -75,6 +75,7 @@
         android:usesCleartextTraffic="true"
         tools:targetApi="35">
 
+        <receiver android:name=".AppBackgroundNotification$DismissedReceiver" android:exported="false" />
         <activity android:name=".UpdateInstallerActivity" android:exported="false"
             android:excludeFromRecents="true" android:configChanges="orientation|screenSize"
             android:theme="@android:style/Theme.Material.Light.NoActionBar" />

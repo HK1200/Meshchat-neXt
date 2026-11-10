@@ -16,6 +16,7 @@ public class MeshChatForegroundService extends Service {
     private final Runnable refreshStatus = new Runnable() {
         @Override public void run() {
             getSystemService(android.app.NotificationManager.class).notify(FG_NOTIFICATION_ID, buildForegroundNotification());
+            AppBackgroundNotification.sync(MeshChatForegroundService.this);
             statusHandler.postDelayed(this, 30000);
         }
     };
@@ -34,6 +35,7 @@ public class MeshChatForegroundService extends Service {
         } else {
             startForeground(FG_NOTIFICATION_ID, notification);
         }
+        AppBackgroundNotification.sync(this);
         if (!refreshingStatus) {
             refreshingStatus = true;
             statusHandler.postDelayed(refreshStatus, 30000);
@@ -62,6 +64,7 @@ public class MeshChatForegroundService extends Service {
     public void onDestroy() {
         statusHandler.removeCallbacks(refreshStatus);
         stopForeground(STOP_FOREGROUND_REMOVE);
+        AppBackgroundNotification.sync(this);
         super.onDestroy();
     }
 }

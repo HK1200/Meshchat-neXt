@@ -73,6 +73,13 @@
                 </button>
             </div>
         </div>
+        <div v-if="marker.telemetry || marker.discovered" class="px-4 pt-3 text-xs text-sem-fg-muted">
+            <span>{{ marker.telemetry ? "Last updated" : "Last heard" }} · </span>
+            <time v-if="markerTimestamp" :datetime="markerTimestamp.toISOString()">
+                {{ markerTimestamp.toLocaleString() }}
+            </time>
+            <span v-else>Time unavailable</span>
+        </div>
         <div class="p-4 space-y-3">
             <div v-if="marker.discovered" class="space-y-3">
                 <div class="grid grid-cols-2 gap-4 text-sm">
@@ -152,11 +159,6 @@
                     </div>
                 </div>
 
-                <div class="pt-2 text-[10px] text-sem-fg-muted flex items-center gap-1">
-                    <MaterialDesignIcon icon-name="clock-outline" class="size-3" />
-                    Updated: {{ formatTimestamp(marker.telemetry.timestamp) }}
-                </div>
-
                 <div class="border-t border-sem-border pt-3">
                     <button
                         class="w-full py-2 bg-sem-surface-muted hover:bg-sem-surface-muted hover:bg-sem-surface-muted text-sem-fg-muted rounded-lg font-bold transition-all text-sm flex items-center justify-center gap-2 mb-2"
@@ -193,6 +195,13 @@ export default {
     },
     emits: ["close", "toggle-tracking", "toggle-mini-chat"],
     computed: {
+        markerTimestamp() {
+            const telemetry = this.marker.telemetry;
+            const seconds =
+                this.telemetryLocation?.last_update ?? telemetry?.timestamp ?? this.marker.discovered?.last_heard;
+            const time = Number(seconds) > 0 ? new Date(Number(seconds) * 1000) : new Date(telemetry?.updated_at);
+            return Number.isFinite(time.getTime()) ? time : null;
+        },
         telemetryLocation() {
             const loc = this.marker?.telemetry?.telemetry?.location;
             if (!loc || typeof loc !== "object") {
@@ -227,12 +236,6 @@ export default {
                 return "-";
             }
             return n.toFixed(digits);
-        },
-        formatTimestamp(ts) {
-            if (ts == null || !Number.isFinite(Number(ts))) {
-                return "-";
-            }
-            return new Date(Number(ts) * 1000).toLocaleString();
         },
     },
 };

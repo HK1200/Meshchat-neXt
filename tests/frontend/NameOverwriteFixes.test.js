@@ -123,6 +123,10 @@ describe("MessagesPage display name protection", () => {
             destination_hash: destHash,
             display_name: "Old Name",
         };
+        wrapper.vm.conversations = [
+            { destination_hash: destHash, display_name: "Old Name", custom_display_name: "Local nickname" },
+        ];
+        const openPane = vi.spyOn(wrapper.vm, "applyToPanePeers");
 
         wrapper.vm.updatePeerFromAnnounce({
             destination_hash: destHash,
@@ -130,6 +134,11 @@ describe("MessagesPage display name protection", () => {
         });
 
         expect(wrapper.vm.peers[destHash].display_name).toBe("New Name");
+        expect(wrapper.vm.conversations[0]).toMatchObject({
+            display_name: "New Name",
+            custom_display_name: "Local nickname",
+        });
+        expect(openPane).toHaveBeenCalledWith(destHash, { display_name: "New Name" });
     });
 
     it("preserves known name when conversation list returns Anonymous Peer", async () => {
