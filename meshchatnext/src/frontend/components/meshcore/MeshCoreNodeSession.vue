@@ -71,15 +71,10 @@
                 @use-saved="operate('node-login', { use_saved_role: $event })"
                 @available="vaultAvailable = $event"
             />
-            <label v-if="autoLoginScope" class="flex items-center gap-2 text-sm">
-                <input
-                    type="checkbox"
-                    :checked="autoLoginEnabled"
-                    :disabled="busy"
-                    @change="setAutoLogin($event.target.checked)"
-                />
-                Automatically log in with saved member password
-            </label>
+            <p v-if="node.kind === 3" class="text-xs text-sem-fg-muted">
+                Saved room passwords sign in automatically when the radio connects. Leaving this screen keeps the room
+                signed in.
+            </p>
             <p v-if="node.kind === 2" class="text-xs text-sem-fg-muted">
                 Opening this repeater uses its saved administrator password first, if available.
             </p>
@@ -695,47 +690,14 @@ function label(key) {
         }[key] || key.replaceAll("_", " ")
     );
 }
-const autoLoginEnabled = ref(false);
-const autoLoginScope = computed(() => {
-    const { owner, radio_id: radioId } = props.snapshot;
-    const { kind, peer } = props.node;
-    if (kind !== 3 || !/^[0-9a-f]{64}$/i.test(owner || "") || !/^[0-9a-f]{64}$/i.test(peer)) return "";
-    return `meshchat-next.room-auto-login:${JSON.stringify([owner, radioId || "default", peer])}`;
-});
 let lastAutoLoginAttempt = "";
 const repeaterAutoLoginPaused = ref(false);
 watch([() => props.node.peer, () => props.visit], () => {
     repeaterAutoLoginPaused.value = false;
     lastAutoLoginAttempt = "";
 });
-function savedAutoLogin(scope) {
-    try {
-        return localStorage.getItem(scope) === "1";
-    } catch {
-        return false;
-    }
-}
-function setAutoLogin(enabled) {
-    const scope = autoLoginScope.value;
-    if (!scope) return;
-    try {
-        if (enabled) localStorage.setItem(scope, "1");
-        else localStorage.removeItem(scope);
-        autoLoginEnabled.value = enabled;
-    } catch {
-        problem.value = "Could not save the automatic room login preference.";
-    }
-}
-watch(
-    autoLoginScope,
-    (scope) => {
-        autoLoginEnabled.value = Boolean(scope && savedAutoLogin(scope));
-    },
-    { immediate: true }
-);
 function logout() {
     if (props.node.kind === 2) repeaterAutoLoginPaused.value = true;
-    else setAutoLogin(false);
     return operate("node-logout");
 }
 async function operate(action, extra = {}) {
@@ -845,7 +807,7 @@ async function recover() {
         );
         uncertain.value = false;
         problem.value = "";
-        notice.value = autoLoginEnabled.value ? "MeshCore reconnected." : "MeshCore reconnected. Log in again.";
+        notice.value = "MeshCore reconnected.";
         emit("changed");
     } catch {
         problem.value = "MeshCore could not reconnect. Check the radio in MeshCore settings.";
@@ -935,8 +897,6 @@ watch(
 );
 watch(
     [
-        autoLoginScope,
-        autoLoginEnabled,
         repeaterAutoLoginPaused,
         () => props.node.kind,
         () => props.node.peer,
@@ -950,22 +910,22 @@ watch(
         busy,
     ],
     () => {
-        const repeater = props.node.kind === 2;
         const { owner, radio_id: radio, connection_id: connection } = props.snapshot;
-        const scope = repeater
-            ? owner && JSON.stringify([owner, radio, props.node.peer, props.visit])
-            : autoLoginScope.value;
-        if (!scope || !connection || !props.snapshot.connected || busy.value || needsRecovery.value || password.value)
+        if (
+            props.node.kind !== 2 ||
+            !owner ||
+            !connection ||
+            !props.snapshot.connected ||
+            busy.value ||
+            needsRecovery.value ||
+            password.value ||
+            repeaterAutoLoginPaused.value
+        )
             return;
-        if (repeater ? repeaterAutoLoginPaused.value : !autoLoginEnabled.value || !savedAutoLogin(scope)) return;
-        const attempt = JSON.stringify([scope, connection]);
+        const attempt = JSON.stringify([owner, radio, props.node.peer, props.visit, connection]);
         if (attempt === lastAutoLoginAttempt) return;
-        if (verified.value) {
-            if (repeater) lastAutoLoginAttempt = attempt;
-            return;
-        }
         lastAutoLoginAttempt = attempt;
-        void operate(repeater ? "repeater-auto-login" : "node-auto-login", { expected_connection_id: connection });
+        if (!verified.value) void operate("repeater-auto-login", { expected_connection_id: connection });
     },
     { immediate: true, flush: "post" }
 );

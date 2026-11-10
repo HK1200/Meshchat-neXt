@@ -87,6 +87,7 @@ class MeshCoreService:
         self._retry_max = retry_max
         self._lock = asyncio.Lock()
         self._task = None
+        self._room_login_task = None
         self._selection = None
         self._state = "disconnected"
         self._connection_id = None
@@ -231,6 +232,11 @@ class MeshCoreService:
         }
 
     async def _close_connection(self):
+        room_login = self._room_login_task
+        self._room_login_task = None
+        if room_login is not None:
+            room_login.cancel()
+            await asyncio.gather(room_login, return_exceptions=True)
         messages, session = self.messages, self.session
         if self.tactical is not None:
             await self.tactical.beacon_stop()
@@ -316,6 +322,10 @@ class MeshCoreService:
             self._connection_id = uuid.uuid4().hex
             self._state = "connected"
             self._last_connection_issue = None
+            if selection["receive"]:
+                self._room_login_task = asyncio.create_task(
+                    self.nodes.maintain_saved_rooms()
+                )
             auto = await asyncio.to_thread(
                 self._store.region_automation, self.messages.owner
             )

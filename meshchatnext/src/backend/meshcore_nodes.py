@@ -32,6 +32,7 @@ class MeshCoreNodes:
         self.uncertain = set()
         self.unconfirmed_admin_requests = set()
         self.operations = {}
+        self._active_exchanges = set()
         self._last_discovery = None
 
     async def discover(self):
@@ -227,6 +228,15 @@ class MeshCoreNodes:
         return min(self.MAX_REPLY_TIMEOUT, max(minimum, estimate / 1000 * 1.5))
 
     async def _exchange(self, peer, operation, password=None, *, contact_kinds=(2, 3)):
+        if peer in self._active_exchanges:
+            raise ValueError("A server request is already in progress")
+        self._active_exchanges.add(peer)
+        try:
+            return await self._exchange_server(peer, operation, password, contact_kinds)
+        finally:
+            self._active_exchanges.discard(peer)
+
+    async def _exchange_server(self, peer, operation, password, contact_kinds):
         diagnostic = {
             "operation": operation,
             "stage": "sending",
@@ -380,9 +390,11 @@ class MeshCoreNodes:
     async def password_save(self, peer, role, password):
         if self.passwords is None:
             raise ValueError("Secure password storage is unavailable")
+        peer = public_key(peer)
         await asyncio.to_thread(
-            self.passwords.save, self.messages.owner, public_key(peer), role, password
+            self.passwords.save, self.messages.owner, peer, role, password
         )
+        self._automatic_login_attempts.discard(peer)
         return await self.password_status(peer)
 
     async def password_forget(self, peer, role):
@@ -400,7 +412,28 @@ class MeshCoreNodes:
         if peer in self._automatic_login_attempts or peer in self.uncertain:
             return {"state": "automatic_login_skipped"}
         self._automatic_login_attempts.add(peer)
-        return await self._login_saved(peer, 3, ("member",))
+        return await self._login_saved(peer, 3, ("member", "admin"))
+
+    async def maintain_saved_rooms(self):
+        """Try saved room credentials once per companion session, independent of the UI."""
+        while True:
+            try:
+                self.messages._check()
+                contacts = await asyncio.to_thread(
+                    self.messages.store.contacts, self.messages.owner
+                )
+                for contact in contacts:
+                    if contact["active"] and contact["kind"] == 3:
+                        peer = contact["peer"]
+                        if peer in self._active_exchanges:
+                            continue
+                        try:
+                            await self.login_saved_room(peer)
+                        except (ConnectionError, ValueError):
+                            continue
+            except ConnectionError:
+                return
+            await asyncio.sleep(5)
 
     async def login_saved_repeater(self, peer):
         peer = public_key(peer)

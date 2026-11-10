@@ -491,54 +491,23 @@ describe("Task-based node navigation and room author names", () => {
         expect(wrapper.text()).toContain("Direct connection");
     });
 
-    it("automatically logs in once per connection after opting in and stays off after logout", async () => {
+    it("reflects backend room login and does not duplicate it on opening or reconnect", async () => {
         setup();
         const connected = { ...wrapper.props("snapshot"), radio_id: "travel", connection_id: "first" };
         await wrapper.setProps({ snapshot: connected });
-        expect(window.api.post).not.toHaveBeenCalled();
         await button("Access").trigger("click");
-        await wrapper
-            .findAll('input[type="checkbox"]')
-            .find((input) => input.element.parentElement.textContent.includes("Automatically log in"))
-            .setValue(true);
-        await flushPromises();
-        expect(window.api.post).toHaveBeenCalledExactlyOnceWith(
-            "/api/v1/meshcore/node-auto-login",
-            { peer, expected_owner: owner, expected_connection_id: "first" },
-            { timeout: 150000, params: { radio: "travel" } }
-        );
-        await wrapper.setProps({ snapshot: { ...connected } });
-        expect(window.api.post).toHaveBeenCalledTimes(1);
-        await wrapper.setProps({ snapshot: { ...connected, connected: false, connection_id: null } });
-        expect(window.api.post).toHaveBeenCalledTimes(1);
-        const reconnected = { ...connected, connection_id: "second" };
-        await wrapper.setProps({ snapshot: reconnected });
-        await flushPromises();
-        expect(window.api.post).toHaveBeenCalledTimes(2);
-        expect(window.api.post.mock.calls[1][1].expected_connection_id).toBe("second");
+        expect(wrapper.text()).toContain("Saved room passwords sign in automatically");
         await wrapper.setProps({
-            snapshot: { ...reconnected, node_sessions: { [peer]: { state: "verified" } } },
+            snapshot: { ...connected, node_sessions: { [peer]: { state: "verified" } } },
         });
+        expect(wrapper.text()).toContain("Member login verified");
+        expect(window.api.post).not.toHaveBeenCalled();
         window.api.post.mockResolvedValueOnce({ data: { result: { state: "submitted" } } });
         await button("Log out").trigger("click");
         await flushPromises();
-        await wrapper.setProps({ snapshot: { ...connected, connection_id: "third" } });
-        expect(window.api.post).toHaveBeenCalledTimes(3);
-        expect(window.api.post.mock.calls[2][0]).toBe("/api/v1/meshcore/node-logout");
-    });
-
-    it("does not retry a denied automatic login on polling or use its preference on a different radio", async () => {
-        setup();
-        const scope = `meshchat-next.room-auto-login:${JSON.stringify([owner, "first-radio", peer])}`;
-        localStorage.setItem(scope, "1");
-        window.api.post.mockResolvedValueOnce({ data: { result: { state: "denied" } } });
-        const snapshot = { ...wrapper.props("snapshot"), radio_id: "first-radio", connection_id: "first" };
-        await wrapper.setProps({ snapshot });
-        await flushPromises();
-        expect(wrapper.text()).toContain("The server denied this login.");
-        await wrapper.setProps({ snapshot: { ...snapshot } });
-        await wrapper.setProps({ snapshot: { ...snapshot, radio_id: "second-radio", connection_id: "second" } });
+        await wrapper.setProps({ snapshot: { ...connected, connection_id: "second" } });
         expect(window.api.post).toHaveBeenCalledTimes(1);
+        expect(window.api.post.mock.calls[0][0]).toBe("/api/v1/meshcore/node-logout");
     });
     it("keeps the selected tab on refreshed snapshots and resets it for a different radio", async () => {
         setup();

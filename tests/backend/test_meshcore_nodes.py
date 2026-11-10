@@ -100,6 +100,24 @@ class NodeTests(unittest.IsolatedAsyncioTestCase):
         await self.nodes.logout(PEER)
         self.assertNotIn(PEER, self.nodes.snapshot())
 
+    async def test_saved_rooms_are_maintained_without_opening_the_room_screen(self):
+        self.messages.store.contacts = lambda owner: [
+            {"peer": PEER, "kind": 3, "active": True},
+            {"peer": OTHER, "kind": 2, "active": True},
+        ]
+        self.nodes.passwords = SimpleNamespace(
+            status=Mock(return_value={"available": True, "saved_roles": ["admin"]}),
+            load=Mock(return_value="room-fixture"),
+        )
+        with patch(
+            "meshchatnext.src.backend.meshcore_nodes.asyncio.sleep",
+            side_effect=asyncio.CancelledError,
+        ), self.assertRaises(asyncio.CancelledError):
+            await self.nodes.maintain_saved_rooms()
+        self.commands._send_login_raw.assert_awaited_once_with(PEER, "room-fixture")
+        self.assertIn(PEER, self.nodes.snapshot())
+        self.assertNotIn(OTHER, self.nodes.snapshot())
+
     async def test_saved_room_login_uses_only_member_password_and_runs_once(self):
         vault = SimpleNamespace(
             status=Mock(
@@ -169,16 +187,17 @@ class NodeTests(unittest.IsolatedAsyncioTestCase):
         )
         vault.load.assert_called_once_with(self.messages.owner, PEER, "member")
 
-    async def test_saved_room_login_skips_admin_only_and_rejects_a_repeater(self):
+    async def test_saved_room_login_uses_saved_admin_if_needed_and_rejects_a_repeater(self):
         vault = SimpleNamespace(
             status=Mock(return_value={"available": True, "saved_roles": ["admin"]}),
-            load=Mock(return_value="member-fixture"),
+            load=Mock(return_value="admin-fixture"),
         )
         self.nodes.passwords = vault
         self.assertEqual(
-            (await self.nodes.login_saved_room(PEER))["state"], "no_saved_password"
+            (await self.nodes.login_saved_room(PEER))["state"], "verified"
         )
-        vault.load.assert_not_called()
+        vault.load.assert_called_once_with(self.messages.owner, PEER, "admin")
+        self.commands._send_login_raw.reset_mock()
         self.nodes = MeshCoreNodes(self.messages, vault)
         vault.status.return_value = {"available": True, "saved_roles": ["member"]}
         self.messages.sync_contacts.return_value = [

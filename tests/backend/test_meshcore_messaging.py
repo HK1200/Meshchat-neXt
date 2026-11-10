@@ -347,6 +347,27 @@ class MessagingTests(unittest.IsolatedAsyncioTestCase):
             self.store.send_result(OWNER, PEER, "hello2", "two")["state"], "unknown"
         )
 
+    async def test_room_post_corrects_a_fast_companion_clock_before_sending(self):
+        import time
+        from unittest.mock import AsyncMock
+
+        now = int(time.time())
+        self.store.replace_contacts(OWNER, {PEER: {"public_key": PEER, "type": 3}})
+        self.client.get_time = AsyncMock(
+            side_effect=[
+                event(Types.OK, {"time": now + 120}),
+                event(Types.OK, {"time": now}),
+            ]
+        )
+        self.client.set_time = AsyncMock(return_value=event(Types.OK, {}))
+        result = await self.messenger.send_direct(
+            PEER, "hello", request_id="synced-room", room=True
+        )
+        self.assertEqual(result["state"], "accepted")
+        self.client.set_time.assert_awaited_once()
+        self.assertLessEqual(abs(self.client.set_time.await_args.args[0] - now), 2)
+        self.assertEqual(self.client.sent, 1)
+
     async def test_numeric_firmware_error_is_rejected(self):
         self.client.response = event(Types.ERROR, {"error_code": 2})
         result = await self.messenger.send_direct(PEER, "hello", request_id="one")

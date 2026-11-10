@@ -407,6 +407,11 @@ class MeshCoreStore(PrivateLocationStore):
             if stamp > 0xFFFFFFFF:
                 raise ValueError("Message timestamp exhausted")
             if stamp > int(now) + 60 or not 0 <= stamp <= 0xFFFFFFFF:
+                if room:
+                    raise ValueError(
+                        "The previous room send timestamp is ahead. Wait for the clock "
+                        "to catch up before posting again."
+                    )
                 raise ValueError("Message clock is too far ahead; wait before sending")
             db.execute(
                 "INSERT OR REPLACE INTO clocks VALUES (?,?,?)", (owner, peer, stamp)
