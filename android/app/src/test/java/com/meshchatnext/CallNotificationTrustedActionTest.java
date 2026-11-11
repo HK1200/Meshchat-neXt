@@ -12,7 +12,7 @@ public class CallNotificationTrustedActionTest {
     @After
     public void tearDown() {
         AndroidNotificationBridge.clearTrustedCallActionForTests();
-        AndroidNotificationBridge.setMeshCoreUiForeground(false);
+        AndroidNotificationBridge.setConversationUiForeground(false);
         AndroidNotificationBridge.setOpenConversationHashes("");
     }
 
@@ -26,13 +26,14 @@ public class CallNotificationTrustedActionTest {
     }
 
     @Test
-    public void meshCoreOpenContextDoesNotSuppressAlertsAfterBackgrounding() {
+    public void openConversationsDoNotSuppressAlertsAfterBackgrounding() {
         AndroidNotificationBridge.setOpenConversationHashes("meshcore-example,rns-peer");
-        AndroidNotificationBridge.setMeshCoreUiForeground(true);
+        AndroidNotificationBridge.setConversationUiForeground(true);
         Assert.assertTrue(AndroidNotificationBridge.isMeshCoreConversationOpen("meshcore-example"));
-        AndroidNotificationBridge.setMeshCoreUiForeground(false);
-        Assert.assertFalse(AndroidNotificationBridge.isMeshCoreConversationOpen("meshcore-example"));
         Assert.assertTrue(AndroidNotificationBridge.isOpenConversationHash("rns-peer"));
+        AndroidNotificationBridge.setConversationUiForeground(false);
+        Assert.assertFalse(AndroidNotificationBridge.isMeshCoreConversationOpen("meshcore-example"));
+        Assert.assertFalse(AndroidNotificationBridge.isOpenConversationHash("rns-peer"));
     }
 
     @Test

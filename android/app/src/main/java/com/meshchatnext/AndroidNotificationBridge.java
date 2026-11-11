@@ -16,6 +16,38 @@ import androidx.core.app.Person;
 
 public final class AndroidNotificationBridge {
     private static final int NOTIFY_BASE_ID = 0x4d434800;
+    private static final int TEST_DM_NOTIFICATION_ID = 0x4d434902;
+    private static final String DM_PREFERENCES = "direct_message_alerts";
+    private static final String DM_DETAILS = "details";
+
+    static String directMessageDetails(Context context) {
+        return context.getSharedPreferences(DM_PREFERENCES, Context.MODE_PRIVATE)
+            .getString(DM_DETAILS, "private");
+    }
+
+    static boolean setDirectMessageDetails(Context context, String details) {
+        if (!"private".equals(details) && !"sender".equals(details) && !"preview".equals(details)) return false;
+        context.getSharedPreferences(DM_PREFERENCES, Context.MODE_PRIVATE)
+            .edit().putString(DM_DETAILS, details).apply();
+        return true;
+    }
+
+    static boolean testDirectMessageAlert(Context context) {
+        NotificationManager manager = context.getSystemService(NotificationManager.class);
+        if (manager == null || (Build.VERSION.SDK_INT >= 24 && !manager.areNotificationsEnabled())) return false;
+        if (Build.VERSION.SDK_INT >= 26) {
+            android.app.NotificationChannel channel = manager.getNotificationChannel(MeshChatApplication.CHANNEL_ID_DIRECT_MESSAGES);
+            if (channel == null || channel.getImportance() == NotificationManager.IMPORTANCE_NONE) return false;
+        }
+        try {
+            postInboundMessage(context, "neXt test sender", "This is a test direct message alert.",
+                null, null, true, true);
+            return true;
+        } catch (SecurityException denied) {
+            return false;
+        }
+    }
+
     public static final int INCOMING_CALL_NOTIFICATION_ID = 0x4d434900;
 
     public static final String ACTION_CALL_ANSWER = "com.meshchatnext.action.CALL_ANSWER";
@@ -96,14 +128,14 @@ public final class AndroidNotificationBridge {
         }
     }
 
-    private static volatile boolean meshCoreUiForeground = false;
+    private static volatile boolean conversationUiForeground = false;
 
-    public static void setMeshCoreUiForeground(boolean foreground) {
-        meshCoreUiForeground = foreground;
+    public static void setConversationUiForeground(boolean foreground) {
+        conversationUiForeground = foreground;
     }
 
     public static boolean isMeshCoreConversationOpen(String key) {
-        return meshCoreUiForeground && isOpenConversationHash(key);
+        return isOpenConversationHash(key);
     }
 
     public static void setDoNotDisturbEnabled(boolean enabled) {
@@ -127,7 +159,7 @@ public final class AndroidNotificationBridge {
     }
 
     public static boolean isOpenConversationHash(String destinationHash) {
-        if (destinationHash == null) {
+        if (!conversationUiForeground || destinationHash == null) {
             return false;
         }
         String needle = destinationHash.trim().toLowerCase();
@@ -156,6 +188,13 @@ public final class AndroidNotificationBridge {
         @Nullable String dedupeHex,
         @Nullable String destinationHash
     ) {
+        showInboundMessage(title, body, dedupeHex, destinationHash, isReticulumMessageDestination(destinationHash));
+    }
+
+    public static void showInboundMessage(
+        String title, String body, @Nullable String dedupeHex,
+        @Nullable String destinationHash, boolean direct
+    ) {
         Context ctx = MeshChatApplication.getAppContext();
         if (ctx == null) {
             return;
@@ -164,7 +203,7 @@ public final class AndroidNotificationBridge {
         String safeBody = TextUtils.isEmpty(body) ? ctx.getString(R.string.notification_new_message_fallback) : body;
 
         new Handler(Looper.getMainLooper()).post(
-            () -> postInboundMessage(ctx, safeTitle, safeBody, dedupeHex, destinationHash)
+            () -> postInboundMessage(ctx, safeTitle, safeBody, dedupeHex, destinationHash, direct, false)
         );
     }
 
@@ -426,12 +465,22 @@ public final class AndroidNotificationBridge {
         String title,
         String body,
         @Nullable String dedupeHex,
-        @Nullable String destinationHash
+        @Nullable String destinationHash,
+        boolean direct,
+        boolean test
     ) {
         NotificationManager nm = ctx.getSystemService(NotificationManager.class);
         if (nm == null) {
             return;
         }
+
+        String generic = ctx.getString(R.string.notification_direct_message);
+        if (direct) {
+            String details = directMessageDetails(ctx);
+            if ("private".equals(details)) title = generic;
+            if (!"preview".equals(details)) body = test ? "Test DM alert" : ctx.getString(R.string.notification_open_message);
+        }
+        int id = test ? TEST_DM_NOTIFICATION_ID : messageNotificationId(dedupeHex, destinationHash);
 
         Intent open = new Intent(ctx, MainActivity.class);
         open.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
@@ -439,19 +488,19 @@ public final class AndroidNotificationBridge {
         open.setData(Uri.parse(messageOpenUri(destinationHash)));
         PendingIntent pi = PendingIntent.getActivity(
             ctx,
-            messageNotificationId(dedupeHex, destinationHash),
+            id,
             open,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
         );
 
-        int id = messageNotificationId(dedupeHex, destinationHash);
-
+        String tag = test ? "dm-test" : null;
         try {
-            nm.cancel(id);
+            nm.cancel(tag, id);
         } catch (Exception ignored) {
         }
 
-        NotificationCompat.Builder b = new NotificationCompat.Builder(ctx, MeshChatApplication.CHANNEL_ID_MESSAGES)
+        String channel = direct ? MeshChatApplication.CHANNEL_ID_DIRECT_MESSAGES : MeshChatApplication.CHANNEL_ID_MESSAGES;
+        NotificationCompat.Builder b = new NotificationCompat.Builder(ctx, channel)
             .setSmallIcon(R.drawable.ic_stat_meshchatnext)
             .setContentTitle(title)
             .setContentText(body)
@@ -463,11 +512,26 @@ public final class AndroidNotificationBridge {
             .setDefaults(NotificationCompat.DEFAULT_ALL)
             .setOnlyAlertOnce(false);
 
-        try {
-            nm.notify(id, AppBackgroundNotification.groupDismissible(ctx, b).build());
-            AppBackgroundNotification.sync(ctx);
-            postedMessageNotificationIds.add(id);
-        } catch (SecurityException ignored) {
+        if (direct) {
+            b.setPriority(NotificationCompat.PRIORITY_HIGH);
+            b.setPublicVersion(new NotificationCompat.Builder(ctx, channel)
+                .setSmallIcon(R.drawable.ic_stat_meshchatnext)
+                .setContentTitle(generic)
+                .setContentIntent(pi)
+                .build());
+        } else {
+            AppBackgroundNotification.groupDismissible(ctx, b);
         }
+        try {
+            nm.notify(tag, id, b.build());
+            if (!direct) AppBackgroundNotification.sync(ctx);
+            if (!test) postedMessageNotificationIds.add(id);
+        } catch (SecurityException denied) {
+            if (test) throw denied;
+        }
+    }
+
+    static boolean isReticulumMessageDestination(@Nullable String destinationHash) {
+        return destinationHash != null && destinationHash.matches("[0-9a-fA-F]{32}");
     }
 }

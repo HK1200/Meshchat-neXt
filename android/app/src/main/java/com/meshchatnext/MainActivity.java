@@ -652,13 +652,23 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onStart() {
         super.onStart();
-        AndroidNotificationBridge.setMeshCoreUiForeground(true);
         stopService(new Intent(this, MeshChatForegroundService.class));
     }
 
     @Override
+    protected void onResume() {
+        super.onResume();
+        AndroidNotificationBridge.setConversationUiForeground(true);
+    }
+
+    @Override
+    protected void onPause() {
+        AndroidNotificationBridge.setConversationUiForeground(false);
+        super.onPause();
+    }
+
+    @Override
     protected void onStop() {
-        AndroidNotificationBridge.setMeshCoreUiForeground(false);
         if (isClearClipboardOnBackgroundEnabled()) {
             clearPrimaryClipboard();
         }
@@ -1657,6 +1667,41 @@ public class MainActivity extends AppCompatActivity {
             } finally {
                 MeshChatWakeLock.release(wakeTag);
             }
+        }
+
+        @JavascriptInterface
+        public String directMessageAlertDetails() {
+            return AndroidNotificationBridge.directMessageDetails(appContext());
+        }
+
+        @JavascriptInterface
+        public boolean setDirectMessageAlertDetails(String details) {
+            return AndroidNotificationBridge.setDirectMessageDetails(appContext(), details);
+        }
+
+        @JavascriptInterface
+        public boolean testDirectMessageAlert() {
+            return AndroidNotificationBridge.testDirectMessageAlert(appContext());
+        }
+
+        @JavascriptInterface
+        public void openDirectMessageAlertSettings() {
+            activity.runOnUiThread(() -> {
+                Intent intent = new Intent(Build.VERSION.SDK_INT >= 26
+                    ? Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS : Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                if (Build.VERSION.SDK_INT >= 26) {
+                    intent.putExtra(Settings.EXTRA_APP_PACKAGE, activity.getPackageName());
+                    intent.putExtra(Settings.EXTRA_CHANNEL_ID, MeshChatApplication.CHANNEL_ID_DIRECT_MESSAGES);
+                } else {
+                    intent.setData(Uri.parse("package:" + activity.getPackageName()));
+                }
+                try {
+                    activity.startActivity(intent);
+                } catch (android.content.ActivityNotFoundException missing) {
+                    activity.startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.parse("package:" + activity.getPackageName())));
+                }
+            });
         }
 
         @JavascriptInterface

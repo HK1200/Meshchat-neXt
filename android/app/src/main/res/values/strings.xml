@@ -5,8 +5,10 @@
     <string name="download_saved_app_files">Saved: %1$s</string>
     <string name="notification_channel_background_name">Background</string>
     <string name="notification_channel_background_desc">Shown while Meshchat neXt runs when the app is in the background</string>
+    <string name="notification_channel_direct_messages_name">Direct messages</string>
+    <string name="notification_channel_direct_messages_desc">Reticulum and MeshCore direct message alerts</string>
     <string name="notification_channel_messages_name">Messages</string>
-    <string name="notification_channel_messages_desc">Incoming LXMF message alerts</string>
+    <string name="notification_channel_messages_desc">Incoming Reticulum and MeshCore message alerts</string>
     <string name="notification_channel_calls_name">Calls</string>
     <string name="notification_channel_calls_desc">Incoming and missed call alerts (ring + vibrate)</string>
     <string name="notification_channel_downloads_name">Downloads</string>
@@ -23,6 +25,8 @@
     <string name="notification_background_title">Meshchat neXt is running</string>
     <string name="notification_communication_summary">Calls and messages</string>
     <string name="notification_background_text">Meshchat neXt is active in the background. Tap to return.</string>
+    <string name="notification_direct_message">New neXt message</string>
+    <string name="notification_open_message">Tap to open the conversation</string>
     <string name="notification_new_message_fallback">New message</string>
     <string name="shortcut_messages_short">Messages</string>
     <string name="shortcut_messages_long">Open messages</string>

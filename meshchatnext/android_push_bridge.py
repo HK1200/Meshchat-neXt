@@ -126,18 +126,24 @@ def _notify_java(
     body: str,
     dedupe_hex: str | None,
     destination_hash: str | None = None,
+    direct: bool | None = None,
 ) -> None:
     bridge = _android_notification_bridge()
     if bridge is None:
         return
     try:
-        bridge.showInboundMessage(title, body, dedupe_hex, destination_hash)
-    except TypeError:
-        # Older bridge signature without destination hash.
+        if direct is not None:
+            try:
+                bridge.showInboundMessage(
+                    title, body, dedupe_hex, destination_hash, direct
+                )
+                return
+            except TypeError:
+                pass  # Older Android bridge without an explicit message kind.
         try:
+            bridge.showInboundMessage(title, body, dedupe_hex, destination_hash)
+        except TypeError:
             bridge.showInboundMessage(title, body, dedupe_hex)
-        except Exception as exc:
-            logger.debug("showInboundMessage failed: %s", exc)
     except Exception as exc:
         logger.debug("showInboundMessage failed: %s", exc)
 

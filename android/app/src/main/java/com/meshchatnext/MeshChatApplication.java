@@ -14,6 +14,7 @@ import android.provider.Settings;
 import com.chaquo.python.android.PyApplication;
 
 public class MeshChatApplication extends PyApplication {
+    public static final String CHANNEL_ID_DIRECT_MESSAGES = "meshchatnext_direct_messages";
     public static final String CHANNEL_ID_MESSAGES = "meshchatnext_messages";
     public static final String CHANNEL_ID_BACKGROUND = "meshchatnext_background";
     public static final String CHANNEL_ID_CALLS = "meshchatnext_calls";
@@ -114,6 +115,7 @@ public class MeshChatApplication extends PyApplication {
         background.setDescription(getString(R.string.notification_channel_background_desc));
         nm.createNotificationChannel(background);
 
+        NotificationChannel previousMessages = nm.getNotificationChannel(CHANNEL_ID_MESSAGES);
         NotificationChannel messages = new NotificationChannel(
             CHANNEL_ID_MESSAGES,
             getString(R.string.notification_channel_messages_name),
@@ -121,6 +123,22 @@ public class MeshChatApplication extends PyApplication {
         );
         messages.setDescription(getString(R.string.notification_channel_messages_desc));
         nm.createNotificationChannel(messages);
+
+        NotificationChannel directMessages = new NotificationChannel(
+            CHANNEL_ID_DIRECT_MESSAGES,
+            getString(R.string.notification_channel_direct_messages_name),
+            previousMessages == null ? NotificationManager.IMPORTANCE_HIGH : previousMessages.getImportance()
+        );
+        directMessages.setDescription(getString(R.string.notification_channel_direct_messages_desc));
+        if (previousMessages == null) {
+            directMessages.setVibrationPattern(new long[] {0, 160, 90, 230});
+        } else {
+            directMessages.setSound(previousMessages.getSound(), previousMessages.getAudioAttributes());
+            directMessages.setVibrationPattern(previousMessages.getVibrationPattern());
+            directMessages.enableVibration(previousMessages.shouldVibrate());
+            directMessages.setShowBadge(previousMessages.canShowBadge());
+        }
+        nm.createNotificationChannel(directMessages);
 
         NotificationChannel downloads = new NotificationChannel(
             CHANNEL_ID_DOWNLOADS,

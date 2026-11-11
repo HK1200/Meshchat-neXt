@@ -10,6 +10,33 @@
             </div>
         </header>
         <div class="settings-section__body space-y-4">
+            <div v-if="androidDmAlerts" class="space-y-3 rounded-2xl border border-sem-border bg-sem-surface p-3">
+                <div>
+                    <label for="android-dm-details" class="text-sm font-semibold text-sem-fg">
+                        {{ $t("app.android_dm_alert_details") }}
+                    </label>
+                    <p class="text-sm text-sem-fg-muted">{{ $t("app.android_dm_alert_details_description") }}</p>
+                </div>
+                <select
+                    id="android-dm-details"
+                    v-model="dmDetails"
+                    class="input-field max-w-md"
+                    @change="saveDmDetails"
+                >
+                    <option value="private">{{ $t("app.android_dm_alert_private") }}</option>
+                    <option value="sender">{{ $t("app.android_dm_alert_sender") }}</option>
+                    <option value="preview">{{ $t("app.android_dm_alert_preview") }}</option>
+                </select>
+                <div class="flex flex-wrap gap-2">
+                    <button type="button" class="btn-secondary" @click="testDmAlert">
+                        {{ $t("app.android_dm_alert_test") }}
+                    </button>
+                    <button type="button" class="btn-secondary" @click="openDmAlertSettings">
+                        {{ $t("app.android_dm_alert_settings") }}
+                    </button>
+                </div>
+                <p v-if="dmFeedback" class="text-sm text-sem-fg-muted" role="status">{{ $t(dmFeedback) }}</p>
+            </div>
             <div class="rounded-2xl border border-sem-border bg-sem-surface px-3 py-3">
                 <div class="flex items-start justify-between gap-3">
                     <div class="min-w-0 flex-1 space-y-1">
@@ -169,6 +196,9 @@ export default {
     emits: ["sounds-changed"],
     data() {
         return {
+            androidDmAlerts: typeof window.MeshchatNextAndroid?.directMessageAlertDetails === "function",
+            dmDetails: window.MeshchatNextAndroid?.directMessageAlertDetails?.() || "private",
+            dmFeedback: "",
             sounds: [],
             isUploading: false,
             playingSoundId: null,
@@ -185,6 +215,20 @@ export default {
         }
     },
     methods: {
+        saveDmDetails() {
+            if (!window.MeshchatNextAndroid.setDirectMessageAlertDetails(this.dmDetails)) {
+                this.dmDetails = window.MeshchatNextAndroid.directMessageAlertDetails();
+            }
+            this.dmFeedback = "";
+        },
+        testDmAlert() {
+            this.dmFeedback = window.MeshchatNextAndroid.testDirectMessageAlert()
+                ? "app.android_dm_alert_test_sent"
+                : "app.android_dm_alert_test_blocked";
+        },
+        openDmAlertSettings() {
+            window.MeshchatNextAndroid.openDirectMessageAlertSettings();
+        },
         async loadSounds() {
             try {
                 const response = await window.api.get(apiPath("/notification-sounds"));

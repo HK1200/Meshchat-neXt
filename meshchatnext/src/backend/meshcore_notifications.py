@@ -52,5 +52,7 @@ async def deliver_notification(owner, event):
     key = event["notification_key"]
     if not dnd and not _dnd_enabled() and not _is_open_conversation(key):
         title, body = notification_text(event)
-        await asyncio.to_thread(_notify_java, title, body, event["id"], key)
+        await asyncio.to_thread(
+            _notify_java, title, body, event["id"], key, event["kind"] == "direct"
+        )
     await owner.websocket_broadcast(event)

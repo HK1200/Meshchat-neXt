@@ -169,14 +169,19 @@ class NotificationTests(unittest.IsolatedAsyncioTestCase):
                 "Peer: hello",
                 event["id"],
                 event["notification_key"],
+                False,
             )
+            notify.reset_mock()
+            direct = self.incoming(kind="direct")
+            await deliver_notification(owner, direct)
+            self.assertIs(notify.call_args.args[-1], True)
             for dnd, opened in [(True, False), (False, True)]:
                 notify.reset_mock()
                 bridge._dnd_enabled = lambda value=dnd: value
                 bridge._is_open_conversation = lambda key, value=opened: value
                 await deliver_notification(owner, event)
                 notify.assert_not_called()
-        self.assertEqual(owner.websocket_broadcast.await_count, 3)
+        self.assertEqual(owner.websocket_broadcast.await_count, 4)
 
 
 def test_media_notifications_are_readable_and_network_labelled():
