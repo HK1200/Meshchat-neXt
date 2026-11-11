@@ -1,0 +1,69 @@
+name: Resume a stable release draft
+
+on:
+    workflow_dispatch:
+        inputs:
+            tag:
+                description: Existing stable release tag
+                required: true
+                type: string
+            run_id:
+                description: Tagged Build release run containing completed package artifacts
+                required: true
+                type: string
+
+permissions:
+    actions: read
+    contents: write
+
+jobs:
+    stage:
+        runs-on: ubuntu-latest
+        timeout-minutes: 30
+        env:
+            GH_TOKEN: ${{ github.token }}
+            TAG: ${{ inputs.tag }}
+            RUN_ID: ${{ inputs.run_id }}
+        steps:
+            - name: Verify the build run matches the release tag
+              run: |
+                  set -euo pipefail
+                  [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+                  [[ "$RUN_ID" =~ ^[0-9]+$ ]]
+                  run="repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID"
+                  sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq .object.sha)"
+                  test "$(gh api "$run" --jq .path)" = .github/workflows/build-release.yml
+                  test "$(gh api "$run" --jq .head_sha)" = "$sha"
+                  test "$(gh api "$run" --jq .head_branch)" = "$TAG"
+                  test "$(gh api "$run" --jq .status)" = completed
+                  gh api "$run/jobs?per_page=100" --jq '.jobs[]|select(.conclusion=="success")|.name' > passed-jobs
+                  for job in 'Linux release assets (x64)' 'Linux release assets (arm64)' 'Build release (windows)' 'Build release (macos)' 'Build release (macos-x64)' 'Flatpak (electron-builder)' 'SLSA provenance (Linux) / final' 'SLSA provenance (Windows + macOS) / final'; do
+                      grep -Fxq "$job" passed-jobs
+                  done
+                  if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>/dev/null | grep -qx false; then
+                      echo 'The release is already public.'
+                      exit 1
+                  fi
+            - name: Check out the verified release source
+              uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+              with:
+                  ref: ${{ inputs.tag }}
+                  persist-credentials: false
+            - name: Download completed release packages
+              uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+              with:
+                  github-token: ${{ github.token }}
+                  run-id: ${{ inputs.run_id }}
+                  pattern: meshchatnext-*-${{ inputs.tag }}-${{ inputs.run_id }}
+                  path: release-payloads
+            - name: Download the release provenance
+              uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+              with:
+                  github-token: ${{ github.token }}
+                  run-id: ${{ inputs.run_id }}
+                  pattern: meshchatnext-*-${{ inputs.tag }}.intoto.jsonl
+                  path: release-payloads
+            - name: Attach the verified build output to the draft
+              env:
+                  GH_REPO: ${{ github.repository }}
+              run: bash scripts/ci/github-draft-release-upload-assets.sh release-payloads
