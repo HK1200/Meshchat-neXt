@@ -85,8 +85,16 @@ def main():
             raise RuntimeError("The selected Python has no configured C compiler")
         libdir = Path(sysconfig.get_config_var("LIBDIR")).resolve()
         shared_name = sysconfig.get_config_var("LDLIBRARY")
-        if not shared_name or not (libdir / shared_name).is_file():
+        shared_library = libdir / shared_name if shared_name else None
+        if sys.platform == "darwin" and sysconfig.get_config_var("PYTHONFRAMEWORK"):
+            # Framework builds report a path relative to the framework prefix,
+            # while LIBDIR points at the interpreter's Unix-style lib folder.
+            framework = Path(sys.base_prefix) / sysconfig.get_config_var("PYTHONFRAMEWORK")
+            if framework.is_file():
+                shared_library = framework
+        if shared_library is None or not shared_library.is_file():
             raise RuntimeError("The selected Python shared library is missing")
+        libdir, shared_name = shared_library.parent, shared_library.name
         # Put the shared SDK library before upstream's static LIBPL archive.
         # This also avoids linking LLVM LTO archives with a different linker.
         build_env["CC"] = compiler + " -L" + shlex.quote(str(libdir))
