@@ -33,6 +33,7 @@ public class MeshChatApplication extends PyApplication {
         appContext = getApplicationContext();
         preloadCodec2NativeLibrary();
         createNotificationChannels();
+        AppBackgroundNotification.removeLegacySipCard(this);
     }
 
     private void preloadCodec2NativeLibrary() {

@@ -20,7 +20,11 @@ import java.nio.charset.StandardCharsets;
 /** One notification-shade group for background connections and passive communication alerts. */
 public final class AppBackgroundNotification {
     public static final int ID = 0x4d434801;
-    public static final int SIP_ID = 6400;
+    private static final int LEGACY_SIP_ID = 6400;
+
+    public static void removeLegacySipCard(Context context) {
+        context.getSystemService(NotificationManager.class).cancel(LEGACY_SIP_ID);
+    }
     private static final String GROUP = "meshchatnext_communications";
     private static final int SUMMARY_ID = 1;
     private static final Object STATUS_LOCK = new Object();

@@ -17,7 +17,8 @@ import org.json.*;
 
 /** Dedicated process: DNS, SIP and RTP are bound together to an allowed network. */
 public final class SipService extends Service {
-    private static final int NOTIFICATION = AppBackgroundNotification.SIP_ID, INCOMING = 6401;
+    // Android retains a shared foreground notification while either service still uses it.
+    private static final int NOTIFICATION = AppBackgroundNotification.ID, INCOMING = 6401;
     private static final String CALL_CHANNEL = "sip_incoming_calls_v2";
     private static final long[] CALL_VIBRATION = {0, 600, 300, 600, 1200};
     private volatile boolean foregroundActive;
@@ -410,8 +411,8 @@ public final class SipService extends Service {
     }
     private synchronized void leaveForeground() {
         foregroundActive = false;
-        AppBackgroundNotification.clearSipStatus(this);
         stopForeground(STOP_FOREGROUND_REMOVE);
+        AppBackgroundNotification.clearSipStatus(this);
         AppBackgroundNotification.sync(this);
     }
     private synchronized void refreshBackgroundStatus() {
