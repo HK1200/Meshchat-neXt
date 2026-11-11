@@ -67,6 +67,20 @@ jobs:
                   package_tag="$(python scripts/ci/verify-linux-release.py release-check --tag "$RELEASE_TAG" --signer "$NEXT_UPDATE_SIGNER_HASH" --manifest-only)"
                   gh release download "$package_tag" --dir release-check --pattern '*.AppImage' --pattern '*.deb'
                   python scripts/ci/verify-linux-release.py release-check --tag "$RELEASE_TAG" --signer "$NEXT_UPDATE_SIGNER_HASH"
+            - name: Double-click the signed AppImage under the default Ubuntu policy
+              run: |
+                  set -euo pipefail
+                  sudo apt-get update -qq
+                  sudo apt-get install -y --no-install-recommends thunar xvfb xauth xdotool python3-pyatspi libfuse2t64
+                  image="$(realpath "$(find release-check -maxdepth 1 -name '*-linux-x86_64.AppImage' -print -quit)")"
+                  bash scripts/ci/ubuntu-desktop-launch.sh "$image"
+            - name: Launch the signed Debian package from its desktop entry
+              run: |
+                  set -euo pipefail
+                  deb="$(realpath "$(find release-check -maxdepth 1 -name '*-linux-amd64.deb' -print -quit)")"
+                  sudo apt-get install -y --no-install-recommends "$deb"
+                  desktop="$(dpkg -L "$(dpkg-deb -f "$deb" Package)" | grep -E '^/usr/share/applications/.*\.desktop$' | head -1)"
+                  bash scripts/ci/ubuntu-desktop-launch.sh "$desktop"
             - name: Start the signed AppImage with an app-specific profile on Ubuntu 26.04
               run: |
                   set -euo pipefail

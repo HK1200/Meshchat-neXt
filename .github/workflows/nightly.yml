@@ -41,6 +41,9 @@ env:
         ghcr.io:443
         azure.archive.ubuntu.com:80
         archive.ubuntu.com:80
+        azure.archive.ubuntu.com:443
+        archive.ubuntu.com:443
+        security.ubuntu.com:443
         *.ubuntu.com:443
         deb.debian.org:80
         deb.debian.org:443
