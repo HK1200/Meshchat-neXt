@@ -116,7 +116,7 @@ env:
     NODE_OPTIONS: --max-old-space-size=8192
     PYTHON_VERSION: "3.14.10"
     NODE_VERSION: "24"
-    UV_VERSION: "0.11.15"
+    UV_VERSION: "0.13.6"
     PNPM_VERSION: "12.7.0"
     COSIGN_VERSION: "3.0.6"
     # Official .deb from aquasecurity/trivy releases. Scripts/ci/setup-trivy.sh verifies
