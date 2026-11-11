@@ -195,6 +195,7 @@ jobs:
               uses: ./.github/actions/setup-python-uv
               with:
                   python-version: ${{ env.PYTHON_VERSION }}
+                  security-runtime: "true"
                   uv-version: ${{ env.UV_VERSION }}
 
             - name: Set up Node and pnpm
@@ -385,6 +386,7 @@ jobs:
               uses: ./.github/actions/setup-python-uv
               with:
                   python-version: ${{ env.PYTHON_VERSION }}
+                  security-runtime: "true"
                   uv-version: ${{ env.UV_VERSION }}
 
             - name: Set up Node and pnpm
@@ -583,6 +585,7 @@ jobs:
               uses: ./.github/actions/setup-python-uv
               with:
                   python-version: ${{ env.PYTHON_VERSION }}
+                  security-runtime: "true"
                   uv-version: ${{ env.UV_VERSION }}
 
             - name: Set up Node and pnpm
