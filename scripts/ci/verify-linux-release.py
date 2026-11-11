@@ -25,24 +25,27 @@ def verify(folder, signer, tag, *, manifest_only=False):
         or manifest.get("track") != "release"
     ):
         raise ValueError("Unexpected Linux application, schema or track")
-    if not manifest.get("tag", "").startswith("linux-v") or (
-        tag != "linux-stable" and manifest["tag"] != tag
-    ):
-        raise ValueError("Wrong Linux release tag")
-    if not re.fullmatch(r"linux-v[0-9]+\.[0-9]+\.[0-9]+", manifest["tag"]) or manifest[
-        "tag"
-    ] != "linux-v" + manifest.get("version", ""):
+    package_tag = manifest.get("tag", "")
+    version = manifest.get("version", "")
+    if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version) or package_tag not in {
+        "v" + version,
+        "linux-v" + version,
+    }:
         raise ValueError("Invalid Linux version tag")
+    if tag != "linux-stable" and package_tag != tag:
+        raise ValueError("Wrong Linux release tag")
     artifacts = manifest.get("artifacts", [])
-    if len(artifacts) != 2 or {a.get("kind") for a in artifacts} != {"deb", "appimage"}:
-        raise ValueError("Expected exactly the Linux deb and AppImage")
+    expected = {("x86_64", "deb"), ("x86_64", "appimage")}
+    if package_tag.startswith("v"):
+        expected |= {("aarch64", "deb"), ("aarch64", "appimage")}
+    if (
+        len(artifacts) != len(expected)
+        or {(a.get("arch"), a.get("kind")) for a in artifacts} != expected
+    ):
+        raise ValueError("Expected Linux deb and AppImage pairs for the release")
     for artifact in artifacts:
         name = artifact["file"]
-        if (
-            Path(name).name != name
-            or artifact.get("platform") != "linux"
-            or artifact.get("arch") != "x86_64"
-        ):
+        if Path(name).name != name or artifact.get("platform") != "linux":
             raise ValueError("Unexpected artifact path or platform")
         if manifest_only:
             continue
