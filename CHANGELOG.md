@@ -1,5 +1,10 @@
 # Meshchat neXt changelog
 
+## 0.1.14 (Android)
+
+- Give Reticulum and MeshCore direct messages a separate Android alert channel, privacy options and a test button.
+- Check the Android stable update feed independently of desktop releases.
+
 ## 0.1.13 (Android)
 
 - Share one Android background connection card when SIP and mesh are both active. Incoming call controls remain available.
