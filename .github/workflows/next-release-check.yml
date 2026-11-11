@@ -31,9 +31,18 @@ jobs:
               run: |
                   set -euo pipefail
                   python -m pip install 'rns==1.5.7' 'packaging>=24'
-                  gh release download "$RELEASE_TAG" --dir release-check --pattern '*.apk' --pattern '*.exe' --pattern latest.rsm --pattern latest.json
+                  gh release download "$RELEASE_TAG" --dir release-check --pattern latest.rsm --pattern latest.json
+                  package_tag="$RELEASE_TAG"
+                  if [[ "$RELEASE_TAG" == android-stable ]]; then
+                      package_tag="$(python -c 'import json; print(json.load(open("release-check/latest.json"))["tag"])')"
+                      [[ "$package_tag" =~ ^android-v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+                  fi
+                  gh release download "$package_tag" --dir release-check \
+                      --pattern '*.apk' --pattern '*.exe' --pattern '*.msi' --pattern '*.dmg' \
+                      --pattern '*.AppImage' --pattern '*.deb' --pattern '*.rpm' --pattern '*.flatpak' \
+                      --pattern '*.zip' --pattern '*.whl' --pattern '*.pyz' --pattern '*.tar.*' --pattern '*.tgz'
                   apksigner="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)"
-                  python scripts/ci/verify-next-release.py release-check --tag "$RELEASE_TAG" --apksigner "$apksigner" --signer-hash "$NEXT_UPDATE_SIGNER_HASH" --certificate-sha256 "$NEXT_APK_CERTIFICATE_SHA256"
+                  python scripts/ci/verify-next-release.py release-check --tag "$package_tag" --apksigner "$apksigner" --signer-hash "$NEXT_UPDATE_SIGNER_HASH" --certificate-sha256 "$NEXT_APK_CERTIFICATE_SHA256"
 
     verify-linux:
         if: ${{ startsWith(inputs.tag || github.event.release.tag_name, 'linux-') }}
