@@ -73,23 +73,36 @@ function applyPendingUpdate(storageDir) {
         return { applied: false, error: "same_path" };
     }
 
-    // Keep a rollback copy of the current image, then atomic-rename the
-    // verified payload into place. Renaming over a running AppImage is safe
-    // on Linux: the FUSE mount keeps the old inode until exit.
-    const backup = targetPath + ".bak";
+    // Stage on the install filesystem so the final rename remains atomic
+    // even when portable storage and the AppImage are on different volumes.
+    let installStaging;
     try {
-        fs.copyFileSync(targetPath, backup);
-    } catch {
-        // Non-fatal: proceed without a rollback copy if the source cannot
-        // be duplicated (e.g. read-only mount).
-    }
-    try {
-        fs.chmodSync(stagedPath, 0o755);
-        fs.renameSync(stagedPath, targetPath);
+        installStaging = fs.mkdtempSync(path.join(path.dirname(targetPath), ".next-update-"));
+        const replacement = path.join(installStaging, "replacement.AppImage");
+        fs.copyFileSync(stagedPath, replacement);
+        if (sha256File(replacement) !== sha256.toLowerCase()) {
+            return { applied: false, error: "sha256_mismatch" };
+        }
+        fs.chmodSync(replacement, 0o755);
+        fs.copyFileSync(targetPath, targetPath + ".bak");
+        fs.renameSync(replacement, targetPath);
     } catch (e) {
         return { applied: false, error: `swap_failed: ${e && e.message}` };
+    } finally {
+        if (installStaging) {
+            try {
+                fs.rmSync(installStaging, { recursive: true, force: true });
+            } catch {
+                // The install result is independent of temporary-file cleanup.
+            }
+        }
     }
     clearPending(storageDir);
+    try {
+        fs.unlinkSync(stagedPath);
+    } catch {
+        // The update has already been installed.
+    }
     return { applied: true };
 }
 

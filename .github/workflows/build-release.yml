@@ -114,7 +114,7 @@ env:
         *.stepsecurity.io:443
     FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     NODE_OPTIONS: --max-old-space-size=8192
-    PYTHON_VERSION: "3.14"
+    PYTHON_VERSION: "3.14.10"
     NODE_VERSION: "24"
     UV_VERSION: "0.11.15"
     PNPM_VERSION: "12.7.0"
@@ -357,6 +357,7 @@ jobs:
                   sudo apt-get install -y --no-install-recommends \
                       flatpak \
                       flatpak-builder \
+                      cmake build-essential pkg-config libpulse-dev \
                       elfutils \
                       zstd \
                       desktop-file-utils \
