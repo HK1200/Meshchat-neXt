@@ -109,10 +109,13 @@ class NodeTests(unittest.IsolatedAsyncioTestCase):
             status=Mock(return_value={"available": True, "saved_roles": ["admin"]}),
             load=Mock(return_value="room-fixture"),
         )
-        with patch(
-            "meshchatnext.src.backend.meshcore_nodes.asyncio.sleep",
-            side_effect=asyncio.CancelledError,
-        ), self.assertRaises(asyncio.CancelledError):
+        with (
+            patch(
+                "meshchatnext.src.backend.meshcore_nodes.asyncio.sleep",
+                side_effect=asyncio.CancelledError,
+            ),
+            self.assertRaises(asyncio.CancelledError),
+        ):
             await self.nodes.maintain_saved_rooms()
         self.commands._send_login_raw.assert_awaited_once_with(PEER, "room-fixture")
         self.assertIn(PEER, self.nodes.snapshot())
@@ -187,15 +190,15 @@ class NodeTests(unittest.IsolatedAsyncioTestCase):
         )
         vault.load.assert_called_once_with(self.messages.owner, PEER, "member")
 
-    async def test_saved_room_login_uses_saved_admin_if_needed_and_rejects_a_repeater(self):
+    async def test_saved_room_login_uses_saved_admin_if_needed_and_rejects_a_repeater(
+        self,
+    ):
         vault = SimpleNamespace(
             status=Mock(return_value={"available": True, "saved_roles": ["admin"]}),
             load=Mock(return_value="admin-fixture"),
         )
         self.nodes.passwords = vault
-        self.assertEqual(
-            (await self.nodes.login_saved_room(PEER))["state"], "verified"
-        )
+        self.assertEqual((await self.nodes.login_saved_room(PEER))["state"], "verified")
         vault.load.assert_called_once_with(self.messages.owner, PEER, "admin")
         self.commands._send_login_raw.reset_mock()
         self.nodes = MeshCoreNodes(self.messages, vault)

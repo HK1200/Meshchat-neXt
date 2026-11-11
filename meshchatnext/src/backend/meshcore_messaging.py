@@ -494,7 +494,9 @@ class MeshCoreMessaging:
                     "The companion clock is ahead. Sync the companion clock before posting."
                 ) from None
             if type(clock) is not int or abs(clock - int(time.time())) > 5:
-                raise ValueError("Could not verify the companion clock sync. The post was not sent.")
+                raise ValueError(
+                    "Could not verify the companion clock sync. The post was not sent."
+                )
         return clock + 1
 
     async def send_direct(self, peer, text, *, request_id, room=False):

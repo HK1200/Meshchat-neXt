@@ -13,8 +13,8 @@ from LXST.Pipeline import Pipeline
 from LXST.Sinks import LocalSink
 from LXST.Sources import LocalSource
 
-from .telephone_manager import Tee
 from .lxst_audio_processing import prepare_capture_filters
+from .telephone_manager import Tee
 
 _HOSTLESS_AUDIO_INSTALLED = False
 _ORIG_LINE_SOURCE = None
@@ -194,7 +194,9 @@ class WebAudioSource(LocalSource):
         self.channels = 1
         self.samplerate = WEB_AUDIO_SAMPLE_RATE
         self.bitdepth = 16
-        self._frame_bytes = max(2, round(self.samplerate * self.target_frame_ms / 1000) * 2)
+        self._frame_bytes = max(
+            2, round(self.samplerate * self.target_frame_ms / 1000) * 2
+        )
         self._pending = bytearray()
         self._pending_lock = threading.Lock()
 
@@ -225,13 +227,17 @@ class WebAudioSource(LocalSource):
                 return
             with self._pending_lock:
                 self._pending.extend(pcm_bytes)
-                complete_bytes = len(self._pending) // self._frame_bytes * self._frame_bytes
+                complete_bytes = (
+                    len(self._pending) // self._frame_bytes * self._frame_bytes
+                )
                 ready = bytes(self._pending[:complete_bytes])
                 del self._pending[:complete_bytes]
             for offset in range(0, complete_bytes, self._frame_bytes):
                 if self.sink and self.sink.can_receive(from_source=self):
-                    pcm = ready[offset:offset + self._frame_bytes]
-                    samples = np.frombuffer(pcm, dtype="<i2").astype(np.float32) / 32768.0
+                    pcm = ready[offset : offset + self._frame_bytes]
+                    samples = (
+                        np.frombuffer(pcm, dtype="<i2").astype(np.float32) / 32768.0
+                    )
                     samples = samples.reshape(-1, 1)
                     for audio_filter in self.filters:
                         samples = audio_filter.handle_frame(samples, self.samplerate)

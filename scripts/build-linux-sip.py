@@ -158,6 +158,7 @@ def main():
             "-Wall",
             "-Wextra",
             "-Werror",
+            "-DHAVE_THREADS",  # Match libre's C11 thread types on supported Linux libc.
             "-Wl,--wrap=socket",
             "-I" + str(work / "re-4.12.0/include"),
             "-I" + str(work / "baresip-4.12.0/include"),

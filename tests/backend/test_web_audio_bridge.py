@@ -26,15 +26,21 @@ class _DummySink:
         self.frames.append(frame)
 
 
-@pytest.mark.parametrize(("frame_ms", "wire_frames", "expected"), [(20, 1, 3), (60, 2, 2), (200, 4, 1)])
-def test_web_audio_source_reframes_pcm_for_current_profile(frame_ms, wire_frames, expected):
+@pytest.mark.parametrize(
+    ("frame_ms", "wire_frames", "expected"), [(20, 1, 3), (60, 2, 2), (200, 4, 1)]
+)
+def test_web_audio_source_reframes_pcm_for_current_profile(
+    frame_ms, wire_frames, expected
+):
     sink = _DummySink()
     src = WebAudioSource(target_frame_ms=frame_ms, sink=sink)
     pcm = np.arange(2880 * wire_frames, dtype="<i2").tobytes()
     for offset in range(0, len(pcm), 5760):
-        src.push_pcm(pcm[offset:offset + 5760])
+        src.push_pcm(pcm[offset : offset + 5760])
     assert len(sink.frames) == expected
-    assert all(src.codec.decode(frame).shape == (frame_ms * 48, 1) for frame in sink.frames)
+    assert all(
+        src.codec.decode(frame).shape == (frame_ms * 48, 1) for frame in sink.frames
+    )
 
     src.stop()
     src.push_pcm(b"\0" * (frame_ms * 96 - 2))
@@ -574,13 +580,18 @@ def test_capture_restores_gain_control_for_quiet_and_loud_speech():
     np = pytest.importorskip("numpy")
     from LXST.Codecs import Raw
     from LXST.Filters import AGC
+
     results = []
     for amplitude in (0.03, 0.8):
         frames = []
         agc = AGC(target_level=-15)
         raw = Raw(channels=1, bitdepth=16)
-        sink = types.SimpleNamespace(can_receive=lambda **kwargs: True,
-                                     handle_frame=lambda frame, source: frames.append(raw.decode(frame)))
+        sink = types.SimpleNamespace(
+            can_receive=lambda **kwargs: True,
+            handle_frame=lambda frame, source, frames=frames, raw=raw: frames.append(
+                raw.decode(frame)
+            ),
+        )
         source = WebAudioSource(target_frame_ms=60, sink=sink, filters=[agc])
         source.start()
         assert agc.target_linear == pytest.approx(10 ** (-15 / 20))
@@ -592,10 +603,10 @@ def test_capture_restores_gain_control_for_quiet_and_loud_speech():
         assert len(frames) == 120
         output = np.concatenate(frames[-20:])
         assert np.isfinite(output).all() and np.max(np.abs(output)) <= 0.751
-        rms = float(np.sqrt(np.mean(output ** 2)))
+        rms = float(np.sqrt(np.mean(output**2)))
         results.append(rms)
         if amplitude == 0.03:
-            assert rms > float(np.sqrt(np.mean(wave ** 2))) * 2
+            assert rms > float(np.sqrt(np.mean(wave**2))) * 2
         else:
             assert rms < 0.25
     assert results[1] / results[0] < 4
