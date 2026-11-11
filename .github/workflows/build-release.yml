@@ -966,6 +966,10 @@ jobs:
                   uv run --no-project --with 'rns==1.5.5' python scripts/build/update_manifest.py verify upload/update.rsm
 
             - name: Build CDN webseed torrent
+              if: vars.MESHCHATNEXT_RELEASE_CDN != ''
+              env:
+                  MESHCHATNEXT_RELEASE_CDN: ${{ vars.MESHCHATNEXT_RELEASE_CDN }}
+                  MESHCHATNEXT_RELEASE_REPOSITORY: ${{ github.repository }}
               run: |
                   set -euo pipefail
                   if [[ "${GITHUB_REF_NAME}" == nightly-* || "${GITHUB_REF_NAME}" == testing-* ]]; then

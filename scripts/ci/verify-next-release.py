@@ -42,7 +42,9 @@ def main():
         raise SystemExit("Signed and readable manifests differ")
     if manifest["tag"] != args.tag or manifest["track"] != "release":
         raise SystemExit("Manifest tag/channel mismatch")
-    apk_names = {p.name for p in args.assets.glob("*.apk")}
+    apk_names = {
+        p.name for p in args.assets.glob("*.apk") if "-android-" in p.name.lower()
+    }
     described = {a["file"] for a in manifest["artifacts"] if a["kind"] == "apk"}
     if not apk_names or apk_names != described:
         raise SystemExit("Release APK inventory differs from signed manifest")
