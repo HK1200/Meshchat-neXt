@@ -104,8 +104,11 @@ describe("electron/updateApply", () => {
 
         const chmod = vi.spyOn(fs, "chmodSync");
         const res = applyPendingUpdate(dir);
-        expect(chmod).toHaveBeenCalledWith(s.path, 0o755);
+        const [[replacement, modeApplied]] = chmod.mock.calls;
         chmod.mockRestore();
+        expect(modeApplied).toBe(0o755);
+        expect(replacement).not.toBe(s.path);
+        expect(path.dirname(path.dirname(replacement))).toBe(path.dirname(target));
         expect(res.applied).toBe(true);
         expect(fs.readFileSync(target)).toEqual(payload);
         expect(fs.readFileSync(target + ".bak")).toEqual(Buffer.from("old-image"));

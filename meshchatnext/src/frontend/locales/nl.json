@@ -160,6 +160,15 @@
         "rrc_save_failed": "Instellingen konden niet worden opgeslagen"
     },
     "app": {
+        "android_dm_alert_details": "Android-meldingen voor privéberichten",
+        "android_dm_alert_details_description": "Kies wat neXt toont in meldingen voor privéberichten via Reticulum en MeshCore. Android past je privacy-instellingen voor het vergrendelscherm toe.",
+        "android_dm_alert_private": "Alleen melding van nieuw bericht",
+        "android_dm_alert_sender": "Afzender tonen",
+        "android_dm_alert_preview": "Afzender en voorbeeld tonen",
+        "android_dm_alert_test": "Melding testen",
+        "android_dm_alert_settings": "Android-meldingsinstellingen",
+        "android_dm_alert_test_sent": "Testmelding verzonden. Controleer het meldingenpaneel en de geluidsinstellingen van Android.",
+        "android_dm_alert_test_blocked": "Android heeft meldingen geblokkeerd. Controleer de Android-meldingsinstellingen.",
         "name": "Meshchat neXt",
         "skip_to_content": "Skip to main content",
         "sync_messages": "Berichten synchroniseren",

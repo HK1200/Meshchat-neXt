@@ -160,6 +160,15 @@
         "rrc_save_failed": "設定を保存できませんでした"
     },
     "app": {
+        "android_dm_alert_details": "Android のダイレクトメッセージ通知",
+        "android_dm_alert_details_description": "Reticulum と MeshCore のダイレクトメッセージ通知に neXt が表示する内容を選択します。Android のロック画面のプライバシー設定が適用されます。",
+        "android_dm_alert_private": "新着メッセージのみ",
+        "android_dm_alert_sender": "送信者を表示",
+        "android_dm_alert_preview": "送信者とプレビューを表示",
+        "android_dm_alert_test": "通知をテスト",
+        "android_dm_alert_settings": "Android の通知設定",
+        "android_dm_alert_test_sent": "テスト通知を送信しました。通知パネルと Android の音量設定を確認してください。",
+        "android_dm_alert_test_blocked": "Android が通知をブロックしました。Android の通知設定を確認してください。",
         "name": "Meshchat neXt",
         "skip_to_content": "Skip to main content",
         "sync_messages": "メッセージを同期",

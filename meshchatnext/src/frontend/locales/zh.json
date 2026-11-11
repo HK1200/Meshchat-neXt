@@ -160,6 +160,15 @@
         "rrc_save_failed": "无法保存设置"
     },
     "app": {
+        "android_dm_alert_details": "Android 私信通知",
+        "android_dm_alert_details_description": "选择 neXt 在 Reticulum 和 MeshCore 私信通知中显示的内容。Android 会应用你的锁屏隐私设置。",
+        "android_dm_alert_private": "仅提示有新消息",
+        "android_dm_alert_sender": "显示发送者",
+        "android_dm_alert_preview": "显示发送者和消息预览",
+        "android_dm_alert_test": "测试通知",
+        "android_dm_alert_settings": "Android 通知设置",
+        "android_dm_alert_test_sent": "测试通知已发送。请检查通知面板和 Android 声音设置。",
+        "android_dm_alert_test_blocked": "Android 已阻止通知。请检查 Android 通知设置。",
         "name": "Meshchat neXt",
         "skip_to_content": "Skip to main content",
         "sync_messages": "同步消息",

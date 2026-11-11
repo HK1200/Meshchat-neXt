@@ -160,6 +160,15 @@
         "rrc_save_failed": "Impossibile salvare le impostazioni"
     },
     "app": {
+        "android_dm_alert_details": "Avvisi Android per i messaggi diretti",
+        "android_dm_alert_details_description": "Scegli cosa mostra neXt nelle notifiche dei messaggi diretti Reticulum e MeshCore. Android applica le impostazioni di privacy della schermata di blocco.",
+        "android_dm_alert_private": "Solo avviso di nuovo messaggio",
+        "android_dm_alert_sender": "Mostra mittente",
+        "android_dm_alert_preview": "Mostra mittente e anteprima",
+        "android_dm_alert_test": "Prova avviso",
+        "android_dm_alert_settings": "Impostazioni notifiche Android",
+        "android_dm_alert_test_sent": "Avviso di prova inviato. Controlla il pannello delle notifiche e le impostazioni audio di Android.",
+        "android_dm_alert_test_blocked": "Android ha bloccato le notifiche. Controlla le impostazioni delle notifiche di Android.",
         "name": "Meshchat neXt",
         "skip_to_content": "Skip to main content",
         "sync_messages": "Sincronizza Messaggi",

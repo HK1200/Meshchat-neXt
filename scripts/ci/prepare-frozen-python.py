@@ -89,7 +89,9 @@ def main():
         if sys.platform == "darwin" and sysconfig.get_config_var("PYTHONFRAMEWORK"):
             # Framework builds report a path relative to the framework prefix,
             # while LIBDIR points at the interpreter's Unix-style lib folder.
-            framework = Path(sys.base_prefix) / sysconfig.get_config_var("PYTHONFRAMEWORK")
+            framework = Path(sys.base_prefix) / sysconfig.get_config_var(
+                "PYTHONFRAMEWORK"
+            )
             if framework.is_file():
                 shared_library = framework
         if shared_library is None or not shared_library.is_file():

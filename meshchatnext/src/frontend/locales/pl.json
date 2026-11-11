@@ -160,6 +160,15 @@
         "rrc_save_failed": "Nie można zapisać ustawień"
     },
     "app": {
+        "android_dm_alert_details": "Powiadomienia Androida o wiadomościach prywatnych",
+        "android_dm_alert_details_description": "Wybierz, co neXt pokazuje w powiadomieniach o wiadomościach prywatnych Reticulum i MeshCore. Android stosuje ustawienia prywatności ekranu blokady.",
+        "android_dm_alert_private": "Tylko informacja o nowej wiadomości",
+        "android_dm_alert_sender": "Pokaż nadawcę",
+        "android_dm_alert_preview": "Pokaż nadawcę i podgląd",
+        "android_dm_alert_test": "Przetestuj powiadomienie",
+        "android_dm_alert_settings": "Ustawienia powiadomień Androida",
+        "android_dm_alert_test_sent": "Wysłano powiadomienie testowe. Sprawdź panel powiadomień i ustawienia dźwięku Androida.",
+        "android_dm_alert_test_blocked": "Android zablokował powiadomienia. Sprawdź ustawienia powiadomień Androida.",
         "name": "Meshchat neXt",
         "skip_to_content": "Skip to main content",
         "sync_messages": "Synchronizuj wiadomości",

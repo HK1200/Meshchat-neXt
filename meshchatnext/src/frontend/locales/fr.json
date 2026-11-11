@@ -160,6 +160,15 @@
         "rrc_save_failed": "Impossible d'enregistrer les paramètres"
     },
     "app": {
+        "android_dm_alert_details": "Alertes Android de messages privés",
+        "android_dm_alert_details_description": "Choisissez ce que neXt affiche dans les notifications de messages privés Reticulum et MeshCore. Android applique vos réglages de confidentialité de l’écran verrouillé.",
+        "android_dm_alert_private": "Nouveau message uniquement",
+        "android_dm_alert_sender": "Afficher l’expéditeur",
+        "android_dm_alert_preview": "Afficher l’expéditeur et l’aperçu",
+        "android_dm_alert_test": "Tester une alerte",
+        "android_dm_alert_settings": "Paramètres de notification Android",
+        "android_dm_alert_test_sent": "Alerte de test envoyée. Vérifiez le volet des notifications et les réglages audio d’Android.",
+        "android_dm_alert_test_blocked": "Android a bloqué les notifications. Vérifiez ses paramètres de notification.",
         "name": "Réticulum Meshchat neXt",
         "skip_to_content": "Skip to main content",
         "sync_messages": "Synchroniser les messages",

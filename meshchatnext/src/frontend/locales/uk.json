@@ -160,6 +160,15 @@
         "rrc_save_failed": "Не вдалося зберегти налаштування"
     },
     "app": {
+        "android_dm_alert_details": "Сповіщення Android про приватні повідомлення",
+        "android_dm_alert_details_description": "Виберіть, що neXt показує у сповіщеннях про приватні повідомлення Reticulum і MeshCore. Android застосовує налаштування конфіденційності екрана блокування.",
+        "android_dm_alert_private": "Лише сповіщення про нове повідомлення",
+        "android_dm_alert_sender": "Показувати відправника",
+        "android_dm_alert_preview": "Показувати відправника й попередній перегляд",
+        "android_dm_alert_test": "Перевірити сповіщення",
+        "android_dm_alert_settings": "Налаштування сповіщень Android",
+        "android_dm_alert_test_sent": "Тестове сповіщення надіслано. Перевірте панель сповіщень і налаштування звуку Android.",
+        "android_dm_alert_test_blocked": "Android заблокував сповіщення. Перевірте налаштування сповіщень Android.",
         "name": "Meshchat neXt",
         "skip_to_content": "Skip to main content",
         "sync_messages": "Синхронізувати повідомлення",

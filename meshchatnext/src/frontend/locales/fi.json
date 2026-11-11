@@ -160,6 +160,15 @@
         "rrc_save_failed": "Asetuksia ei voitu tallentaa"
     },
     "app": {
+        "android_dm_alert_details": "Androidin yksityisviesti-ilmoitukset",
+        "android_dm_alert_details_description": "Valitse, mitä neXt näyttää Reticulum- ja MeshCore-yksityisviestien ilmoituksissa. Android käyttää lukitusnäytön yksityisyysasetuksia.",
+        "android_dm_alert_private": "Vain tieto uudesta viestistä",
+        "android_dm_alert_sender": "Näytä lähettäjä",
+        "android_dm_alert_preview": "Näytä lähettäjä ja esikatselu",
+        "android_dm_alert_test": "Testaa ilmoitusta",
+        "android_dm_alert_settings": "Androidin ilmoitusasetukset",
+        "android_dm_alert_test_sent": "Testi-ilmoitus lähetetty. Tarkista ilmoituspaneeli ja Androidin ääniasetukset.",
+        "android_dm_alert_test_blocked": "Android esti ilmoitukset. Tarkista Androidin ilmoitusasetukset.",
         "name": "Meshchat neXt",
         "skip_to_content": "Skip to main content",
         "sync_messages": "Synkronoi viestit",

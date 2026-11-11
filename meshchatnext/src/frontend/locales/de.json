@@ -160,6 +160,15 @@
         "rrc_save_failed": "Einstellungen konnten nicht gespeichert werden"
     },
     "app": {
+        "android_dm_alert_details": "Android-Direktnachrichten",
+        "android_dm_alert_details_description": "Wähle, was neXt in Benachrichtigungen für Reticulum- und MeshCore-Direktnachrichten anzeigt. Android verwendet deine Sperrbildschirm-Einstellungen.",
+        "android_dm_alert_private": "Nur neue Nachricht",
+        "android_dm_alert_sender": "Absender anzeigen",
+        "android_dm_alert_preview": "Absender und Vorschau anzeigen",
+        "android_dm_alert_test": "Testbenachrichtigung",
+        "android_dm_alert_settings": "Android-Benachrichtigungseinstellungen",
+        "android_dm_alert_test_sent": "Testbenachrichtigung gesendet. Prüfe die Benachrichtigungsleiste und die Android-Toneinstellungen.",
+        "android_dm_alert_test_blocked": "Android blockiert Benachrichtigungen. Prüfe die Android-Benachrichtigungseinstellungen.",
         "name": "Meshchat neXt",
         "skip_to_content": "Skip to main content",
         "sync_messages": "Nachrichten synchronisieren",

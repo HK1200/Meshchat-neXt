@@ -160,6 +160,15 @@
         "rrc_save_failed": "Не удалось сохранить настройки"
     },
     "app": {
+        "android_dm_alert_details": "Уведомления Android о личных сообщениях",
+        "android_dm_alert_details_description": "Выберите, что neXt показывает в уведомлениях о личных сообщениях Reticulum и MeshCore. Android применяет настройки конфиденциальности экрана блокировки.",
+        "android_dm_alert_private": "Только уведомление о новом сообщении",
+        "android_dm_alert_sender": "Показывать отправителя",
+        "android_dm_alert_preview": "Показывать отправителя и текст сообщения",
+        "android_dm_alert_test": "Проверить уведомление",
+        "android_dm_alert_settings": "Настройки уведомлений Android",
+        "android_dm_alert_test_sent": "Тестовое уведомление отправлено. Проверьте панель уведомлений и настройки звука Android.",
+        "android_dm_alert_test_blocked": "Android заблокировал уведомления. Проверьте настройки уведомлений Android.",
         "name": "Meshchat neXt",
         "skip_to_content": "Skip to main content",
         "sync_messages": "Синхронизировать сообщения",

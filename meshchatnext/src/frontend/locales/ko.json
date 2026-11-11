@@ -160,6 +160,15 @@
         "rrc_save_failed": "설정을 저장할 수 없습니다"
     },
     "app": {
+        "android_dm_alert_details": "Android 다이렉트 메시지 알림",
+        "android_dm_alert_details_description": "Reticulum 및 MeshCore 다이렉트 메시지 알림에 neXt가 표시할 내용을 선택하세요. Android 잠금 화면 개인정보 보호 설정이 적용됩니다.",
+        "android_dm_alert_private": "새 메시지 알림만 표시",
+        "android_dm_alert_sender": "보낸 사람 표시",
+        "android_dm_alert_preview": "보낸 사람과 미리보기 표시",
+        "android_dm_alert_test": "알림 테스트",
+        "android_dm_alert_settings": "Android 알림 설정",
+        "android_dm_alert_test_sent": "테스트 알림을 보냈습니다. 알림 패널과 Android 소리 설정을 확인하세요.",
+        "android_dm_alert_test_blocked": "Android에서 알림을 차단했습니다. Android 알림 설정을 확인하세요.",
         "name": "Meshchat neXt",
         "skip_to_content": "Skip to main content",
         "sync_messages": "메시지 동기화",

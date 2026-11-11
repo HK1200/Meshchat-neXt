@@ -160,6 +160,15 @@
         "rrc_save_failed": "Ayarlar kaydedilemedi"
     },
     "app": {
+        "android_dm_alert_details": "Android doğrudan mesaj bildirimleri",
+        "android_dm_alert_details_description": "Reticulum ve MeshCore doğrudan mesaj bildirimlerinde neXt’in ne göstereceğini seçin. Android, kilit ekranı gizlilik ayarlarınızı uygular.",
+        "android_dm_alert_private": "Yalnızca yeni mesaj bildirimi",
+        "android_dm_alert_sender": "Göndereni göster",
+        "android_dm_alert_preview": "Göndereni ve önizlemeyi göster",
+        "android_dm_alert_test": "Bildirimi test et",
+        "android_dm_alert_settings": "Android bildirim ayarları",
+        "android_dm_alert_test_sent": "Test bildirimi gönderildi. Bildirim panelini ve Android ses ayarlarını kontrol edin.",
+        "android_dm_alert_test_blocked": "Android bildirimleri engelledi. Android bildirim ayarlarını kontrol edin.",
         "name": "Meshchat neXt",
         "skip_to_content": "Skip to main content",
         "sync_messages": "İletileri Eşitle",
