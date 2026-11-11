@@ -67,11 +67,11 @@ jobs:
                   package_tag="$(python scripts/ci/verify-linux-release.py release-check --tag "$RELEASE_TAG" --signer "$NEXT_UPDATE_SIGNER_HASH" --manifest-only)"
                   gh release download "$package_tag" --dir release-check --pattern '*.AppImage' --pattern '*.deb'
                   python scripts/ci/verify-linux-release.py release-check --tag "$RELEASE_TAG" --signer "$NEXT_UPDATE_SIGNER_HASH"
-            - name: Start the signed AppImage on Ubuntu 26.04
+            - name: Start the signed AppImage with an app-specific profile on Ubuntu 26.04
               run: |
                   set -euo pipefail
                   sudo apt-get update -qq
-                  sudo apt-get install -y --no-install-recommends xvfb xauth libfuse2t64
+                  sudo apt-get install -y --no-install-recommends apparmor xvfb xauth
                   image="$(realpath "$(find release-check -maxdepth 1 -name '*-linux-x86_64.AppImage' -print -quit)")"
                   test -f "$image"
                   chmod +x "$image"
@@ -79,11 +79,18 @@ jobs:
                   profile="$(mktemp -d)"
                   mkdir "$profile/rns" "$profile/data"
                   printf '[reticulum]\n  enable_transport = No\n  share_instance = No\n  discover_interfaces = No\n  autoconnect_discovered_interfaces = 0\n[interfaces]\n' > "$profile/rns/config"
-                  args=()
-                  if [[ ! -r /dev/fuse || ! -w /dev/fuse ]]; then
-                      args+=(--appimage-extract-and-run)
-                  fi
-                  setsid xvfb-run -a "$image" "${args[@]}" --disable-gpu \
+                  (cd "$profile" && "$image" --appimage-extract >/dev/null)
+                  sudo mv "$profile/squashfs-root" /opt/meshchatnext-appimage-ci
+                  sudo chown -R root:root /opt/meshchatnext-appimage-ci
+                  sudo chmod -R go-w /opt/meshchatnext-appimage-ci
+                  sudo apparmor_parser -r <<'PROFILE'
+                  abi <abi/4.0>,
+                  include <tunables/global>
+                  /opt/meshchatnext-appimage-ci/meshchat-next flags=(unconfined) {
+                    userns,
+                  }
+                  PROFILE
+                  setsid xvfb-run -a /opt/meshchatnext-appimage-ci/AppRun --disable-gpu \
                       --storage-dir="$profile/data" --reticulum-config-dir="$profile/rns" \
                       > "$profile/app.log" 2>&1 &
                   pid=$!
