@@ -1,5 +1,9 @@
 # Meshchat neXt changelog
 
+## 0.1.13 (Android)
+
+- Share one Android background connection card when SIP and mesh are both active. Incoming call controls remain available.
+
 ## 0.1.12
 
 - Refresh active call state each second so a missed live hang-up event does not leave the call screen connected for the idle polling interval.
