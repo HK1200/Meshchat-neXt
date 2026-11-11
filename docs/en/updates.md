@@ -8,7 +8,9 @@ anything inside.
 
 ## HK1200 release feeds
 
-Stable Android and Windows builds use the shared [signed release feed](https://github.com/HK1200/Meshchat-neXt/releases/latest/download/latest.rsm). Linux uses its separate [linux-stable signed feed](https://github.com/HK1200/Meshchat-neXt/releases/download/linux-stable/latest.rsm). Version 0.1.5 adds the Windows x64 portable executable and installer to the shared feed while preserving the Android entries. Existing Android and Linux releases remain available.
+Stable Android builds with platform feed support check the [android-stable signed feed](https://github.com/HK1200/Meshchat-neXt/releases/download/android-stable/latest.rsm) and the [shared signed feed](https://github.com/HK1200/Meshchat-neXt/releases/latest/download/latest.rsm). They offer the newest verified APK compatible with the device. Windows uses the shared feed and Linux uses [linux-stable](https://github.com/HK1200/Meshchat-neXt/releases/download/linux-stable/latest.rsm). Older Android builds only know the shared feed and need one upgrade to gain platform feed support.
+
+To publish an Android hotfix, publish the signed APKs to a versioned Android release. Put its signed `latest.rsm` on the `android-stable` release. The manifest's tag must name the versioned release that hosts the APKs. Check the manifest signature and verify every APK's hash and size before replacing the pointer.
 
 The Windows 0.1.5 executables are unsigned for Authenticode. Their signed-feed entries authenticate package size and SHA-256; source integrity signatures and update-feed signatures do not substitute for Windows executable signing. Back up your profile before installing an update and keep OS protections enabled.
 

@@ -5,7 +5,7 @@ Update flow:
 
   1. The release pipeline signs update.json into update.rsm (rnid-format
      RSG envelope) and uploads it to "<base>/<track>/latest.rsm" plus the
-     versioned release. HK stable uses the latest application release;
+     versioned release. HK stable uses platform feeds for Android and Linux;
      prerelease channels resolve their matching release through GitHub.
      Custom CDN overrides keep the original layout.
   2. UpdateManager.check fetches latest.rsm, verifies the embedded
@@ -192,10 +192,19 @@ class UpdateManager:
 
     # -- manifest ---------------------------------------------------------
 
+    def _uses_android_stable_feed(self) -> bool:
+        return (
+            _base_url() == DEFAULT_BASE_URL
+            and self.track == "release"
+            and host_platform() == "android"
+        )
+
     def manifest_url(self) -> str:
         if not _base_url():
             raise UpdateUnavailable("Meshchat neXt update publisher is not configured")
         if _base_url() == DEFAULT_BASE_URL:
+            if self._uses_android_stable_feed():
+                return f"{DEFAULT_BASE_URL}/releases/download/android-stable/{MANIFEST_NAME}"
             if host_platform() == "linux":
                 # Keep desktop publication independent of Android's latest release.
                 channel_tag = (
@@ -227,6 +236,53 @@ class UpdateManager:
             raise UpdateError("manifest exceeds size cap")
         return data
 
+    def _fetch_verified_manifest(self, url: str) -> dict:
+        raw = self._fetch_bytes(url, MANIFEST_MAX_BYTES)
+        manifest = _verify_rsm(raw, _pinned_signer_hash())
+        if manifest.get("track") != self.track:
+            raise UpdateError("manifest track does not match this channel")
+        tag = manifest.get("tag") or ""
+        if not tag or "/" in tag or "\\" in tag or ".." in tag:
+            raise UpdateError("manifest tag is not a safe path segment")
+        return manifest
+
+    async def _fetch_android_stable_manifest(self, android_url: str) -> dict:
+        import asyncio
+
+        shared_url = f"{DEFAULT_BASE_URL}/releases/latest/download/{MANIFEST_NAME}"
+        results = await asyncio.gather(
+            asyncio.to_thread(self._fetch_verified_manifest, android_url),
+            asyncio.to_thread(self._fetch_verified_manifest, shared_url),
+            return_exceptions=True,
+        )
+        available = []
+        errors = []
+        for result in results:
+            if isinstance(result, UpdateError):
+                logger.debug("Could not use one Android update feed: %s", result)
+                errors.append(result)
+            elif isinstance(result, BaseException):
+                raise result
+            else:
+                available.append(result)
+        if not available:
+            raise errors[0]
+
+        compatible = [
+            manifest
+            for manifest in available
+            if self.matching_artifacts(manifest)
+            and _version_allowed(manifest.get("version") or "", "0")
+            and _version_allowed(
+                self.current_version, manifest.get("minimum_version") or "0.0.0"
+            )
+        ]
+        if compatible:
+            # The dedicated feed wins ties. A newer shared Android package
+            # can still be offered if the dedicated pointer hasn't moved yet.
+            return max(compatible, key=lambda manifest: Version(manifest["version"]))
+        return available[0]
+
     async def fetch_manifest(self, *, force: bool = False) -> dict:
         import asyncio
 
@@ -236,15 +292,11 @@ class UpdateManager:
             and time.monotonic() - self._manifest_fetched_at < 300
         ):
             return self._manifest
-        raw = await asyncio.to_thread(
-            self._fetch_bytes, self.manifest_url(), MANIFEST_MAX_BYTES
-        )
-        manifest = await asyncio.to_thread(_verify_rsm, raw, _pinned_signer_hash())
-        if manifest.get("track") != self.track:
-            raise UpdateError("manifest track does not match this channel")
-        tag = manifest.get("tag") or ""
-        if not tag or "/" in tag or "\\" in tag or ".." in tag:
-            raise UpdateError("manifest tag is not a safe path segment")
+        url = self.manifest_url()
+        if self._uses_android_stable_feed():
+            manifest = await self._fetch_android_stable_manifest(url)
+        else:
+            manifest = await asyncio.to_thread(self._fetch_verified_manifest, url)
         self._manifest = manifest
         self._manifest_fetched_at = time.monotonic()
         return manifest

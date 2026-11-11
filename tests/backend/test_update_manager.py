@@ -17,6 +17,7 @@ _REAL_IDENTITY = RNS.Identity
 from meshchatnext.src.backend.update_manager import (
     UpdateError,
     UpdateManager,
+    UpdateUnavailable,
     UpdateVerifyError,
     _version_allowed,
     _version_newer,
@@ -588,7 +589,7 @@ def test_neXt_release_defaults_enable_signed_github_updates(monkeypatch, tmp_pat
     assert _pinned_signer_hash() == bytes.fromhex(DEFAULT_SIGNER_HASH)
     assert (
         manager.manifest_url()
-        == f"{DEFAULT_BASE_URL}/releases/latest/download/latest.rsm"
+        == f"{DEFAULT_BASE_URL}/releases/download/android-stable/latest.rsm"
     )
     assert (
         manager.artifact_url({"tag": "v0.2.0"}, {"file": "app.apk"})
@@ -632,6 +633,96 @@ def test_linux_update_channel_does_not_follow_android_latest(
     assert manager.artifact_url({"tag": "v0.1.2-linux"}, {"file": "next.AppImage"}) == (
         f"{DEFAULT_BASE_URL}/releases/download/v0.1.2-linux/next.AppImage"
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("android_version", "shared_version", "expected_tag"),
+    [
+        ("0.1.13", "0.1.12", "android-v0.1.13"),
+        ("0.1.13", "0.1.14", "v0.1.14"),
+        ("0.1.13", "0.1.13", "android-v0.1.13"),
+        (None, "0.1.12", "v0.1.12"),
+        ("0.1.13", None, "android-v0.1.13"),
+    ],
+)
+async def test_stable_android_selects_newest_compatible_signed_feed(
+    tmp_path, signer, monkeypatch, android_version, shared_version, expected_tag
+):
+    from meshchatnext.src.backend import update_manager
+
+    monkeypatch.delenv("MESHCHATNEXT_UPDATE_BASE_URL", raising=False)
+    monkeypatch.setenv("MESHCHATNEXT_UPDATE_SIGNER", signer.hash.hex())
+    monkeypatch.setattr(update_manager, "host_platform", lambda: "android")
+    monkeypatch.setattr(update_manager, "normalize_arch", lambda: "aarch64")
+    mgr = UpdateManager(str(tmp_path), current_version="0.1.10", channel="stable")
+
+    def fetch(url, max_bytes):
+        dedicated = "/android-stable/" in url
+        version = android_version if dedicated else shared_version
+        if version is None:
+            raise UpdateUnavailable("feed absent")
+        tag = f"android-v{version}" if dedicated else f"v{version}"
+        artifact = {
+            "file": f"neXt-{version}-arm64.apk",
+            "sha256": "a" * 64,
+            "size": 100,
+            "kind": "apk",
+            "platform": "android",
+            "arch": "aarch64",
+        }
+        return sign_manifest(
+            _manifest(version=version, tag=tag, artifacts=[artifact]), signer
+        )
+
+    monkeypatch.setattr(mgr, "_fetch_bytes", fetch)
+    assert mgr.manifest_url().endswith("/android-stable/latest.rsm")
+    status = await mgr.check()
+    assert status["update_available"]
+    assert status["manifest"]["tag"] == expected_tag
+    manifest = await mgr.fetch_manifest()
+    assert f"/releases/download/{expected_tag}/" in mgr.artifact_url(
+        manifest, manifest["artifacts"][0]
+    )
+
+
+@pytest.mark.asyncio
+async def test_android_ignores_untrusted_or_incompatible_dedicated_update(
+    tmp_path, signer, signer2, monkeypatch
+):
+    from meshchatnext.src.backend import update_manager
+
+    monkeypatch.delenv("MESHCHATNEXT_UPDATE_BASE_URL", raising=False)
+    monkeypatch.setenv("MESHCHATNEXT_UPDATE_SIGNER", signer.hash.hex())
+    monkeypatch.setattr(update_manager, "host_platform", lambda: "android")
+    monkeypatch.setattr(update_manager, "normalize_arch", lambda: "aarch64")
+    mgr = UpdateManager(str(tmp_path), current_version="0.1.10", channel="stable")
+    apk = {
+        "file": "next.apk",
+        "sha256": "a" * 64,
+        "size": 100,
+        "kind": "apk",
+        "platform": "android",
+        "arch": "aarch64",
+    }
+    shared = sign_manifest(
+        _manifest(version="0.1.12", tag="v0.1.12", artifacts=[apk]), signer
+    )
+    newer = _manifest(version="0.1.14", tag="android-v0.1.14", artifacts=[apk])
+    variants = [
+        sign_manifest(newer, signer2),
+        sign_manifest(dict(newer, minimum_version="0.1.13"), signer),
+        sign_manifest(dict(newer, artifacts=[dict(apk, arch="x86_64")]), signer),
+    ]
+    for dedicated in variants:
+        monkeypatch.setattr(
+            mgr,
+            "_fetch_bytes",
+            lambda url, size, dedicated=dedicated: (
+                dedicated if "/android-stable/" in url else shared
+            ),
+        )
+        assert (await mgr.fetch_manifest(force=True))["tag"] == "v0.1.12"
 
 
 @pytest.mark.asyncio
