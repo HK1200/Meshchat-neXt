@@ -26,7 +26,7 @@ if [[ "$target" == *.AppImage ]]; then
     xdotool key ctrl+1 F9
     sleep 1
     scrot "$PWD/ubuntu-launch-before.png"
-    xdotool mousemove --window "$window" 58 132 click --repeat 2 --delay 100 1
+    xdotool mousemove --window "$window" 240 104 click --repeat 2 --delay 100 1
     sleep 1
     scrot "$PWD/ubuntu-launch-after.png"
     echo "Double-clicked the AppImage in Thunar."
