@@ -46,6 +46,31 @@ For packages the app cannot apply itself (deb, rpm, flatpak, wheel, pyz,
 APK), the staged file is verified and left ready with install
 instructions. Use **Show file** to open its folder.
 
+## Ubuntu 26.04 desktop launch
+
+For a normal desktop launch on stock Ubuntu 26.04, install the verified
+`.deb` for your architecture and open **Meshchat neXt** from the app menu.
+On x86-64, for example:
+
+```sh
+sudo apt install ./MeshchatNext-v0.1.14-linux-amd64.deb
+```
+
+Ubuntu's default AppArmor policy restricts the unprivileged namespaces
+Chromium needs to sandbox the portable AppImage. A double-click can start
+the AppImage and then stop before the window opens. The Debian package's
+installed desktop entry works with Chromium sandboxing enabled. Use the
+package manager to apply subsequent Debian package updates.
+
+If you specifically need the AppImage contents on an Ubuntu system you
+administer, extract the verified AppImage as your regular user. Install the
+extracted directory as root at a fixed path such as
+`/opt/meshchat-next-appimage` and allow `userns` in an AppArmor profile
+attached to exactly `/opt/meshchat-next-appimage/meshchat-next`. Launch the
+installed `AppRun` from a desktop entry. Keep the directory root-owned and
+protected from writes by ordinary users. Use an exact attachment path for
+the installed executable. [Ubuntu AppArmor profile example](https://documentation.ubuntu.com/release-notes/24.04/#unprivileged-user-namespace-restrictions)
+
 ## Manual update files
 
 If you downloaded an update file yourself (from GitHub Releases or the

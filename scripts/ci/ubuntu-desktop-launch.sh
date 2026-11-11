@@ -4,7 +4,33 @@
 set -euo pipefail
 target="$(realpath "${1:?AppImage or installed desktop entry required}")"
 profile="$(mktemp -d)"
-trap 'tail -30 "$profile/launch.log" 2>/dev/null || true; rm -rf "$profile"' EXIT
+cleanup() {
+    python3 - "$profile/data" <<'PYTHON'
+import os
+import signal
+import sys
+from pathlib import Path
+
+setting = b"MESHCHAT_STORAGE_DIR=" + os.fsencode(sys.argv[1])
+for proc in Path("/proc").iterdir():
+    if not proc.name.isdigit():
+        continue
+    try:
+        if (proc / "comm").read_text().strip() not in {"meshchat-next", "MeshchatNext"}:
+            continue
+        if setting in (proc / "environ").read_bytes().split(b"\0"):
+            os.kill(int(proc.name), signal.SIGTERM)
+    except OSError:
+        pass
+PYTHON
+    tail -30 "$profile/launch.log" 2>/dev/null || true
+    rm -rf "$profile"
+}
+trap cleanup EXIT
+if curl -fkSs --max-time 1 https://127.0.0.1:9338/api/v1/status >/dev/null 2>&1; then
+    echo "A previous launch is still serving the desktop port."
+    exit 1
+fi
 export MESHCHAT_STORAGE_DIR="$profile/data"
 export MESHCHAT_RETICULUM_CONFIG_DIR="$profile/rns"
 export XDG_CONFIG_HOME="$profile/config"

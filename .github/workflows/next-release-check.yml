@@ -88,43 +88,34 @@ jobs:
                   sudo apt-get install -y --no-install-recommends "$deb"
                   desktop="$(dpkg -L "$(dpkg-deb -f "$deb" Package)" | grep -E '^/usr/share/applications/.*\.desktop$' | head -1)"
                   bash scripts/ci/ubuntu-desktop-launch.sh "$desktop"
-            - name: Start the signed AppImage with an app-specific profile on Ubuntu 26.04
+            - name: Launch the extracted AppImage with its own AppArmor profile
               run: |
                   set -euo pipefail
-                  sudo apt-get update -qq
-                  sudo apt-get install -y --no-install-recommends apparmor xvfb xauth
+                  sudo apt-get install -y --no-install-recommends apparmor
                   image="$(realpath "$(find release-check -maxdepth 1 -name '*-linux-x86_64.AppImage' -print -quit)")"
-                  test -f "$image"
                   chmod +x "$image"
-                  version="$(python -c 'import json; print(json.load(open("release-check/latest.json"))["version"])')"
-                  profile="$(mktemp -d)"
-                  mkdir "$profile/rns" "$profile/data"
-                  printf '[reticulum]\n  enable_transport = No\n  share_instance = No\n  discover_interfaces = No\n  autoconnect_discovered_interfaces = 0\n[interfaces]\n' > "$profile/rns/config"
-                  (cd "$profile" && "$image" --appimage-extract >/dev/null)
-                  sudo mv "$profile/squashfs-root" /opt/meshchatnext-appimage-ci
-                  sudo chown -R root:root /opt/meshchatnext-appimage-ci
-                  sudo chmod -R go-w /opt/meshchatnext-appimage-ci
+                  extracted="$(mktemp -d)"
+                  (cd "$extracted" && "$image" --appimage-extract >/dev/null)
+                  sudo mv "$extracted/squashfs-root" /opt/meshchat-next-appimage
+                  sudo chown -R root:root /opt/meshchat-next-appimage
+                  sudo chmod -R go-w /opt/meshchat-next-appimage
                   sudo apparmor_parser -r <<'PROFILE'
                   abi <abi/4.0>,
                   include <tunables/global>
-                  /opt/meshchatnext-appimage-ci/meshchat-next flags=(unconfined) {
+                  /opt/meshchat-next-appimage/meshchat-next flags=(unconfined) {
                     userns,
                   }
                   PROFILE
-                  setsid xvfb-run -a /opt/meshchatnext-appimage-ci/AppRun --disable-gpu \
-                      --storage-dir="$profile/data" --reticulum-config-dir="$profile/rns" \
-                      > "$profile/app.log" 2>&1 &
-                  pid=$!
-                  trap 'kill -- -"$pid" 2>/dev/null || true; tail -50 "$profile/app.log"' EXIT
-                  for attempt in {1..60}; do
-                      for scheme in https http; do
-                          if curl -fksS --max-time 1 "$scheme://127.0.0.1:9338/api/v1/status" \
-                              | python -c 'import json,sys; s=json.load(sys.stdin); sys.exit(not (s.get("version")==sys.argv[1] and s.get("network_ready") and s.get("ui_ready")))' "$version" 2>/dev/null; then
-                              echo "neXt $version reached Reticulum and UI readiness on Ubuntu 26.04"
-                              exit 0
-                          fi
-                      done
-                      kill -0 "$pid" || exit 1
-                      sleep 2
+                  cat > "$extracted/meshchat-next-appimage.desktop" <<'DESKTOP'
+                  [Desktop Entry]
+                  Type=Application
+                  Name=Meshchat neXt AppImage
+                  Exec=/opt/meshchat-next-appimage/AppRun
+                  DESKTOP
+                  for attempt in {1..15}; do
+                      if ! curl -fkSs --max-time 1 https://127.0.0.1:9338/api/v1/status >/dev/null 2>&1; then
+                          break
+                      fi
+                      sleep 1
                   done
-                  exit 1
+                  bash scripts/ci/ubuntu-desktop-launch.sh "$extracted/meshchat-next-appimage.desktop"
