@@ -15,49 +15,21 @@ if [[ "$target" == *.AppImage ]]; then
     install -m 0755 "$target" "$profile/launch/${target##*/}"
 fi
 
-timeout 150 dbus-run-session -- xvfb-run -a bash -s -- "$target" "$profile" <<'DISPLAY'
+timeout 150 dbus-run-session -- xvfb-run -a -s "-screen 0 1024x768x24" bash -s -- "$target" "$profile" <<'DISPLAY'
 set -euo pipefail
 target="$1"
 profile="$2"
 if [[ "$target" == *.AppImage ]]; then
-    export NO_AT_BRIDGE=0
     thunar "$profile/launch" > "$profile/launch.log" 2>&1 &
-    /usr/bin/python3 - "${target##*/}" <<'PY'
-import subprocess
-import sys
-import time
-
-import pyatspi
-
-name = sys.argv[1]
-
-def find(node):
-    if node is None:
-        return None
-    if node.name == name:
-        rect = node.queryComponent().getExtents(pyatspi.DESKTOP_COORDS)
-        if rect.width > 0 and rect.height > 0:
-            return rect
-    for child in node:
-        found = find(child)
-        if found is not None:
-            return found
-    return None
-
-for _ in range(40):
-    rect = find(pyatspi.Registry.getDesktop(0))
-    if rect is not None:
-        subprocess.run(
-            ["xdotool", "mousemove", str(rect.x + rect.width // 2),
-             str(rect.y + rect.height // 2), "click", "--repeat", "2", "--delay", "100", "1"],
-            check=True,
-        )
-        print("Double-clicked the AppImage in Thunar.")
-        break
-    time.sleep(0.5)
-else:
-    raise SystemExit("The AppImage icon was not visible in Thunar.")
-PY
+    window="$(xdotool search --sync --onlyvisible --class Thunar | head -1)"
+    xdotool windowmove "$window" 0 0 windowsize "$window" 920 660 windowfocus "$window"
+    xdotool key ctrl+1 F9
+    sleep 1
+    scrot "$PWD/ubuntu-launch-before.png"
+    xdotool mousemove --window "$window" 58 132 click --repeat 2 --delay 100 1
+    sleep 1
+    scrot "$PWD/ubuntu-launch-after.png"
+    echo "Double-clicked the AppImage in Thunar."
 else
     gio launch "$target" > "$profile/launch.log" 2>&1
 fi

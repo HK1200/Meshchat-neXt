@@ -71,9 +71,16 @@ jobs:
               run: |
                   set -euo pipefail
                   sudo apt-get update -qq
-                  sudo apt-get install -y --no-install-recommends thunar xvfb xauth xdotool python3-pyatspi libfuse2t64
+                  sudo apt-get install -y --no-install-recommends thunar xvfb xauth xdotool scrot libfuse2t64
                   image="$(realpath "$(find release-check -maxdepth 1 -name '*-linux-x86_64.AppImage' -print -quit)")"
                   bash scripts/ci/ubuntu-desktop-launch.sh "$image"
+            - name: Save the isolated desktop test screenshots
+              if: failure()
+              uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+              with:
+                  name: ubuntu-desktop-launch
+                  path: ubuntu-launch-*.png
+                  if-no-files-found: ignore
             - name: Launch the signed Debian package from its desktop entry
               run: |
                   set -euo pipefail
