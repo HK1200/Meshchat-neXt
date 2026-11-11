@@ -13,7 +13,7 @@ from pathlib import Path
 
 VERSION = "1.5.2"
 SOURCE_SHA256 = "65c1d2f78b9f2fb20082c38cbe47c951ad5839345876e46941612ee87f9a7ce1"
-SOURCE_URL = f"https://downloads.xiph.org/releases/opus/opus-{VERSION}.tar.gz"
+SOURCE_URL = f"https://ftp.osuosl.org/pub/xiph/releases/opus/opus-{VERSION}.tar.gz"
 NDK_VERSION = "27.3.13750724"
 ABIS = {"arm64-v8a": (2, 183), "x86_64": (2, 62), "armeabi-v7a": (1, 40)}
 ROOT = Path(__file__).resolve().parents[2]

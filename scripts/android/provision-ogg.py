@@ -13,7 +13,7 @@ from pathlib import Path
 
 VERSION = "1.3.6"
 SOURCE_SHA256 = "5c8253428e181840cd20d41f3ca16557a9cc04bad4a3d04cce84808677fa1061"
-SOURCE_URL = f"https://downloads.xiph.org/releases/ogg/libogg-{VERSION}.tar.xz"
+SOURCE_URL = f"https://ftp.osuosl.org/pub/xiph/releases/ogg/libogg-{VERSION}.tar.xz"
 NDK_VERSION = "27.3.13750724"
 ABIS = {"arm64-v8a": (2, 183), "x86_64": (2, 62), "armeabi-v7a": (1, 40)}
 ROOT = Path(__file__).resolve().parents[2]

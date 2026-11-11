@@ -16,7 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 VERSION = "0.12"
 SOURCE_SHA256 = "118d8601c12dd6a44f52423e68ca9083cc9f2bfe72da7a8c1acb22a80ae3550b"
-SOURCE_URL = f"https://downloads.xiph.org/releases/opus/opusfile-{VERSION}.tar.gz"
+SOURCE_URL = f"https://ftp.osuosl.org/pub/xiph/releases/opus/opusfile-{VERSION}.tar.gz"
 NDK_VERSION = "27.3.13750724"
 _spec = importlib.util.spec_from_file_location(
     "android_native_helpers", Path(__file__).with_name("provision-opus.py")
@@ -144,15 +144,19 @@ def main():
         SOURCE_URL,
         SOURCE_SHA256,
     )
+    opus_cache = ROOT / ".local/opus-1.5.2-android"
+    ogg_cache = ROOT / ".local/ogg-1.3.6-android"
+    opus_cache.mkdir(parents=True, exist_ok=True)
+    ogg_cache.mkdir(parents=True, exist_ok=True)
     opus_archive = obtain(
         args.opus_source_archive,
-        work / "opus-1.5.2.tar.gz",
+        opus_cache / "opus-1.5.2.tar.gz",
         _helpers.SOURCE_URL,
         _helpers.SOURCE_SHA256,
     )
     ogg_archive = obtain(
         args.ogg_source_archive,
-        work / "libogg-1.3.6.tar.xz",
+        ogg_cache / "libogg-1.3.6.tar.xz",
         "https://ftp.osuosl.org/pub/xiph/releases/ogg/libogg-1.3.6.tar.xz",
         "5c8253428e181840cd20d41f3ca16557a9cc04bad4a3d04cce84808677fa1061",
     )
