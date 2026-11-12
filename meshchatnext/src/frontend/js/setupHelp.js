@@ -39,7 +39,7 @@ export const SETUP_HELP = {
     reticulum: [
         [
             "Internet · TCP",
-            "Adds or reuses both RMAP TCP ports (4242 and 4343) when you select the RMAP preset. It uses the phone/computer’s internet connection and needs no RNode. It provides a path into Reticulum, not a MeshCore gateway. Existing connections are kept.",
+            "Adds or reuses RMAP, WashMesh, and Chicagoland Mesh when you select the default internet TCP preset. It uses the phone/computer’s internet connection and needs no RNode. It provides a path into Reticulum, not a MeshCore gateway. Existing connections are kept.",
         ],
         [
             "Server host and port",

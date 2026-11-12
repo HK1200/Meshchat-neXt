@@ -17,12 +17,12 @@ it.each(Array.from({length:8},(_,bits)=>[bits]))('builds only relevant setup ste
     expect(steps.includes('radio2')).toBe(features.meshcore);
     expect(steps.includes('sip')).toBe(features.sip);
 });
-it('configures both RMAP TCP ports exactly once across retries, without bootstrap-only suppression',async()=>{
+it('configures all three default TCP peers exactly once across retries, without bootstrap-only suppression',async()=>{
     const api=apiFor();const options={internet:true,local:false,...RMAP_TCP};
     await configureReticulumSetup(api,options);await configureReticulumSetup(api,options);
     const adds=api.post.mock.calls.filter(([path])=>path.endsWith('/interfaces/add'));
-    expect(adds.map(([,row])=>row.target_port)).toEqual([4242,4343]);
-    expect(adds.every(([,row])=>row.target_host==='rmap.world'&&!row.bootstrap_only)).toBe(true);
+    expect(adds.map(([,row])=>[row.target_host,row.target_port])).toEqual([['rmap.world',4242],['reticulum.washmesh.net',7242],['rns.chimesh.org',4242]]);
+    expect(adds.every(([,row])=>!row.bootstrap_only)).toBe(true);
     expect(api.patch.mock.calls.find(([path])=>path.endsWith('/config'))[1]).toMatchObject({announce_store_lxmf_delivery:true,announce_store_lxst_telephony:true});
 });
 it('keeps existing interfaces and never adds internet without opt in',async()=>{
@@ -36,7 +36,7 @@ it('reuses and enables an existing RMAP entry without overwriting its secrets',a
     await configureReticulumSetup(api,{internet:true,local:false,...RMAP_TCP});
     expect(api.post).toHaveBeenCalledWith('/api/v1/reticulum/interfaces/enable',{name:'Private'});
     const adds=api.post.mock.calls.filter(([path])=>path.endsWith('/interfaces/add'));
-    expect(adds.map(([,row])=>row.target_port)).toEqual([4343]);
+    expect(adds.map(([,row])=>row.target_host)).toEqual(['reticulum.washmesh.net','rns.chimesh.org']);
 });
 it('validates TCP before making any changes',async()=>{
     const api=apiFor();await expect(configureReticulumSetup(api,{internet:true,host:'bad\nhost',port:4242})).rejects.toThrow();

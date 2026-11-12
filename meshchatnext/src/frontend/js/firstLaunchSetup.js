@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: 0BSD
 import { apiPath } from "./constants";
 export const RMAP_TCP = Object.freeze({ host: "rmap.world", port: 4242 });
-const RMAP_BACKUP_PORT = 4343;
+const RMAP_BACKUPS = [
+    { host: "reticulum.washmesh.net", port: 7242, name: "WashMesh" },
+    { host: "rns.chimesh.org", port: 4242, name: "Chicagoland Mesh" },
+];
 export const RADIO2_FIRMWARE_URL = "https://github.com/mikecarper/MeshCore/releases";
 export const RADIO2_GUIDE_URL =
     "https://github.com/jade-on-mesh/meshcore-open-tak/blob/main/documentation/media-mesh.md";
@@ -49,27 +52,25 @@ export async function configureReticulumSetup(api, options) {
     if (options.internet) {
         const host = options.host.trim().toLowerCase(),
             port = Number(options.port);
-        const ports =
-            host === RMAP_TCP.host && [RMAP_TCP.port, RMAP_BACKUP_PORT].includes(port)
-                ? [port, port === RMAP_TCP.port ? RMAP_BACKUP_PORT : RMAP_TCP.port]
-                : [port];
-        for (const peerPort of ports) {
+        const rmap = host === RMAP_TCP.host && [4242, 4343].includes(port);
+        const primary = { host, port, name: rmap ? "RMAP World" : "Internet TCP" };
+        for (const peer of rmap ? [primary, ...RMAP_BACKUPS] : [primary]) {
             const match = Object.entries(rows).find(
                 ([, row]) =>
                     ["TCPClientInterface", "BackboneInterface"].includes(row.type) &&
-                    String(row.target_host || row.remote || "").toLowerCase() === host &&
-                    Number(row.target_port) === peerPort
+                    String(row.target_host || row.remote || "").toLowerCase() === peer.host &&
+                    Number(row.target_port) === peer.port
             );
             if (match && !enabled(match[1])) {
                 await api.post(apiPath("/reticulum/interfaces/enable"), { name: match[0] });
                 peerEnabled = true;
             } else if (!match) {
-                const name = uniqueName(rows, host === RMAP_TCP.host ? "RMAP World" : "Internet TCP");
+                const name = uniqueName(rows, peer.name);
                 const config = {
                     name,
                     type: "TCPClientInterface",
-                    target_host: host,
-                    target_port: peerPort,
+                    target_host: peer.host,
+                    target_port: peer.port,
                     enabled: true,
                     bootstrap_only: false,
                     mode: "full",
