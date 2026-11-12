@@ -1,5 +1,9 @@
 # Meshchat neXt changelog
 
+## 0.1.16
+
+- Use device time for MeshCore room posts when the companion clock is far ahead or unreadable.
+
 ## 0.1.15
 
 - Guide Android users through device permissions at first launch and from Settings → App features.
