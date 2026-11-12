@@ -309,26 +309,23 @@ class MessagingTests(unittest.IsolatedAsyncioTestCase):
         await self.messenger.send_direct(PEER, "hello", request_id="one")
         self.assertEqual(self.client.sent, 1)
 
-    async def test_room_preflight_is_distinct_and_existing_result_needs_no_clock(self):
-        import time
+    async def test_room_preflight_is_distinct_and_existing_result_is_reused(self):
         from unittest.mock import AsyncMock
 
         self.store.replace_contacts(OWNER, {PEER: {"public_key": PEER, "type": 3}})
         self.client.get_time = AsyncMock(
-            return_value=event(Types.OK, {"time": int(time.time()) + 120})
+            side_effect=ConnectionError("Clock unavailable")
         )
-        with self.assertRaisesRegex(ValueError, "clock") as caught:
+        with self.assertRaisesRegex(ValueError, "at most 160") as caught:
             await self.messenger.send_direct(
-                PEER, "hello", request_id="clock", room=True
+                PEER, "x" * 161, request_id="too-long", room=True
             )
         self.assertTrue(caught.exception.meshcore_not_sent)
         self.assertEqual(self.client.sent, 0)
-        self.client.get_time.return_value = event(Types.OK, {"time": int(time.time())})
         first = await self.messenger.send_direct(
             PEER, "hello", request_id="one", room=True
         )
         self.assertEqual(first["state"], "accepted")
-        self.client.get_time.side_effect = ConnectionError("Clock unavailable")
         again = await self.messenger.send_direct(
             PEER, "hello", request_id="one", room=True
         )
@@ -337,7 +334,6 @@ class MessagingTests(unittest.IsolatedAsyncioTestCase):
         self.client.response = event(
             Types.MSG_SENT, {"expected_ack": b"bad", "suggested_timeout": 100}
         )
-        self.client.get_time.side_effect = None
         with self.assertRaisesRegex(ValueError, "receipt token") as caught:
             await self.messenger.send_direct(
                 PEER, "hello2", request_id="two", room=True
@@ -347,26 +343,42 @@ class MessagingTests(unittest.IsolatedAsyncioTestCase):
             self.store.send_result(OWNER, PEER, "hello2", "two")["state"], "unknown"
         )
 
-    async def test_room_post_corrects_a_fast_companion_clock_before_sending(self):
+    async def test_room_post_uses_host_time_when_companion_clock_is_ahead(self):
         import time
         from unittest.mock import AsyncMock
 
         now = int(time.time())
         self.store.replace_contacts(OWNER, {PEER: {"public_key": PEER, "type": 3}})
         self.client.get_time = AsyncMock(
-            side_effect=[
-                event(Types.OK, {"time": now + 120}),
-                event(Types.OK, {"time": now}),
-            ]
+            return_value=event(Types.OK, {"time": now + 120})
         )
-        self.client.set_time = AsyncMock(return_value=event(Types.OK, {}))
+        self.client.set_time = AsyncMock(
+            return_value=event(Types.ERROR, {"error_code": 2})
+        )
         result = await self.messenger.send_direct(
-            PEER, "hello", request_id="synced-room", room=True
+            PEER, "hello", request_id="fast-radio-room", room=True
         )
         self.assertEqual(result["state"], "accepted")
-        self.client.set_time.assert_awaited_once()
-        self.assertLessEqual(abs(self.client.set_time.await_args.args[0] - now), 2)
+        self.client.get_time.assert_awaited_once()
+        self.client.set_time.assert_not_awaited()
         self.assertEqual(self.client.sent, 1)
+        stamp = self.client.attempts[0]["timestamp"]
+        self.assertGreaterEqual(stamp, now)
+        self.assertLessEqual(stamp, int(time.time()))
+
+    async def test_room_post_timestamp_follows_recent_companion_login(self):
+        import time
+        from unittest.mock import AsyncMock
+
+        companion_time = int(time.time()) + 5
+        self.store.replace_contacts(OWNER, {PEER: {"public_key": PEER, "type": 3}})
+        self.client.get_time = AsyncMock(
+            return_value=event(Types.OK, {"time": companion_time})
+        )
+        await self.messenger.send_direct(
+            PEER, "hello", request_id="after-room-login", room=True
+        )
+        self.assertEqual(self.client.attempts[0]["timestamp"], companion_time + 1)
 
     async def test_numeric_firmware_error_is_rejected(self):
         self.client.response = event(Types.ERROR, {"error_code": 2})

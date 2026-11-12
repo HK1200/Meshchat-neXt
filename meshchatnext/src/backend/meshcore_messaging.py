@@ -480,24 +480,18 @@ class MeshCoreMessaging:
             return True
 
     async def _room_clock_floor(self):
-        commands = self._client.commands
-        clock = self.session._payload(await commands.get_time()).get("time")
-        if type(clock) is not int or not 0 <= clock < 0xFFFFFFFF:
-            raise ConnectionError("Invalid companion clock for room post")
-        now = int(time.time())
-        if clock >= now + 60:
-            try:
-                self.session._payload(await commands.set_time(now))
-                clock = self.session._payload(await commands.get_time()).get("time")
-            except (AttributeError, ConnectionError, ValueError):
-                raise ValueError(
-                    "The companion clock is ahead. Sync the companion clock before posting."
-                ) from None
-            if type(clock) is not int or abs(clock - int(time.time())) > 5:
-                raise ValueError(
-                    "Could not verify the companion clock sync. The post was not sent."
-                )
-        return clock + 1
+        # Room login uses the radio's RTC, and the server rejects older posts.
+        # Plain text frames carry our timestamp. If the RTC is badly skewed,
+        # use host time rather than asking firmware to set its clock backward.
+        try:
+            clock = self.session._payload(await self._client.commands.get_time()).get(
+                "time"
+            )
+        except ConnectionError:
+            return 0
+        if type(clock) is int and 0 <= clock < int(time.time()) + 60:
+            return clock + 1
+        return 0
 
     async def send_direct(self, peer, text, *, request_id, room=False):
         """Submit once. Reusing a request ID reads its result; it never resends."""
@@ -512,9 +506,7 @@ class MeshCoreMessaging:
             if existing:
                 return existing
             try:
-                timestamp_floor = 0
-                if room:
-                    timestamp_floor = await self._room_clock_floor()
+                timestamp_floor = await self._room_clock_floor() if room else 0
                 row, fresh = await asyncio.to_thread(
                     self.store.prepare_send,
                     self.owner,
