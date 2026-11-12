@@ -4,7 +4,12 @@
         <div class="max-w-3xl mx-auto space-y-4">
             <h1 class="text-2xl font-bold">App features</h1>
             <RouterLink :to="{ name: 'tutorial' }" class="inline-flex secondary-chip">Run setup guide</RouterLink>
-            <button v-if="androidPermissionCheckup" type="button" class="secondary-chip" @click="androidPermissionCheckup">
+            <button
+                v-if="androidPermissionCheckup"
+                type="button"
+                class="secondary-chip"
+                @click="androidPermissionCheckup"
+            >
                 Permission checkup
             </button>
             <p class="text-sm text-sem-fg-muted">
