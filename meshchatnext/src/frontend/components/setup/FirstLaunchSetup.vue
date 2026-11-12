@@ -154,7 +154,7 @@
                                 ><input v-model="internet" type="checkbox" class="mt-1" /><span
                                     ><strong>Internet · TCP</strong
                                     ><span class="block text-sm text-sem-fg-muted"
-                                        >The default connects to RMAP, WashMesh, and Chicagoland Mesh.
+                                        >The default connects to RMAP on ports 4343 and 4242, WashMesh, and Chicagoland Mesh.
                                         Expand Server details to use another peer.</span
                                     ></span
                                 ></label

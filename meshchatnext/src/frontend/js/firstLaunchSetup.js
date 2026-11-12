@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: 0BSD
 import { apiPath } from "./constants";
-export const RMAP_TCP = Object.freeze({ host: "rmap.world", port: 4242 });
-const RMAP_BACKUPS = [
+export const RMAP_TCP = Object.freeze({ host: "rmap.world", port: 4343 });
+const INTERNET_BACKUPS = [
     { host: "reticulum.washmesh.net", port: 7242, name: "WashMesh" },
     { host: "rns.chimesh.org", port: 4242, name: "Chicagoland Mesh" },
 ];
@@ -38,6 +38,50 @@ function uniqueName(rows, base) {
     while (rows[name]) name = `${base} ${n++}`;
     return name;
 }
+async function saveInternetPeers(api, rows, { host, port }, enableExisting) {
+    const added = [];
+    let peerEnabled = false;
+    host = host.trim().toLowerCase();
+    port = Number(port);
+    const rmap = host.replace(/\.$/, "") === RMAP_TCP.host && [4242, 4343].includes(port);
+    const primary = { host, port, name: rmap ? "RMAP World" : "Internet TCP" };
+    const alternate = { host, port: port === 4343 ? 4242 : 4343, name: "RMAP World backup" };
+    for (const peer of rmap ? [primary, alternate, ...INTERNET_BACKUPS] : [primary]) {
+        const match = Object.entries(rows).find(
+            ([, row]) =>
+                ["TCPClientInterface", "BackboneInterface"].includes(row.type) &&
+                String(row.target_host || row.remote || "").toLowerCase().replace(/\.$/, "") === peer.host.replace(/\.$/, "") &&
+                Number(row.target_port) === peer.port
+        );
+        if (match && enableExisting && !enabled(match[1])) {
+            await api.post(apiPath("/reticulum/interfaces/enable"), { name: match[0] });
+            peerEnabled = true;
+        } else if (!match) {
+            const name = uniqueName(rows, peer.name);
+            const config = {
+                name,
+                type: "TCPClientInterface",
+                target_host: peer.host,
+                target_port: peer.port,
+                enabled: true,
+                bootstrap_only: false,
+                mode: "full",
+            };
+            await api.post(apiPath("/reticulum/interfaces/add"), config);
+            rows[name] = config;
+            added.push(name);
+        }
+    }
+    return { added, peerEnabled };
+}
+
+export async function addDefaultInternetPeers(api) {
+    const rows = { ...(await api.get(apiPath("/reticulum/interfaces"))).data.interfaces };
+    const { added } = await saveInternetPeers(api, rows, RMAP_TCP, false);
+    if (added.length) await api.post(apiPath("/reticulum/reload"));
+    return added;
+}
+
 export async function configureReticulumSetup(api, options) {
     if (options.internet) validateTcp(options.host.trim(), options.port);
     const rows = { ...(await api.get(apiPath("/reticulum/interfaces"))).data.interfaces };
@@ -50,36 +94,9 @@ export async function configureReticulumSetup(api, options) {
         added.push(name);
     }
     if (options.internet) {
-        const host = options.host.trim().toLowerCase(),
-            port = Number(options.port);
-        const rmap = host === RMAP_TCP.host && [4242, 4343].includes(port);
-        const primary = { host, port, name: rmap ? "RMAP World" : "Internet TCP" };
-        for (const peer of rmap ? [primary, ...RMAP_BACKUPS] : [primary]) {
-            const match = Object.entries(rows).find(
-                ([, row]) =>
-                    ["TCPClientInterface", "BackboneInterface"].includes(row.type) &&
-                    String(row.target_host || row.remote || "").toLowerCase() === peer.host &&
-                    Number(row.target_port) === peer.port
-            );
-            if (match && !enabled(match[1])) {
-                await api.post(apiPath("/reticulum/interfaces/enable"), { name: match[0] });
-                peerEnabled = true;
-            } else if (!match) {
-                const name = uniqueName(rows, peer.name);
-                const config = {
-                    name,
-                    type: "TCPClientInterface",
-                    target_host: peer.host,
-                    target_port: peer.port,
-                    enabled: true,
-                    bootstrap_only: false,
-                    mode: "full",
-                };
-                await api.post(apiPath("/reticulum/interfaces/add"), config);
-                rows[name] = config;
-                added.push(name);
-            }
-        }
+        const saved = await saveInternetPeers(api, rows, options, true);
+        added.push(...saved.added);
+        peerEnabled = saved.peerEnabled;
     }
     // This endpoint changes only bootstrap_only, preserving IFAC secrets and all radio settings.
     const reception = (await api.post(apiPath("/reticulum/interfaces/receive-announces"))).data;

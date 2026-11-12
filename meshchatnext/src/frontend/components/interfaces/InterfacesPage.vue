@@ -47,6 +47,14 @@
                                 <MaterialDesignIcon icon-name="plus" class="w-4 h-4" />
                                 {{ $t("interfaces.add_interface") }}
                             </RouterLink>
+                            <button
+                                type="button"
+                                class="secondary-chip text-sm"
+                                :disabled="addingInternetPeers"
+                                @click="addInternetPeers"
+                            >
+                                {{ addingInternetPeers ? "Adding internet peers…" : "Add default internet peers" }}
+                            </button>
                             <button type="button" class="secondary-chip text-sm" @click="showImportInterfacesModal">
                                 <MaterialDesignIcon icon-name="import" class="w-4 h-4" />
                                 {{ $t("interfaces.import") }}
@@ -915,6 +923,7 @@ import Toggle from "../forms/Toggle.vue";
 import BundledDocsHint from "./BundledDocsHint.vue";
 import GlobalEmitter from "../../js/GlobalEmitter";
 import { apiPath, EMITTER_EVENTS, STORAGE_KEYS } from "../../js/constants";
+import { addDefaultInternetPeers } from "../../js/firstLaunchSetup";
 import { useInterfaceListFilters } from "../../js/interfaces/useInterfaceListFilters.js";
 import { BATTERY_SAVER_CHANGED_EVENT, loadBatterySaverPrefs } from "../../js/settings/batterySaverPrefs.js";
 
@@ -942,6 +951,7 @@ export default {
     },
     data() {
         return {
+            addingInternetPeers: false,
             interfaces: {},
             interfaceStats: {},
             reloadInterval: null,
@@ -1234,6 +1244,18 @@ export default {
         },
         isInterfaceEnabled: function (iface) {
             return Utils.isInterfaceEnabled(iface);
+        },
+        async addInternetPeers() {
+            this.addingInternetPeers = true;
+            try {
+                const added = await addDefaultInternetPeers(window.api);
+                ToastUtils.success(added.length ? "Default internet peers added" : "Default internet peers are already saved");
+            } catch (error) {
+                DialogUtils.alert(error?.response?.data?.error || error.message || "Could not add default internet peers");
+            } finally {
+                await this.loadInterfaces();
+                this.addingInternetPeers = false;
+            }
         },
         async loadInterfaces() {
             try {
