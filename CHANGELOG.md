@@ -1,5 +1,10 @@
 # Meshchat neXt changelog
 
+## 0.1.15
+
+- Guide Android users through device permissions at first launch and from Settings → App features.
+- Explain the notification and full-screen alert permissions used for incoming calls on a locked phone.
+
 ## 0.1.14 (Android)
 
 - Give Reticulum and MeshCore direct messages a separate Android alert channel, privacy options and a test button.
