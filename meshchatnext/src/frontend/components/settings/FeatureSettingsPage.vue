@@ -4,6 +4,9 @@
         <div class="max-w-3xl mx-auto space-y-4">
             <h1 class="text-2xl font-bold">App features</h1>
             <RouterLink :to="{ name: 'tutorial' }" class="inline-flex secondary-chip">Run setup guide</RouterLink>
+            <button v-if="androidPermissionCheckup" type="button" class="secondary-chip" @click="androidPermissionCheckup">
+                Permission checkup
+            </button>
             <p class="text-sm text-sem-fg-muted">
                 Choose which networks appear in neXt on this device. Turning a feature off hides its menus, contacts and
                 messaging or calling controls. Your saved accounts, contacts and messages are kept.
@@ -39,6 +42,10 @@ import { ref, nextTick, onMounted } from "vue";
 import { useRoute } from "vue-router";
 import UpdatesSettingsSection from "./sections/UpdatesSettingsSection.vue";
 const route = useRoute();
+const androidPermissionCheckup =
+    typeof window.MeshchatNextAndroid?.showPermissionCheckup === "function"
+        ? () => window.MeshchatNextAndroid.showPermissionCheckup()
+        : null;
 onMounted(async () => {
     if (route?.query?.section === "updates") {
         await nextTick();

@@ -20,7 +20,6 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
-import android.os.PowerManager;
 import android.content.IntentFilter;
 import android.provider.Settings;
 import android.view.View;
@@ -103,14 +102,13 @@ public class MainActivity extends AppCompatActivity {
     private TextView loadingText;
     private TextView errorText;
     private static final int SERVER_PORT = 8012;
-    private static final int RUNTIME_PERMISSIONS_REQUEST_CODE = 1001;
+    private final PermissionCheckup permissionCheckup = new PermissionCheckup(this);
     private static final int WEB_MEDIA_PERMISSION_REQUEST_CODE = 1003;
     private static final int RNODE_BLUETOOTH_PERMISSION_REQUEST_CODE = 1004;
     private static final int WEBVIEW_GEOLOCATION_PERMISSION_REQUEST_CODE = 1006;
     private static final int NEARBY_WIFI_PERMISSION_REQUEST_CODE = 1007;
     private static final int BRIDGE_LOCATION_PERMISSION_REQUEST_CODE = 1008;
     private static final String PREFS_NAME = "meshchatnext";
-    private static final String PREF_BATTERY_OPT_REQUESTED = "battery_opt_requested";
     private static final int MAX_CONNECTION_ATTEMPTS = 120;
     private static final long CONNECTION_RETRY_INITIAL_DELAY_MS = 500;
     private static final long CONNECTION_RETRY_MAX_DELAY_MS = 5000;
@@ -297,7 +295,13 @@ public class MainActivity extends AppCompatActivity {
                 // BLE class may be unavailable in incomplete builds.
             }
         }
-        requestRuntimePermissionsIfNeeded();
+        if (savedInstanceState == null && Intent.ACTION_MAIN.equals(getIntent().getAction())) {
+            android.content.SharedPreferences preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+            if (!preferences.getBoolean("permission_checkup_offered", false)) {
+                preferences.edit().putBoolean("permission_checkup_offered", true).apply();
+                webView.post(permissionCheckup::show);
+            }
+        }
 
         WebSettings webSettings = webView.getSettings();
         webSettings.setJavaScriptEnabled(true);
@@ -690,66 +694,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void requestRuntimePermissionsIfNeeded() {
-        List<String> missingPermissions = new ArrayList<>();
-        addIfMissing(missingPermissions, Manifest.permission.RECORD_AUDIO);
-        addIfMissing(missingPermissions, Manifest.permission.CAMERA);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            addIfMissing(missingPermissions, Manifest.permission.BLUETOOTH_CONNECT);
-            addIfMissing(missingPermissions, Manifest.permission.BLUETOOTH_SCAN);
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            addIfMissing(missingPermissions, Manifest.permission.POST_NOTIFICATIONS);
-        }
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-            addIfMissing(missingPermissions, Manifest.permission.WRITE_EXTERNAL_STORAGE);
-        }
-        if (!missingPermissions.isEmpty()) {
-            for (String permission : missingPermissions) {
-                if (Manifest.permission.BLUETOOTH_CONNECT.equals(permission)
-                    || Manifest.permission.BLUETOOTH_SCAN.equals(permission)) {
-                    markBluetoothPermissionPrompted(permission);
-                }
-            }
-            ActivityCompat.requestPermissions(
-                this,
-                missingPermissions.toArray(new String[0]),
-                RUNTIME_PERMISSIONS_REQUEST_CODE
-            );
-        } else {
-            requestBatteryOptimizationExemptionIfNeeded();
-        }
-    }
-
-    private void requestBatteryOptimizationExemptionIfNeeded() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
-            return;
-        }
-
-        PowerManager powerManager = (PowerManager) getSystemService(POWER_SERVICE);
-        if (powerManager != null && powerManager.isIgnoringBatteryOptimizations(getPackageName())) {
-            return;
-        }
-
-        boolean requestedBefore = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getBoolean(PREF_BATTERY_OPT_REQUESTED, false);
-        if (requestedBefore) {
-            return;
-        }
-        getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit().putBoolean(PREF_BATTERY_OPT_REQUESTED, true).apply();
-
-        Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
-        intent.setData(Uri.parse("package:" + getPackageName()));
-        try {
-            startActivity(intent);
-        } catch (ActivityNotFoundException e) {
-            try {
-                startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));
-            } catch (ActivityNotFoundException ignored) {
-                Toast.makeText(this, "Open battery settings and allow unrestricted background usage for Meshchat neXt", Toast.LENGTH_LONG).show();
-            }
-        }
-    }
-
     void addIfMissing(List<String> missingPermissions, String permission) {
         if (ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED) {
             missingPermissions.add(permission);
@@ -876,6 +820,16 @@ public class MainActivity extends AppCompatActivity {
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (permissionCheckup.onResult(requestCode)) {
+            for (String permission : permissions) {
+                if (Manifest.permission.BLUETOOTH_CONNECT.equals(permission)
+                    || Manifest.permission.BLUETOOTH_SCAN.equals(permission)) {
+                    markBluetoothPermissionPrompted(permission);
+                }
+            }
+            completePendingWebPermissionRequestFromRuntimeState();
+            return;
+        }
         if (requestCode == WEBVIEW_GEOLOCATION_PERMISSION_REQUEST_CODE) {
             boolean granted = false;
             if (permissions != null && grantResults != null) {
@@ -1012,25 +966,12 @@ public class MainActivity extends AppCompatActivity {
             }
             return;
         }
-        if (requestCode != RUNTIME_PERMISSIONS_REQUEST_CODE) {
-            return;
-        }
-        // Startup BT deny with no rationale: mark permanent path so later Allow
-        // Bluetooth opens settings instead of a silent no-op request.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-            && permissions != null
-            && grantResults != null) {
-            for (int i = 0; i < permissions.length && i < grantResults.length; i++) {
-                String permission = permissions[i];
-                if (!Manifest.permission.BLUETOOTH_CONNECT.equals(permission)
-                    && !Manifest.permission.BLUETOOTH_SCAN.equals(permission)) {
-                    continue;
-                }
-                markBluetoothPermissionPrompted(permission);
-            }
-        }
-        requestBatteryOptimizationExemptionIfNeeded();
-        completePendingWebPermissionRequestFromRuntimeState();
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        permissionCheckup.onResult(requestCode);
     }
 
     private void startMeshChatServer() {
@@ -1490,6 +1431,7 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        permissionCheckup.finish();
         if (telephoneNativeSession != null) {
             telephoneNativeSession.onDestroy();
             telephoneNativeSession = null;
@@ -1643,6 +1585,11 @@ public class MainActivity extends AppCompatActivity {
 
         MeshchatNextAndroidBridge(MainActivity activity) {
             this.activity = activity;
+        }
+
+        @JavascriptInterface
+        public void showPermissionCheckup() {
+            activity.runOnUiThread(activity.permissionCheckup::show);
         }
 
         private Context appContext() {
