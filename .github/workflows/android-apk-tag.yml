@@ -246,6 +246,9 @@ jobs:
                       python3 scripts/android/build-sip.py --abi "$abi"
                   done
 
+            - name: Build checksum-pinned Expat security backport
+              run: python scripts/android/provision-expat.py
+
             - name: Build Android wheels
               run: bash scripts/build-android-wheels-local.sh --python-minor "${PYTHON_VERSION}" --chaquopy-ref "${CHAQUOPY_REF}" --abis arm64-v8a,x86_64,armeabi-v7a
 
@@ -353,6 +356,15 @@ jobs:
               run: |
                   chmod +x gradlew
                   ./gradlew --no-daemon :app:assembleDebug
+
+            - name: Verify exact security parser bytes in APKs
+              run: |
+                  mapfile -t apks < <(find android/app/build/outputs/apk -type f -name '*.apk' | sort)
+                  if [[ "${#apks[@]}" -eq 0 ]]; then
+                      echo "No built APKs available for parser verification" >&2
+                      exit 1
+                  fi
+                  python scripts/android/verify-apk-expat.py --provenance android/.expat-runtime-maven/PROVENANCE.json --abis arm64-v8a,x86_64,armeabi-v7a "${apks[@]}"
 
             - name: Sign release APKs
               if: ${{ (steps.track.outputs.track == 'master') && steps.android_signing.outputs.ready == 'true' }}
