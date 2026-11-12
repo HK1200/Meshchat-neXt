@@ -59,7 +59,11 @@ Radio2 media requires compatible firmware and client support at both ends. **Sta
 
 ## Get started
 
-1. **Linux Mint 22 / Ubuntu 24.04+ (64-bit Intel/AMD):** use the Linux `.deb` or `.AppImage`; see the [Linux installation and update guide](docs/en/platform-guides/linux-desktop.md). **Android:** download the matching Android APK from the [Meshchat neXt Releases page](https://github.com/hk1200/Meshchat-neXt/releases): **ARM64** for 64-bit ARM Android, **ARMv7** for 32-bit ARM Android, or **x86_64** for 64-bit Intel/AMD Android. The app supports Android 7 or later; SIP calling requires Android 9 or later.
+1. Download the current version from [GitHub Releases](https://github.com/HK1200/Meshchat-neXt/releases/latest).
+   - **Windows** · Choose the x64 installer or portable executable.
+   - **macOS** · Choose the Apple silicon (ARM64) or Intel (x64) DMG.
+   - **Linux** · Choose the package for your distribution and processor. On Linux Mint and Ubuntu, use the matching `.deb` or `.AppImage`. See the [Linux installation and update guide](docs/en/platform-guides/linux-desktop.md).
+   - **Android** · Choose the APK for ARM64, ARMv7, or x86_64. neXt supports Android 7 and later. SIP calling requires Android 9 or later.
 2. Choose the services you want during first-start setup. You can revisit these choices under **Settings → App features**.
 3. Keep your existing setup or import a supported identity/backup. Review the proposed changes before applying them.
 4. Connect your RNode and/or MeshCore companion, or configure the network interfaces you need. Reticulum TCP setup offers **rmap.world** and adds its connection when requested.
@@ -119,4 +123,6 @@ See [LICENSE](LICENSE), [licensing and acknowledgments](LEGAL.md), and the appli
 
 ### Verified updates
 
-The official Android release checks for signed updates after launch and periodically while the app is open. An available update links to Settings → App features → Updates. Downloads are checked against a signed manifest and checksum; Android requires your approval to install. Update checks respect Privacy Mode and never install silently. Keep the same app installed to preserve its data; do not uninstall before upgrading.
+Use **Settings → Updates** to check for a new version. Android verifies the signed manifest and APK checksum before asking you to approve the install. Install updates over your existing app to retain your settings and identities.
+
+If Android v0.1.14 says updates are disabled, install the matching APK from [v0.1.15](https://github.com/HK1200/Meshchat-neXt/releases/tag/v0.1.15) over the existing app once. v0.1.15 restores update discovery. On Android, you can reopen the first-run permission guide under **Settings → App features → Permission checkup**.
