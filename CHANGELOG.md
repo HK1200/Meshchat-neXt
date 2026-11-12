@@ -1,5 +1,9 @@
 # Meshchat neXt changelog
 
+## 0.1.17
+
+- Add RMAP, WashMesh, and Chicagoland Mesh when a new Reticulum setup uses the default TCP peer.
+
 ## 0.1.16
 
 - Use device time for MeshCore room posts when the companion clock is far ahead or unreadable.
