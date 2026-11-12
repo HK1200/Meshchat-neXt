@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: 0BSD
 import { apiPath } from "./constants";
 export const RMAP_TCP = Object.freeze({ host: "rmap.world", port: 4242 });
+const RMAP_BACKUP_PORT = 4343;
 export const RADIO2_FIRMWARE_URL = "https://github.com/mikecarper/MeshCore/releases";
 export const RADIO2_GUIDE_URL =
     "https://github.com/jade-on-mesh/meshcore-open-tak/blob/main/documentation/media-mesh.md";
@@ -38,6 +39,7 @@ export async function configureReticulumSetup(api, options) {
     if (options.internet) validateTcp(options.host.trim(), options.port);
     const rows = { ...(await api.get(apiPath("/reticulum/interfaces"))).data.interfaces };
     const added = [];
+    let peerEnabled = false;
     if (options.local && !Object.values(rows).some((row) => row.type === "AutoInterface" && enabled(row))) {
         const name = uniqueName(rows, "Local network");
         await api.post(apiPath("/reticulum/interfaces/add"), { name, type: "AutoInterface", enabled: true });
@@ -47,26 +49,35 @@ export async function configureReticulumSetup(api, options) {
     if (options.internet) {
         const host = options.host.trim().toLowerCase(),
             port = Number(options.port);
-        const match = Object.entries(rows).find(
-            ([, row]) =>
-                ["TCPClientInterface", "BackboneInterface"].includes(row.type) &&
-                String(row.target_host || row.remote || "").toLowerCase() === host &&
-                Number(row.target_port) === port
-        );
-        if (match && !enabled(match[1])) {
-            await api.post(apiPath("/reticulum/interfaces/enable"), { name: match[0] });
-        } else if (!match) {
-            const name = uniqueName(rows, host === RMAP_TCP.host ? "RMAP World" : "Internet TCP");
-            await api.post(apiPath("/reticulum/interfaces/add"), {
-                name,
-                type: "TCPClientInterface",
-                target_host: host,
-                target_port: port,
-                enabled: true,
-                bootstrap_only: false,
-                mode: "full",
-            });
-            added.push(name);
+        const ports =
+            host === RMAP_TCP.host && [RMAP_TCP.port, RMAP_BACKUP_PORT].includes(port)
+                ? [port, port === RMAP_TCP.port ? RMAP_BACKUP_PORT : RMAP_TCP.port]
+                : [port];
+        for (const peerPort of ports) {
+            const match = Object.entries(rows).find(
+                ([, row]) =>
+                    ["TCPClientInterface", "BackboneInterface"].includes(row.type) &&
+                    String(row.target_host || row.remote || "").toLowerCase() === host &&
+                    Number(row.target_port) === peerPort
+            );
+            if (match && !enabled(match[1])) {
+                await api.post(apiPath("/reticulum/interfaces/enable"), { name: match[0] });
+                peerEnabled = true;
+            } else if (!match) {
+                const name = uniqueName(rows, host === RMAP_TCP.host ? "RMAP World" : "Internet TCP");
+                const config = {
+                    name,
+                    type: "TCPClientInterface",
+                    target_host: host,
+                    target_port: peerPort,
+                    enabled: true,
+                    bootstrap_only: false,
+                    mode: "full",
+                };
+                await api.post(apiPath("/reticulum/interfaces/add"), config);
+                rows[name] = config;
+                added.push(name);
+            }
         }
     }
     // This endpoint changes only bootstrap_only, preserving IFAC secrets and all radio settings.
@@ -79,7 +90,7 @@ export async function configureReticulumSetup(api, options) {
         announce_store_lxmf_propagation: true,
         announce_store_map_data: true,
     });
-    if (added.length || reception.reload_required) await api.post(apiPath("/reticulum/reload"));
+    if (added.length || peerEnabled || reception.reload_required) await api.post(apiPath("/reticulum/reload"));
     return { added, reception: reception.changed || [] };
 }
 export async function applySetupRadio2(api, choice, owner, profileChoice = "keep") {

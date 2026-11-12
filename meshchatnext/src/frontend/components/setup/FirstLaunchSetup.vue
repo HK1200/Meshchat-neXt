@@ -154,8 +154,8 @@
                                 ><input v-model="internet" type="checkbox" class="mt-1" /><span
                                     ><strong>Internet · TCP</strong
                                     ><span class="block text-sm text-sem-fg-muted"
-                                        >Recommended entry point: rmap.world. We’ll add the connection automatically
-                                        when you continue.</span
+                                        >The RMAP preset adds TCP ports 4242 and 4343 so either can carry traffic.
+                                        Expand Server details to use another peer.</span
                                     ></span
                                 ></label
                             >
