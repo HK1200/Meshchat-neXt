@@ -1,5 +1,10 @@
 # Meshchat neXt changelog
 
+## 0.1.18
+
+- Prefer RMAP 4343 and include RMAP 4242, WashMesh, and Chicagoland Mesh in the default Internet TCP setup.
+- Add missing default peers from RNS Interfaces while preserving saved peer settings.
+
 ## 0.1.17
 
 - Add RMAP, WashMesh, and Chicagoland Mesh when a new Reticulum setup uses the default TCP peer.
