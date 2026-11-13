@@ -38,6 +38,11 @@ name: Build release
 # Publishing is deliberate while the new repository establishes its release infrastructure.
 on:
     workflow_dispatch:
+        inputs:
+            android_only:
+                description: Build and sign Android artifacts without creating a release
+                type: boolean
+                default: false
 
 permissions:
     contents: read
@@ -125,6 +130,7 @@ env:
 
 jobs:
     frontend:
+        if: ${{ !inputs.android_only }}
         name: Build frontend artifact
         uses: ./.github/workflows/frontend-build.yml
         permissions:
@@ -151,11 +157,6 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         needs: [frontend-android]
         uses: ./.github/workflows/android-apk-tag.yml
-        secrets:
-            ANDROID_SIGNING_KEYSTORE_BASE64: ${{ secrets.ANDROID_SIGNING_KEYSTORE_BASE64 }}
-            ANDROID_SIGNING_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEYSTORE_PASSWORD }}
-            ANDROID_SIGNING_KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
-            ANDROID_SIGNING_KEY_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}
         with:
             frontend_artifact_name: ${{ needs.frontend-android.outputs.artifact_name }}
             run_unit_tests: true
@@ -1036,6 +1037,7 @@ jobs:
         if: >-
             always() &&
             !cancelled() &&
+            !inputs.android_only &&
             startsWith(github.ref, 'refs/tags/')
         needs:
             - flatpak

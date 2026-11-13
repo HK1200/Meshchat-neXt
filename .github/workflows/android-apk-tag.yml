@@ -23,15 +23,6 @@ on:
                 required: false
                 type: boolean
                 default: true
-        secrets:
-            ANDROID_SIGNING_KEYSTORE_BASE64:
-                required: false
-            ANDROID_SIGNING_KEYSTORE_PASSWORD:
-                required: false
-            ANDROID_SIGNING_KEY_ALIAS:
-                required: false
-            ANDROID_SIGNING_KEY_PASSWORD:
-                required: false
 
 permissions:
     contents: read
@@ -112,6 +103,7 @@ env:
 jobs:
     android:
         name: Android APK (tag)
+        environment: ${{ startsWith(github.ref, 'refs/tags/v') && 'android-release-signing' || 'release' }}
         runs-on: ubuntu-latest
         timeout-minutes: 90
         defaults:
@@ -140,7 +132,7 @@ jobs:
                   default_branch="${DEFAULT_BRANCH}"
                   git fetch --no-tags origin "${default_branch}"
                   sha="$(git rev-parse HEAD)"
-                  if git merge-base --is-ancestor "${sha}" "FETCH_HEAD"; then
+                  if [[ "${GITHUB_REF_NAME}" == v* ]] && git merge-base --is-ancestor "${sha}" "FETCH_HEAD"; then
                     track=master
                   else
                     track=none
@@ -163,9 +155,9 @@ jobs:
                   fi
 
             - name: Require signing secrets for master tag APKs
-              if: ${{ steps.track.outputs.track == 'master' && steps.android_signing.outputs.ready != 'true' }}
+              if: ${{ startsWith(github.ref, 'refs/tags/v') && steps.track.outputs.track == 'master' && steps.android_signing.outputs.ready != 'true' }}
               run: |
-                  echo "::error::Tagged master builds need release signing so draft APKs match production keys (upgrade in place). Set secrets ANDROID_SIGNING_KEYSTORE_BASE64, ANDROID_SIGNING_KEYSTORE_PASSWORD, ANDROID_SIGNING_KEY_ALIAS, and optionally ANDROID_SIGNING_KEY_PASSWORD (see android-build.yml header)."
+                  echo "::error::Tagged master builds need release signing so draft APKs match production keys (upgrade in place). Set secrets ANDROID_SIGNING_KEYSTORE_BASE64, ANDROID_SIGNING_KEYSTORE_PASSWORD, ANDROID_SIGNING_KEY_ALIAS, and optionally ANDROID_SIGNING_KEY_PASSWORD in the android-release-signing environment."
                   exit 1
 
             - name: Set up Java
@@ -382,6 +374,8 @@ jobs:
                   SIGNING_KEY_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}
               run: |
                   set -euo pipefail
+                  umask 077
+                  trap 'rm -f -- "${SIGNING_KEYSTORE_PATH}"' EXIT
                   printf '%s' "${KS_B64}" | base64 -d > "${SIGNING_KEYSTORE_PATH}"
                   export SIGNING_KEYSTORE_PATH SIGNING_KEY_ALIAS SIGNING_KEYSTORE_PASSWORD
                   export SIGNING_KEY_PASSWORD="${SIGNING_KEY_PASSWORD:-${SIGNING_KEYSTORE_PASSWORD}}"
