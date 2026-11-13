@@ -1249,9 +1249,13 @@ export default {
             this.addingInternetPeers = true;
             try {
                 const added = await addDefaultInternetPeers(window.api);
-                ToastUtils.success(added.length ? "Default internet peers added" : "Default internet peers are already saved");
+                ToastUtils.success(
+                    added.length ? "Default internet peers added" : "Default internet peers are already saved"
+                );
             } catch (error) {
-                DialogUtils.alert(error?.response?.data?.error || error.message || "Could not add default internet peers");
+                DialogUtils.alert(
+                    error?.response?.data?.error || error.message || "Could not add default internet peers"
+                );
             } finally {
                 await this.loadInterfaces();
                 this.addingInternetPeers = false;

@@ -50,7 +50,9 @@ async function saveInternetPeers(api, rows, { host, port }, enableExisting) {
         const match = Object.entries(rows).find(
             ([, row]) =>
                 ["TCPClientInterface", "BackboneInterface"].includes(row.type) &&
-                String(row.target_host || row.remote || "").toLowerCase().replace(/\.$/, "") === peer.host.replace(/\.$/, "") &&
+                String(row.target_host || row.remote || "")
+                    .toLowerCase()
+                    .replace(/\.$/, "") === peer.host.replace(/\.$/, "") &&
                 Number(row.target_port) === peer.port
         );
         if (match && enableExisting && !enabled(match[1])) {

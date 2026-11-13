@@ -38,7 +38,7 @@ The Linux desktop build brings the independent Reticulum, MeshCore and SIP servi
 1. Download the Linux amd64 .deb for your system package installer, or the x86_64 .AppImage for a portable application. Keep the checksum file from the same release. ARM Linux, 32-bit Linux and other distributions are not covered by this initial build.
 2. For the .deb, open it with your system package installer and approve installation. Launch Meshchat neXt from the application menu. For AppImage, save it in a writable folder you own, allow running it as a program in file properties, then open it. Do not run neXt as root or disable its sandbox.
 3. Close the other desktop copy before starting a replacement. Back up your existing identity and messages first. Keep the same data folder to retain your setup; Android backups and other apps may cover only supported fields, not complete history.
-4. Choose the services you want in first-start setup. Reticulum internet TCP offers rmap.world:4242; MeshCore needs its own companion. RNode and MeshCore may run together through separate connections. Close other apps holding the same USB port or Bluetooth device.
+4. Choose the services you want in first-start setup. Reticulum internet TCP offers rmap.world:4343; MeshCore needs its own companion. RNode and MeshCore may run together through separate connections. Close other apps holding the same USB port or Bluetooth device.
 5. For USB use a data cable, refresh devices and choose the correct radio. If Linux denies serial access, grant your user the distribution’s serial-device group permission and sign out/in; do not make the port world-writable. For MeshCore BLE, enable the system Bluetooth service, close the phone connection and refresh/select the companion in neXt.
 6. For SIP, use Settings → SIP and your own provider credentials. Select the usable Wi-Fi, mobile or wired connections. Allow your desktop microphone and notifications; test incoming calls and two-way speech. Secure password saving requires an available, unlocked Secret Service keyring.
 7. Keep the computer awake for continuous reception. After waking or reconnecting a cable, check each service’s connection state; reconnect or refresh the USB device if necessary. Sleeping a computer pauses communication.
@@ -112,7 +112,7 @@ Start with the equipment and experience you have. There is no requirement to buy
 
 ### How to
 
-1. No radio yet? Try Reticulum over TCP. During setup choose Internet · TCP; the preferred editable preset is rmap.world:4242. A working internet connection is required.
+1. No radio yet? Try Reticulum over TCP. During setup choose Internet · TCP; the preferred editable preset is rmap.world:4343. A working internet connection is required.
 2. Already use Reticulum? Keep or import your private identity, then add the interfaces you use. A public contact address is not an identity backup.
 3. Already use MeshCore? Keep the companion’s existing identity and configuration, or preview a recognized backup. Stop the other app’s connection to that companion before connecting neXt.
 4. Want team maps? Establish ordinary MeshCore text messaging first. Then configure a private team channel in Map. Add Radio2 only for supported media features.
@@ -164,7 +164,7 @@ An internet entry point provides a path into Reticulum. Local automatic discover
 
 ### How to
 
-1. In first launch select Internet · TCP to add/reuse rmap.world on port 4242. Expand Server details to change the host or port.
+1. In first launch select Internet · TCP to add RMAP on ports 4343 and 4242, WashMesh, and Chicagoland Mesh. Expand Server details to change the preferred host or port. If neXt is already configured, open RNS Interfaces and select **Add default internet peers**.
 2. Select Nearby devices on the same network for LAN discovery if desired. Both peers need access to that local network; guest Wi-Fi/client isolation may block them.
 3. After setup, inspect Interfaces. Check connection state before assuming a lack of announces means the app is broken.
 4. For an existing manually configured TCP interface, check whether bootstrap-only filtering is appropriate. First-launch reception setup removes that filtering from enabled outbound TCP connections; it does not remove private interface boundaries.
