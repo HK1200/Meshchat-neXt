@@ -154,7 +154,7 @@ jobs:
 
     android-release:
         name: Android APKs (tag)
-        if: startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/v')
         needs: [frontend-android]
         uses: ./.github/workflows/android-apk-tag.yml
         with:
