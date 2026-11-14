@@ -1,5 +1,10 @@
 # Meshchat neXt changelog
 
+## 0.1.19
+
+- Android uses one ongoing notification for background operation, SIP status, and MeshCore location sharing. Stop sharing is available from that notification.
+- Android builds can provision Codec2 from a shared dependency directory linked into the checkout.
+
 ## 0.1.18
 
 - Prefer RMAP 4343 and include RMAP 4242, WashMesh, and Chicagoland Mesh in the default Internet TCP setup.

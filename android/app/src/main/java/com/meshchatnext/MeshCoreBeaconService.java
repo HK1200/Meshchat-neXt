@@ -17,7 +17,6 @@ import android.os.IBinder;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
-import androidx.core.app.NotificationCompat;
 import androidx.core.content.ContextCompat;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -30,7 +29,7 @@ import org.json.JSONObject;
 
 /** Explicit, non-persistent Android location foreground session. Never boot-started. */
 public final class MeshCoreBeaconService extends Service implements LocationListener {
-    private static final int NOTIFICATION = 0x4d434862;
+    private static final int EXPIRY_REQUEST = 0x4d434863;
     public static volatile boolean active = false;
     public static volatile String status = "Off";
     public static volatile int submittedCount = 0;
@@ -62,7 +61,7 @@ public final class MeshCoreBeaconService extends Service implements LocationList
             if (duration > 0) {
                 expiryHandler.postDelayed(expire, duration * 60000L);
                 alarms = (AlarmManager) getSystemService(ALARM_SERVICE);
-                expiryIntent = PendingIntent.getService(this, NOTIFICATION + 1,
+                expiryIntent = PendingIntent.getService(this, EXPIRY_REQUEST,
                     new Intent(this, MeshCoreBeaconService.class).setAction("expire"),
                     PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
                 // Elapsed time includes sleep. Inexact idle delivery needs no new alarm permission.
@@ -71,14 +70,12 @@ public final class MeshCoreBeaconService extends Service implements LocationList
             }
             if (owner == null || !owner.matches("[0-9a-f]{64}") || token == null || !token.matches("[0-9a-f]{64}") || csrf == null || csrf.isEmpty() || !(interval == 60 || interval == 120 || interval == 300)) throw new IllegalArgumentException();
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) throw new SecurityException();
-            PendingIntent stop = PendingIntent.getService(this, NOTIFICATION, new Intent(this, MeshCoreBeaconService.class).setAction("stop"), PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-            PendingIntent open = PendingIntent.getActivity(this, NOTIFICATION, new Intent(this, MainActivity.class), PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-            Notification notification = new NotificationCompat.Builder(this, MeshChatApplication.CHANNEL_ID_BACKGROUND)
-                .setSmallIcon(R.drawable.ic_stat_meshchatnext).setContentTitle("MeshCore · Position sharing")
-                .setContentText("Sharing with your private team every " + interval + " seconds")
-                .setOngoing(true).setContentIntent(open).addAction(0, "Stop sharing", stop).build();
-            if (Build.VERSION.SDK_INT >= 29) startForeground(NOTIFICATION, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION);
-            else startForeground(NOTIFICATION, notification);
+            Notification notification = AppBackgroundNotification.build(this, true);
+            if (Build.VERSION.SDK_INT >= 29) {
+                startForeground(AppBackgroundNotification.ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION);
+            } else {
+                startForeground(AppBackgroundNotification.ID, notification);
+            }
             locations = (LocationManager) getSystemService(LOCATION_SERVICE);
             String provider = locations.isProviderEnabled(LocationManager.GPS_PROVIDER) ? LocationManager.GPS_PROVIDER : LocationManager.NETWORK_PROVIDER;
             if (!locations.isProviderEnabled(provider)) throw new IllegalStateException();
@@ -148,6 +145,7 @@ public final class MeshCoreBeaconService extends Service implements LocationList
             } catch (Exception ignored) { /* Backend loss already invalidates the consent session. */ }
         });
         worker.shutdown(); token = null; csrf = null; cookie = null;
-        stopForeground(STOP_FOREGROUND_REMOVE); super.onDestroy();
+        AppBackgroundNotification.leaveForeground(this);
+        super.onDestroy();
     }
 }

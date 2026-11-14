@@ -411,8 +411,8 @@ public final class SipService extends Service {
     }
     private synchronized void leaveForeground() {
         foregroundActive = false;
-        stopForeground(STOP_FOREGROUND_REMOVE);
         AppBackgroundNotification.clearSipStatus(this);
+        AppBackgroundNotification.leaveForeground(this);
         AppBackgroundNotification.sync(this);
     }
     private synchronized void refreshBackgroundStatus() {

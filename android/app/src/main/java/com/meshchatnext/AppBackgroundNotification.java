@@ -5,6 +5,7 @@ import android.content.BroadcastReceiver;
 import android.app.Notification;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
+import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
@@ -41,6 +42,10 @@ public final class AppBackgroundNotification {
     }
 
     public static Notification build(Context context) {
+        return build(context, isForeground(context, MeshCoreBeaconService.class.getName()));
+    }
+
+    static Notification build(Context context, boolean sharingLocation) {
         String status = "";
         if (isForeground(context, "com.meshchatnext.sip.SipService")) {
             try (FileInputStream in = new FileInputStream(new File(context.getFilesDir(), STATUS_FILE))) {
@@ -49,15 +54,30 @@ public final class AppBackgroundNotification {
                 if (count > 0 && count <= 1024) status = new String(buffer, 0, count, StandardCharsets.UTF_8);
             } catch (java.io.IOException ignored) { }
         }
-        return build(context, status);
+        return build(context, status, sharingLocation);
     }
 
     public static Notification build(Context context, String status) {
+        return build(context, status, isForeground(context, MeshCoreBeaconService.class.getName()));
+    }
+
+    private static Notification build(Context context, String status, boolean sharingLocation) {
+        Intent app = new Intent(context, MainActivity.class)
+            .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        PendingIntent open = PendingIntent.getActivity(context, 0, app,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         String text = context.getString(R.string.notification_background_text);
-        NotificationCompat.Builder builder = group(new NotificationCompat.Builder(context, MeshChatApplication.CHANNEL_ID_BACKGROUND))
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(context, MeshChatApplication.CHANNEL_ID_BACKGROUND)
             .setSmallIcon(R.drawable.ic_stat_meshchatnext)
             .setContentTitle(context.getString(R.string.notification_background_title))
-            .setContentText(text).setOngoing(true).setOnlyAlertOnce(true).setContentIntent(openApp(context));
+            .setContentText(text).setOngoing(true).setOnlyAlertOnce(true).setContentIntent(open);
+        if (sharingLocation) {
+            text = "Sharing your position with your private MeshCore team";
+            Intent stopSharing = new Intent(context, MeshCoreBeaconService.class).setAction("stop");
+            PendingIntent stop = PendingIntent.getService(context, 0, stopSharing,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+            builder.setContentText(text).addAction(0, "Stop sharing", stop);
+        }
         if (status != null && !status.isEmpty()) {
             Intent sip = new Intent(context, MainActivity.class).setAction(Intent.ACTION_VIEW)
                 .setData(Uri.parse("meshchatnext://app/call?network=sip"))
@@ -151,8 +171,17 @@ public final class AppBackgroundNotification {
 
     public static void clearSipStatus(Context context) {
         synchronized (STATUS_LOCK) { new File(context.getFilesDir(), STATUS_FILE).delete(); }
-        if (isForeground(context, "com.meshchatnext.MeshChatForegroundService")) {
-            context.getSystemService(NotificationManager.class).notify(ID, build(context, ""));
+    }
+
+    public static void leaveForeground(Service service) {
+        service.stopForeground(Service.STOP_FOREGROUND_DETACH);
+        NotificationManager notifications = service.getSystemService(NotificationManager.class);
+        if (isForeground(service, MeshChatForegroundService.class.getName())
+            || isForeground(service, MeshCoreBeaconService.class.getName())
+            || isForeground(service, "com.meshchatnext.sip.SipService")) {
+            notifications.notify(ID, build(service));
+        } else {
+            notifications.cancel(ID);
         }
     }
 

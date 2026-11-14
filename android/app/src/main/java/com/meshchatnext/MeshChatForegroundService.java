@@ -46,7 +46,7 @@ public class MeshChatForegroundService extends Service {
     @Override
     public void onTimeout(int startId, int foregroundServiceType) {
         // Android 15+ requires a timed-out service to stop promptly.
-        stopForeground(STOP_FOREGROUND_REMOVE);
+        AppBackgroundNotification.leaveForeground(this);
         stopSelf();
     }
 
@@ -63,7 +63,7 @@ public class MeshChatForegroundService extends Service {
     @Override
     public void onDestroy() {
         statusHandler.removeCallbacks(refreshStatus);
-        stopForeground(STOP_FOREGROUND_REMOVE);
+        AppBackgroundNotification.leaveForeground(this);
         AppBackgroundNotification.sync(this);
         super.onDestroy();
     }
