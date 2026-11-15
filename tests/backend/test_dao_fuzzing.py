@@ -721,6 +721,7 @@ def test_message_fields_have_attachments_accepts_arbitrary_json_objects(obj):
     result = message_fields_have_attachments(json.dumps(obj))
     assert isinstance(result, bool)
 
+
 class TestMessageFieldsHaveAttachments:
     @given(data=st.text(max_size=500))
     @settings(deadline=None, max_examples=100)
