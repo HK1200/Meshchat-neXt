@@ -722,41 +722,42 @@ def test_message_fields_have_attachments_accepts_arbitrary_json_objects(obj):
     assert isinstance(result, bool)
 
 
-class TestMessageFieldsHaveAttachments:
-    @given(data=st.text(max_size=500))
-    @settings(deadline=None, max_examples=100)
-    def test_never_crashes_on_arbitrary_text(self, data):
-        result = message_fields_have_attachments(data)
-        assert isinstance(result, bool)
+@given(data=st.text(max_size=500))
+@settings(deadline=None, max_examples=100)
+def test_message_fields_have_attachments_never_crashes_on_arbitrary_text(data):
+    result = message_fields_have_attachments(data)
+    assert isinstance(result, bool)
 
-    @pytest.mark.parametrize(
-        "fields_json,expected",
-        [
-            (None, False),
-            ("", False),
-            ("{}", False),
-            ("not json", False),
-            ('{"image": "base64data"}', True),
-            ('{"audio": "base64data"}', True),
-            ('{"file_attachments": [{"name": "f.txt"}]}', True),
-            ('{"file_attachments": []}', False),
-            ('{"other_field": "value"}', False),
-        ],
-    )
-    def test_known_cases(self, fields_json, expected):
-        assert message_fields_have_attachments(fields_json) is expected
 
-    @given(
-        data=st.recursive(
-            st.one_of(st.text(max_size=20), st.integers(), st.booleans(), st.none()),
-            lambda children: (
-                st.lists(children, max_size=5)
-                | st.dictionaries(st.text(max_size=10), children, max_size=5)
-            ),
-            max_leaves=30,
+@pytest.mark.parametrize(
+    "fields_json,expected",
+    [
+        (None, False),
+        ("", False),
+        ("{}", False),
+        ("not json", False),
+        ('{"image": "base64data"}', True),
+        ('{"audio": "base64data"}', True),
+        ('{"file_attachments": [{"name": "f.txt"}]}', True),
+        ('{"file_attachments": []}', False),
+        ('{"other_field": "value"}', False),
+    ],
+)
+def test_message_fields_have_attachments_known_cases(fields_json, expected):
+    assert message_fields_have_attachments(fields_json) is expected
+
+
+@given(
+    data=st.recursive(
+        st.one_of(st.text(max_size=20), st.integers(), st.booleans(), st.none()),
+        lambda children: (
+            st.lists(children, max_size=5)
+            | st.dictionaries(st.text(max_size=10), children, max_size=5)
         ),
-    )
-    @settings(deadline=None, max_examples=60)
-    def test_deeply_nested_json_never_crashes(self, data):
-        result = message_fields_have_attachments(json.dumps(data))
-        assert isinstance(result, bool)
+        max_leaves=30,
+    ),
+)
+@settings(deadline=None, max_examples=60)
+def test_message_fields_have_attachments_deeply_nested_json_never_crashes(data):
+    result = message_fields_have_attachments(json.dumps(data))
+    assert isinstance(result, bool)
