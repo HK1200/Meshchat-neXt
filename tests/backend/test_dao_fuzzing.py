@@ -709,23 +709,23 @@ class TestParseBoolQueryParam:
 # ===================================================================
 
 
+@given(
+    obj=st.dictionaries(
+        st.text(max_size=20),
+        st.one_of(st.text(max_size=50), st.integers(), st.booleans(), st.none()),
+        max_size=10,
+    ),
+)
+@settings(deadline=None, max_examples=80)
+def test_message_fields_have_attachments_accepts_arbitrary_json_objects(obj):
+    result = message_fields_have_attachments(json.dumps(obj))
+    assert isinstance(result, bool)
+
 class TestMessageFieldsHaveAttachments:
     @given(data=st.text(max_size=500))
     @settings(deadline=None, max_examples=100)
     def test_never_crashes_on_arbitrary_text(self, data):
         result = message_fields_have_attachments(data)
-        assert isinstance(result, bool)
-
-    @given(
-        obj=st.dictionaries(
-            st.text(max_size=20),
-            st.one_of(st.text(max_size=50), st.integers(), st.booleans(), st.none()),
-            max_size=10,
-        ),
-    )
-    @settings(deadline=None, max_examples=80)
-    def test_never_crashes_on_arbitrary_json_objects(self, obj):
-        result = message_fields_have_attachments(json.dumps(obj))
         assert isinstance(result, bool)
 
     @pytest.mark.parametrize(
