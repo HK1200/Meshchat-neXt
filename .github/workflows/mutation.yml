@@ -129,8 +129,22 @@ jobs:
               if: ${{ github.event_name == 'schedule' || inputs.backend != false }}
               env:
                   MUTMUT_TARGET: meshchatnext.src.backend.meshchat_utils*
+                  MUTMUT_MAX_CHILDREN: "2"
                   MUTMUT_MIN_SCORE: ${{ github.event_name == 'schedule' && '50' || github.event.inputs.min_score }}
-              run: bash scripts/ci/mutation-backend.sh
+              run: |
+                  set -euo pipefail
+                  # Sample resource headroom throughout this long-running hosted job.
+                  (
+                      while :; do
+                          date -u
+                          free -m
+                          df -h .
+                          sleep 120
+                      done
+                  ) &
+                  sampler=$!
+                  trap 'kill "$sampler" 2>/dev/null || true' EXIT
+                  bash scripts/ci/mutation-backend.sh
 
             - name: Frontend mutation (MeshMut sample)
               if: ${{ github.event_name == 'schedule' || inputs.frontend != false }}

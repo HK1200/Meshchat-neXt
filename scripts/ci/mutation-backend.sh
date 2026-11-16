@@ -10,7 +10,11 @@ STATS_FILE="${MUTMUT_STATS_FILE:-mutmut-cicd-stats.json}"
 
 echo "Running mutmut on: ${TARGET}"
 
-uv run mutmut run "${TARGET}"
+worker_args=()
+if [[ -n "${MUTMUT_MAX_CHILDREN:-}" ]]; then
+    worker_args=(--max-children "${MUTMUT_MAX_CHILDREN}")
+fi
+uv run mutmut run "${worker_args[@]}" "${TARGET}"
 # The exporter prints a status message and writes JSON to this file.
 # Do not interpret its stdout as the score report.
 rm -f mutants/mutmut-cicd-stats.json
