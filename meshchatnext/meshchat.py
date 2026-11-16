@@ -143,6 +143,7 @@ from meshchatnext.src.backend.lxmf_utils import (
     is_lxmf_outbound_progress_terminal,
     lxmf_is_reaction_only_delivery,
 )
+from meshchatnext.src.backend.mailbox_push import queue_accepted_hint
 from meshchatnext.src.backend.map_overlay_manager import (
     CONFIG_CLAMPS,
     clamp_overlay_config_value,
@@ -11242,9 +11243,23 @@ class ReticulumMeshChat:
             raise TimeoutError(msg)
 
         # register delivery callbacks
-        lxmf_message.register_delivery_callback(
-            lambda msg: self.on_lxmf_sending_state_updated(msg, context=ctx),
-        )
+        def delivery_confirmed(msg):
+            if (
+                not no_display
+                and not is_telemetry_payload
+                and not is_reaction_only
+                and (
+                    content_str.strip()
+                    or title_str.strip()
+                    or image_field
+                    or audio_field
+                    or file_attachments_field
+                )
+            ):
+                queue_accepted_hint(Path(ctx.storage_path), msg)
+            self.on_lxmf_sending_state_updated(msg, context=ctx)
+
+        lxmf_message.register_delivery_callback(delivery_confirmed)
         lxmf_message.register_failed_callback(
             lambda msg: self.on_lxmf_sending_failed(msg, context=ctx),
         )
