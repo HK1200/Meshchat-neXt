@@ -225,7 +225,7 @@ jobs:
                     - language: actions
                       build-mode: none
                     - language: go
-                      build-mode: autobuild
+                      build-mode: manual
                     - language: java-kotlin
                       build-mode: none
                     - language: python
@@ -241,11 +241,29 @@ jobs:
               with:
                   persist-credentials: false
 
+            - name: Set up Go
+              if: ${{ matrix.language == 'go' }}
+              uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v5.3.0
+              with:
+                  go-version-file: geo-wasm/go.mod
+                  cache: false
+
             - name: Initialize CodeQL
               uses: github/codeql-action/init@95e58e9a2cdfd71adc6e0353d5c52f41a045d225
               with:
                   languages: ${{ matrix.language }}
                   build-mode: ${{ matrix.build-mode }}
+
+            - name: Build Go sources for analysis
+              if: ${{ matrix.language == 'go' }}
+              run: |
+                  go build -o "$RUNNER_TEMP/license-scope-mapper" ./scripts/license_scope_mapper.go
+                  for module in geo-wasm visualiser-wasm; do
+                      (
+                          cd "$module"
+                          GOOS=js GOARCH=wasm go build -o "$RUNNER_TEMP/$module.wasm" ./cmd/wasm
+                      )
+                  done
 
             - name: Perform CodeQL Analysis
               uses: github/codeql-action/analyze@95e58e9a2cdfd71adc6e0353d5c52f41a045d225
@@ -295,6 +313,10 @@ jobs:
               with:
                   languages: javascript-typescript
                   build-mode: none
+                  config: |
+                      paths-ignore:
+                        # CodeQL scans the original worker under src/frontend/js/plugins.
+                        - "meshchatnext/public/assets/pluginWorker-*.js"
 
             - name: Perform CodeQL Analysis
               uses: github/codeql-action/analyze@95e58e9a2cdfd71adc6e0353d5c52f41a045d225

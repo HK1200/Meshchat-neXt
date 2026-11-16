@@ -33,7 +33,7 @@ def test_distribution_metadata_when_installed():
     assert meta == "1.0.0"
 
 
-def test_public_api_surface_for_Meshchat neXt():
+def test_public_api_surface_for_meshchat_next():
     from rns_filesync import FileSyncService
     from rns_filesync.permissions import PermissionStore
 
