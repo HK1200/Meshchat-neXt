@@ -74,11 +74,13 @@ def _post(route, payload):
         return 503
 
 
-def _send(route, payload):
+def _send(profile, recipient, route, payload):
     try:
         for delay in (0, 1, 3):
             if delay:
                 time.sleep(delay)
+            if route_for(profile, recipient) != route:
+                return
             status = _post(route, payload)
             if status not in (404, 429, 500, 502, 503, 504):
                 return
@@ -121,6 +123,8 @@ def queue_accepted_hint(profile, message, expected_route=None):
         return
     if _workers.acquire(blocking=False):
         try:
-            threading.Thread(target=_send, args=(route, payload), daemon=True).start()
+            threading.Thread(
+                target=_send, args=(profile, recipient, route, payload), daemon=True
+            ).start()
         except RuntimeError:
             _workers.release()
