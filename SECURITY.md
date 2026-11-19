@@ -7,3 +7,7 @@ Use this repository’s private vulnerability-reporting facility if it is enable
 For general, non-sensitive bugs and support, see [README.md](README.md). Include the affected version, platform, reproduction steps and a description of the impact. Review and redact diagnostic files before sharing them.
 
 Release maintainers must configure and verify the private reporting destination before publication. No inherited upstream contact should be assumed to accept neXt security reports.
+
+## CI scanner availability
+
+The supplemental Argus supply-chain indicator action became unavailable upstream in November 2026. Its pinned repository returns HTTP 404, so the workflow reports the missing scan explicitly instead of preventing the dependency-audit job from starting. The pip-audit, Trivy dependency/configuration, gitleaks, CodeQL and Scorecard checks remain enabled. This does not represent an Argus scan passing.
