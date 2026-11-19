@@ -479,3 +479,19 @@ def test_meshcore_open_context_uses_foreground_guard_without_changing_rns(monkey
     )
     assert not android_push_bridge._is_open_conversation("meshcore-example")
     assert android_push_bridge._is_open_conversation("a" * 32)
+
+
+@pytest.mark.asyncio
+async def test_hook_preserves_internal_coalescing_option(monkeypatch):
+    monkeypatch.setattr(android_push_bridge, "_is_chaquopy_android", lambda: True)
+    seen = []
+
+    class Rmc:
+        async def websocket_broadcast(self, data, *, _skip_coalesce=False):
+            seen.append((data, _skip_coalesce))
+            return "flushed"
+
+    install_websocket_hook(Rmc)
+    payload = {"type": "announced"}
+    assert await Rmc().websocket_broadcast(payload, _skip_coalesce=True) == "flushed"
+    assert seen == [(payload, True)]
