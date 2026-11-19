@@ -127,7 +127,9 @@ async def test_broadcast_from_foreign_loop_drops_when_main_loop_dead():
 
 
 async def test_android_hook_keeps_scheduled_announces_running(
-    foreign_main_loop, monkeypatch, db,
+    foreign_main_loop,
+    monkeypatch,
+    db,
 ):
     """The Android hook must preserve internal cross-loop broadcast options."""
     from types import SimpleNamespace
@@ -142,7 +144,9 @@ async def test_android_hook_keeps_scheduled_announces_running(
     monkeypatch.setattr(android_push_bridge, "_ws_hook_installed", False)
     monkeypatch.setattr(android_push_bridge, "_is_chaquopy_android", lambda: True)
     notifications = []
-    monkeypatch.setattr(android_push_bridge, "_notify_java", lambda *a: notifications.append(a))
+    monkeypatch.setattr(
+        android_push_bridge, "_notify_java", lambda *a: notifications.append(a)
+    )
     android_push_bridge.install_websocket_hook(AndroidApp)
     app = AndroidApp.__new__(AndroidApp)
     app.__dict__.update(_bare_app().__dict__)
@@ -153,9 +157,14 @@ async def test_android_hook_keeps_scheduled_announces_running(
     config.auto_announce_interval_seconds.set(60)
     config.telephone_announce_enabled.set(True)
     ctx = SimpleNamespace(
-        config=config, running=True, session_id="android-test", identity_hash="test",
-        message_router=MagicMock(), telephone_manager=MagicMock(),
-        local_lxmf_destination=SimpleNamespace(hash=b"test"), forwarding_manager=None,
+        config=config,
+        running=True,
+        session_id="android-test",
+        identity_hash="test",
+        message_router=MagicMock(),
+        telephone_manager=MagicMock(),
+        local_lxmf_destination=SimpleNamespace(hash=b"test"),
+        forwarding_manager=None,
     )
     app.current_context = ctx
     clock = [1000.0]
