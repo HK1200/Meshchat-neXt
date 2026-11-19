@@ -7,6 +7,7 @@
 #define DEBUG_MODULE "next_sip"
 #define DEBUG_LEVEL 0
 #include <baresip.h>
+#include "mobile_sip_audio.h"
 #include <re_dbg.h>
 static JavaVM *vm;
 static jobject listener;
@@ -233,6 +234,7 @@ JNIEXPORT jint JNICALL Java_com_meshchatnext_sip_SipEngine_run(JNIEnv *env, jcla
     if (err) goto finish;
     re_thread_async_init(2);
     const char *config =
+        MOBILE_SIP_OPUS_CONFIG
         "audio_player aaudio,default\naudio_source aaudio,default\naudio_alert "
         "aaudio,default\naudio_buffer 20-160\naudio_jitter_buffer_type "
         "adaptive\naudio_jitter_buffer_ms 40-200\nrtp_stats no\ncall_max_calls 1\ncall_accept "
@@ -256,8 +258,7 @@ JNIEXPORT jint JNICALL Java_com_meshchatnext_sip_SipEngine_run(JNIEnv *env, jcla
     keepalive_enabled = keepalive_pending = false;
     re_snprintf(keepalive_uri, sizeof(keepalive_uri), "sip:%s:%d;transport=udp", host, port);
     re_snprintf(aor, sizeof(aor),
-                "<sip:%s@%s:%d;transport=udp>;regint=0;audio_codecs=opus/48000/2,PCMU/8000/1,PCMA/"
-                "8000/1;ptime=20;rtpkeep=zero",
+                "<sip:%s@%s:%d;transport=udp>;regint=0;audio_codecs=" MOBILE_SIP_AUDIO_CODECS ";ptime=20;rtpkeep=zero",
                 user, host, port);
     err = ua_alloc(&agent, aor);
     if (err) goto close;

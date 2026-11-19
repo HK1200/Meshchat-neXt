@@ -294,4 +294,6 @@ jobs:
                   force-avd-creation: false
                   emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
                   disable-animations: true
-                  script: MESHCHATNEXT_SMOKE_TIMEOUT_SEC=180 bash scripts/ci/android-emulator-smoke.sh "$(ls -1 android/app/build/outputs/apk/debug/*.apk | head -n 1)"
+                  script: |
+                      MESHCHATNEXT_SMOKE_TIMEOUT_SEC=180 bash scripts/ci/android-emulator-smoke.sh "$(ls -1 android/app/build/outputs/apk/debug/*.apk | head -n 1)"
+                      python3 scripts/android/test-sip-codec.py --abi x86_64 --apk "$(ls -1 android/app/build/outputs/apk/debug/*.apk | head -n 1)"
