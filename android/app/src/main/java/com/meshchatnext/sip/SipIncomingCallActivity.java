@@ -92,9 +92,11 @@ public final class SipIncomingCallActivity extends Activity {
         open.setOnClickListener(v -> {
             KeyguardManager keyguard = getSystemService(KeyguardManager.class);
             if (keyguard != null && keyguard.isKeyguardLocked()) {
-                keyguard.requestDismissKeyguard(this, new KeyguardManager.KeyguardDismissCallback() {
-                    @Override public void onDismissSucceeded() { openCurrentCall(); }
-                });
+                if (Build.VERSION.SDK_INT >= 26) {
+                    keyguard.requestDismissKeyguard(this, new KeyguardManager.KeyguardDismissCallback() {
+                        @Override public void onDismissSucceeded() { openCurrentCall(); }
+                    });
+                } else status.setText("Unlock your phone to open call controls");
             } else openCurrentCall();
         }); layout.addView(open);
         ScrollView scroll = new ScrollView(this); scroll.setFillViewport(true); scroll.addView(layout);

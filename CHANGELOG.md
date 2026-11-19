@@ -1,5 +1,13 @@
 # Meshchat neXt changelog
 
+## 0.1.20
+
+- Restore scheduled Reticulum text and voice announces on Android by preserving background-broadcast options in the notification bridge.
+- Fix Android SIP Opus audio by matching the native audio adapter’s mono PCM format while retaining standard Opus RTP signaling.
+- Keep Speaker and Mute available when answering SIP calls on a locked phone, and open the normal SIP dialer after unlocking.
+- Test the actual packaged SIP codec on the Android emulator.
+- Publish all supported desktop and Android packages with the same version number.
+
 ## 0.1.19
 
 - Android uses one ongoing notification for background operation, SIP status, and MeshCore location sharing. Stop sharing is available from that notification.

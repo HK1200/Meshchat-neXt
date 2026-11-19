@@ -1815,12 +1815,18 @@ public class MainActivity extends AppCompatActivity {
         }
 
         @JavascriptInterface
+        public boolean googlePlayBuild() {
+            return BuildConfig.GOOGLE_PLAY;
+        }
+
+        @JavascriptInterface
         public String updateInstallStatus() {
             return UpdateInstallerActivity.status(appContext());
         }
 
         @JavascriptInterface
         public String installVerifiedUpdate(String pending) {
+            if (BuildConfig.GOOGLE_PLAY) return "{\"accepted\":false,\"message\":\"Google Play manages updates.\"}";
             String[] result = {"{\"accepted\":false,\"message\":\"Return to the app and tap Install update.\"}"};
             java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
             Runnable launch = () -> {
@@ -1988,6 +1994,9 @@ public class MainActivity extends AppCompatActivity {
 
         @JavascriptInterface
         public boolean hasAllFilesAccess() {
+            if (BuildConfig.GOOGLE_PLAY) {
+                return false;
+            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 return Environment.isExternalStorageManager();
             }
@@ -1996,6 +2005,9 @@ public class MainActivity extends AppCompatActivity {
 
         @JavascriptInterface
         public void requestAllFilesAccess() {
+            if (BuildConfig.GOOGLE_PLAY) {
+                return;
+            }
             activity.runOnUiThread(
                 () -> {
                     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
