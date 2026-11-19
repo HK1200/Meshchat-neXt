@@ -1,0 +1,3 @@
+
+# Deterministic SIP call-screen test ID in the original test commit; not a credential.
+44a376769bf48699f47679e085fc58c84d01d88a:android/app/src/test/java/com/meshchatnext/sip/SipCallScreenPolicyTest.java:generic-api-key:7

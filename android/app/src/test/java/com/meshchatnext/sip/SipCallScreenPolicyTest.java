@@ -4,8 +4,8 @@ import static org.junit.Assert.*;
 import org.junit.Test;
 
 public class SipCallScreenPolicyTest {
-    private static final String TOKEN = "0123456789abcdef0123456789abcdef";
-    private static final String OTHER = "abcdef0123456789abcdef0123456789";
+    private static final String TOKEN = "00000000000000000000000000000000";
+    private static final String OTHER = "11111111111111111111111111111111";
     @Test public void connectedCallStaysAboveSecureLock() {
         assertTrue(SipCallScreenPolicy.active(TOKEN, TOKEN, "connected"));
         assertFalse(SipCallScreenPolicy.canHandoff(TOKEN, TOKEN, "connected", true));
