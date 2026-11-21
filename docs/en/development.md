@@ -91,7 +91,7 @@ cd meshchat-next
 corepack enable
 pnpm config set verify-store-integrity true
 pnpm install --frozen-lockfile
-pip install "uv==0.11.15"
+pip install "uv==0.13.6"
 uv lock --check
 uv sync --group dev
 pnpm run build-frontend
@@ -100,7 +100,7 @@ uv run python -m meshchatnext.meshchat --headless --host 127.0.0.1
 
 pnpm install --frozen-lockfile fails if pnpm-lock.yaml does not match package.json, so an unexpected upstream version cannot land silently. Store integrity is also on in pnpm-workspace.yaml. The extra pnpm config set line hardens the user-level config too.
 
-pnpm v11+ blocks lifecycle scripts by default. Only packages listed under allowBuilds in pnpm-workspace.yaml may run install scripts (electron, electron-winstaller, esbuild). uv lock --check fails if uv.lock is out of date with pyproject.toml. uv sync then installs from the lockfile only. Pin UV with pip install "uv==0.11.15" to match CI.
+pnpm v11+ blocks lifecycle scripts by default. Only packages listed under allowBuilds in pnpm-workspace.yaml may run install scripts (electron, electron-winstaller, esbuild). uv lock --check fails if uv.lock is out of date with pyproject.toml. uv sync then installs from the lockfile only. Pin UV with pip install "uv==0.13.6" to match CI.
 
 To update dependencies on purpose, run pnpm update or uv lock in its own commit and read the lockfile diff before you push.
 
