@@ -6,6 +6,7 @@
 - Keep the same release version across all supported desktop and Android packages.
 - Update build and Android test tools to address published dependency advisories, retaining upstream notices.
 - Keep verified Python build inputs available after temporary CI artifacts expire.
+- Preserve qualified 16 KB-compatible Android native libraries and reject incompatible or desktop libraries in release packaging.
 
 ## 0.1.20
 

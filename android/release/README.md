@@ -31,3 +31,9 @@ Use `scripts/android/prepare-stable-build.py` with the pinned input root and a p
 Audit every nested native library with `verify-native-apk.py`, then run Android startup and numerical/media checks on the matching ABI. x86_64 needs both 4 KB and 16 KB emulator checks. ARMv7 can be tested as a genuine 32-bit process on a device advertising `armeabi-v7a`; this does not establish compatibility with every older physical handset. Representative numerical checks are separate from the full upstream NumPy suite.
 
 Keep temporary test packages separate from real app identities, accounts, interfaces and radio selections. Remove only disposable test packages afterward. Do not reinstall or reset a user's working app to test another architecture.
+
+## Qualified CI inputs
+
+CI restores the exact native inputs and upstream notices pinned in `qualified-inputs.json` using `scripts/android/restore-qualified-inputs.py`. The permanent build-input archive is checksum verified before extraction, and each member must match its reviewed hash. A different existing file causes a failure rather than being overwritten. This avoids fallback vendor NumPy, cryptography, or LXST binaries which may use 4 KB pages or include desktop payloads.
+
+SIP is deliberately excluded from that archive and rebuilt from the current source in every CI build. Expat is also rebuilt separately from its pinned security sources. The AV1 wrapper source hash is checked before restoring its reviewed library; a wrapper change requires requalification. After packaging, CI audits every nested native payload and rejects incompatible 64-bit memory layouts, missing ABIs, or foreign desktop binaries before signing. Raw vendor wheel rebuilding remains available for developing replacement inputs, which must pass the same checks before the pinned archive is updated.
