@@ -113,7 +113,7 @@ jobs:
                 digits: ["01", "28", "39", "47", "56"]
         steps:
             - name: Harden runner
-              uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+              uses: step-security/harden-runner@aebdcf6156ab6691adf63218240e476564a1ed4c # v2.23.0
               with:
                   egress-policy: ${{ runner.os == 'Linux' && 'block' || 'audit' }}
                   allowed-endpoints: ${{ env.HARDEN_ENDPOINTS }}
@@ -133,7 +133,7 @@ jobs:
 
             - name: Backend mutation (mutmut)
               env:
-                  MUTMUT_TARGET: 'meshchatnext.src.backend.meshchat_utils*[${{ matrix.digits }}]'
+                  MUTMUT_TARGET: "meshchatnext.src.backend.meshchat_utils*[${{ matrix.digits }}]"
                   MUTMUT_MAX_CHILDREN: "2"
               run: |
                   set -euo pipefail
@@ -190,7 +190,7 @@ jobs:
         timeout-minutes: 90
         steps:
             - name: Harden runner
-              uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+              uses: step-security/harden-runner@aebdcf6156ab6691adf63218240e476564a1ed4c # v2.23.0
               with:
                   egress-policy: ${{ runner.os == 'Linux' && 'block' || 'audit' }}
                   allowed-endpoints: ${{ env.HARDEN_ENDPOINTS }}

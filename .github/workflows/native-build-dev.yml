@@ -166,7 +166,7 @@ jobs:
             MESHCHATNEXT_FRONTEND_PREBUILT: "1"
         steps:
             - name: Harden runner
-              uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+              uses: step-security/harden-runner@aebdcf6156ab6691adf63218240e476564a1ed4c # v2.23.0
               with:
                   egress-policy: ${{ runner.os == 'Linux' && 'block' || 'audit' }}
                   allowed-endpoints: ${{ env.HARDEN_ENDPOINTS }}
@@ -272,7 +272,7 @@ jobs:
             PYTHON_CMD: uv run --frozen --all-extras --group dev python
         steps:
             - name: Harden runner
-              uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+              uses: step-security/harden-runner@aebdcf6156ab6691adf63218240e476564a1ed4c # v2.23.0
               with:
                   egress-policy: audit
                   allowed-endpoints: ${{ env.HARDEN_ENDPOINTS }}
@@ -402,7 +402,7 @@ jobs:
                 include: ${{ fromJSON(inputs.runtime_sdk_target == 'linux-x64' && '[{"os":"ubuntu-latest","label":"linux-x64"}]' || inputs.runtime_sdk_target == 'linux-arm64' && '[{"os":"ubuntu-24.04-arm","label":"linux-arm64"}]' || inputs.runtime_sdk_target == 'windows-x64' && '[{"os":"windows-2022","label":"windows-x64"}]' || inputs.runtime_sdk_target == 'macos-arm64' && '[{"os":"macos-latest","label":"macos-arm64"}]' || inputs.runtime_sdk_target == 'macos-x64' && '[{"os":"macos-15-intel","label":"macos-x64"}]' || '[{"os":"ubuntu-latest","label":"linux-x64"},{"os":"ubuntu-24.04-arm","label":"linux-arm64"},{"os":"windows-2022","label":"windows-x64"},{"os":"macos-latest","label":"macos-arm64"},{"os":"macos-15-intel","label":"macos-x64"}]') }}
         steps:
             - name: Harden SDK builder
-              uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1
+              uses: step-security/harden-runner@aebdcf6156ab6691adf63218240e476564a1ed4c
               with:
                   egress-policy: audit
             - name: Preserve exact signed source line endings
