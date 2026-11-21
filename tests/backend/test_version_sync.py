@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import re
+import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -69,3 +70,14 @@ def test_arch_packaging_version_matches_package():
     )  # This preview packages reviewed local sources.
     srcinfo = _text("packaging/arch/.SRCINFO")
     assert re.search(rf"^\tpkgver = {re.escape(version)}", srcinfo, re.MULTILINE)
+
+
+def test_uv_lock_editable_root_version_matches_package():
+    lock = tomllib.loads(_text("uv.lock"))
+    roots = [
+        entry
+        for entry in lock["package"]
+        if entry["name"] == "meshchat-next" and entry.get("source") == {"editable": "."}
+    ]
+    assert len(roots) == 1
+    assert roots[0]["version"] == _package_version()

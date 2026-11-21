@@ -62,6 +62,14 @@ if (pyprojectNext !== pyproject) {
     console.log(`Updated ${path.relative(root, pyprojectPath)}`);
 }
 
+// Keep the editable root package aligned without re-resolving dependency pins.
+patchFile("uv.lock", (content) =>
+    content.replace(
+        /^(\[\[package\]\]\r?\nname = "meshchat-next"\r?\nversion = ")[^"]+("$)/m,
+        (_, prefix, suffix) => `${prefix}${version}${suffix}`
+    )
+);
+
 const noticesPath = path.join(root, "meshchatnext", "src", "backend", "data", "THIRD_PARTY_NOTICES.txt");
 if (fs.existsSync(noticesPath)) {
     let notices = fs.readFileSync(noticesPath, "utf8");
