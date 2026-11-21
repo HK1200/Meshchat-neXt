@@ -253,8 +253,10 @@ def install_websocket_hook(reticulum_mesh_chat_cls: type) -> None:
         return
     orig = reticulum_mesh_chat_cls.websocket_broadcast
 
-    async def _wrapped(self, data):
-        result = await orig(self, data)
+    async def _wrapped(self, data, *args, **kwargs):
+        # Background-loop forwarding and coalesced flushes carry internal
+        # options. Dropping those options kills identity periodic tasks.
+        result = await orig(self, data, *args, **kwargs)
         try:
             _after_websocket_broadcast(data)
         except Exception:

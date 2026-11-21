@@ -353,6 +353,9 @@ jobs:
                       echo "ANDROID_SDK_ROOT=${SDK_ROOT}"
                   } >> "${GITHUB_ENV}"
 
+            - name: Restore checksum-pinned qualified Android inputs
+              run: python scripts/android/restore-qualified-inputs.py
+
             - name: Provision missing Android Opus libraries
               run: |
                   python3 scripts/android/provision-opus.py
@@ -364,9 +367,6 @@ jobs:
 
             - name: Build checksum-pinned Expat security backport
               run: python scripts/android/provision-expat.py
-
-            - name: Build Android wheels
-              run: bash scripts/build-android-wheels-local.sh --python-minor "${PYTHON_VERSION}" --chaquopy-ref "${CHAQUOPY_REF}" --abis arm64-v8a,x86_64,armeabi-v7a
 
             - name: Build Meshchat neXt wheel for repository bundle
               run: |
@@ -476,6 +476,13 @@ jobs:
               run: |
                   chmod +x gradlew
                   ./gradlew --no-daemon :app:assembleDebug
+
+            - name: Audit all nested native payloads and 16 KB compatibility
+              run: |
+                  set -euo pipefail
+                  while IFS= read -r apk; do
+                      python scripts/android/verify-native-apk.py "$apk" --abis arm64-v8a,x86_64,armeabi-v7a --layout-only --report "$apk.native-inventory.json"
+                  done < <(find android/app/build/outputs/apk -type f -name '*.apk' | sort)
 
             - name: Verify exact security parser bytes in APKs
               run: |

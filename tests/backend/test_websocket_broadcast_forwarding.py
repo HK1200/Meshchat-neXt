@@ -124,3 +124,62 @@ async def test_broadcast_from_foreign_loop_drops_when_main_loop_dead():
     finally:
         RealAsyncUtils.main_loop = old
         dead_loop.close()
+
+
+async def test_android_hook_keeps_scheduled_announces_running(
+    foreign_main_loop,
+    monkeypatch,
+    db,
+):
+    """The Android hook must preserve internal cross-loop broadcast options."""
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    from meshchatnext import android_push_bridge
+    from meshchatnext.src.backend.config_manager import ConfigManager
+
+    class AndroidApp(ReticulumMeshChat):
+        pass
+
+    monkeypatch.setattr(android_push_bridge, "_ws_hook_installed", False)
+    monkeypatch.setattr(android_push_bridge, "_is_chaquopy_android", lambda: True)
+    notifications = []
+    monkeypatch.setattr(
+        android_push_bridge, "_notify_java", lambda *a: notifications.append(a)
+    )
+    android_push_bridge.install_websocket_hook(AndroidApp)
+    app = AndroidApp.__new__(AndroidApp)
+    app.__dict__.update(_bare_app().__dict__)
+    app.running = True
+    app.demo_mode = False
+    config = ConfigManager(db)
+    config.auto_announce_enabled.set(True)
+    config.auto_announce_interval_seconds.set(60)
+    config.telephone_announce_enabled.set(True)
+    ctx = SimpleNamespace(
+        config=config,
+        running=True,
+        session_id="android-test",
+        identity_hash="test",
+        message_router=MagicMock(),
+        telephone_manager=MagicMock(),
+        local_lxmf_destination=SimpleNamespace(hash=b"test"),
+        forwarding_manager=None,
+    )
+    app.current_context = ctx
+    clock = [1000.0]
+    monkeypatch.setattr("meshchatnext.meshchat.time.time", lambda: clock[0])
+    ticks = []
+
+    async def next_tick(seconds):
+        ticks.append(seconds)
+        clock[0] += 61
+        if len(ticks) == 2:
+            ctx.running = False
+
+    monkeypatch.setattr("meshchatnext.meshchat.asyncio.sleep", next_tick)
+    await app.announce_loop("android-test", context=ctx)
+    assert ctx.message_router.announce.call_count == 2
+    assert ctx.telephone_manager.announce.call_count == 2
+    assert config.last_announced_at.get() == 1061
+    assert notifications == []  # Announcing is not an incoming-message alert.

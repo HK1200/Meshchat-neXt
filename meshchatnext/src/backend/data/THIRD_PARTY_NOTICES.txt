@@ -79,7 +79,7 @@ lxmfy 2.1.1
 lxst 0.5.4
   License: Other/Proprietary License
   Author: Mark Qvist
-meshchat-next 0.1.19
+meshchat-next 0.1.21
   License: 0BSD AND MIT
   Author: Quad4
 meshcore 2.3.17
@@ -457,12 +457,12 @@ Node dependencies
 @intlify/shared 11.4.14
   License: MIT
   Author: kazuya kawaguchi
-@isaacs/cliui 8.0.2
-  License: ISC
-  Author: Ben Coe
 @isaacs/fs-minipass 4.0.1
   License: ISC
   Author: Isaac Z. Schlueter
+@isaacs/nonrecursive-glob-match 1.1.0
+  License: BlueOak-1.0.0
+  Author: -
 @jridgewell/gen-mapping 0.3.5
   License: MIT
   Author: Justin Ridgewell
@@ -649,9 +649,6 @@ Node dependencies
 @petamoriken/float16 3.9.3
   License: MIT
   Author: Kenta Moriuchi
-@pkgjs/parseargs 0.11.0
-  License: MIT
-  Author: -
 @pkgr/core 0.3.6
   License: MIT
   Author: JounQin
@@ -1216,9 +1213,6 @@ duplexer2 0.1.4
 earcut 3.0.0
   License: ISC
   Author: Vladimir Agafonkin
-eastasianwidth 0.2.0
-  License: MIT
-  Author: Masaki Komagata
 editorconfig 3.0.2
   License: MIT
   Author: EditorConfig Team
@@ -1408,9 +1402,6 @@ flatted 3.4.2
 for-each 0.3.5
   License: MIT
   Author: Raynos
-foreground-child 3.3.1
-  License: ISC
-  Author: Isaac Z. Schlueter
 form-data 4.0.6
   License: MIT
   Author: Felix Geisendörfer
@@ -1468,7 +1459,7 @@ get-tsconfig 4.14.3
 glob 7.2.3
   License: ISC
   Author: Isaac Z. Schlueter
-glob 13.0.6
+glob 14.0.2
   License: BlueOak-1.0.0
   Author: Isaac Z. Schlueter
 glob-parent 6.0.2
@@ -1708,9 +1699,6 @@ istanbul-lib-report 3.0.1
 istanbul-reports 3.2.0
   License: BSD-3-Clause
   Author: Krishnan Anantheswaran
-jackspeak 3.4.3
-  License: BlueOak-1.0.0
-  Author: Isaac Z. Schlueter
 jiti 2.6.1
   License: MIT
   Author: -
@@ -1894,7 +1882,7 @@ mini-svg-data-uri 1.4.4
 minimatch 3.1.4
   License: ISC
   Author: Isaac Z. Schlueter
-minimatch 10.2.3
+minimatch 11.0.1
   License: BlueOak-1.0.0
   Author: Isaac Z. Schlueter
 minimist 1.2.8
@@ -2041,9 +2029,6 @@ p-map 7.0.2
 p-try 2.2.0
   License: MIT
   Author: Sindre Sorhus
-package-json-from-dist 1.0.1
-  License: BlueOak-1.0.0
-  Author: Isaac Z. Schlueter
 package-manager-detector 1.8.0
   License: MIT
   Author: Anthony Fu
@@ -2080,7 +2065,7 @@ path-key 3.1.0
 path-parse 1.0.7
   License: MIT
   Author: Javier Blanco
-path-scurry 1.11.1
+path-scurry 3.0.0
   License: BlueOak-1.0.0
   Author: Isaac Z. Schlueter
 pathe 2.0.3

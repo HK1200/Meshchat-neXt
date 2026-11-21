@@ -86,21 +86,34 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("apk", type=Path)
     parser.add_argument("--abis", required=True)
-    parser.add_argument(
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument(
+        "--layout-only",
+        action="store_true",
+        help="Audit every payload and ABI layout without a separate byte inventory",
+    )
+    mode.add_argument(
         "--reference",
-        required=True,
         type=Path,
         help="Previously validated native APK inventory JSON",
     )
     parser.add_argument("--report", required=True, type=Path)
     args = parser.parse_args()
     abis = set(args.abis.split(","))
-    reference = json.loads(args.reference.read_text())["libraries"]
-    expected = Counter((r["abi"], r["sha256"]) for r in reference if r["abi"] in abis)
+    expected = None
+    if args.reference:
+        reference = json.loads(args.reference.read_text())["libraries"]
+        expected = Counter(
+            (r["abi"], r["sha256"]) for r in reference if r["abi"] in abis
+        )
     with zipfile.ZipFile(args.apk) as archive:
         rows = collect(archive)
     actual = Counter((r["abi"], r["sha256"]) for r in rows)
-    if not expected or actual != expected or {r["abi"] for r in rows} != abis:
+    if (
+        not rows
+        or {r["abi"] for r in rows} != abis
+        or (expected is not None and (not expected or actual != expected))
+    ):
         raise ValueError(
             "Packaged native library inventory differs from the validated reference"
         )
@@ -115,7 +128,8 @@ def main():
         + "\n"
     )
     print(
-        f"PASS: {len(rows)} native ELF payloads match the validated reference and pass the ABI-specific page layout checks"
+        f"PASS: {len(rows)} native ELF payloads pass the ABI-specific page layout checks"
+        + (" and match the validated reference" if expected is not None else "")
     )
 
 

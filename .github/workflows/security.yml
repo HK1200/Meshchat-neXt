@@ -2,7 +2,6 @@
 #
 # Pinned first-party actions (bump tag and SHA together when upgrading):
 #   actions/checkout@v6.0.1                       8e8c483db84b4bee98b60c0593521ed34d9990e8
-#   Quad4-Software/argus@v0.3.1                   35d2d5fc3d0569f60dc7481b64fd922092e4886a
 #   actions/download-artifact@v8.0.2 9000827ccba6bdab643e8b6fd33ac0654aef8333
 #   github/codeql-action/init@v4.31.6             95e58e9a2cdfd71adc6e0353d5c52f41a045d225
 #   github/codeql-action/analyze@v4.31.6          95e58e9a2cdfd71adc6e0353d5c52f41a045d225
@@ -156,12 +155,14 @@ jobs:
                     trivy config --exit-code 1 "$f"
                   done
 
-            - name: Argus supply-chain indicator scan
-              uses: Quad4-Software/argus@35d2d5fc3d0569f60dc7481b64fd922092e4886a # v0.3.1
-              with:
-                  paths: .
-                  fail-on: high
-                  format: markdown
+            - name: Report unavailable supplemental scanner
+              run: |
+                  echo '::notice::Argus is unavailable upstream; its indicator scan did not run.'
+                  {
+                    echo '### Supplemental scanner unavailable'
+                    echo 'The pinned Quad4-Software/argus repository returns 404. Its supply-chain indicator scan is unavailable.'
+                    echo 'pip-audit, Trivy dependency/configuration checks, gitleaks, CodeQL, and the separate Scorecard workflow remain enabled.'
+                  } >> "$GITHUB_STEP_SUMMARY"
 
     secret-scan:
         name: Secret scan (gitleaks)
@@ -225,7 +226,7 @@ jobs:
                     - language: actions
                       build-mode: none
                     - language: go
-                      build-mode: autobuild
+                      build-mode: manual
                     - language: java-kotlin
                       build-mode: none
                     - language: python
@@ -241,11 +242,29 @@ jobs:
               with:
                   persist-credentials: false
 
+            - name: Set up Go
+              if: ${{ matrix.language == 'go' }}
+              uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v5.3.0
+              with:
+                  go-version-file: geo-wasm/go.mod
+                  cache: false
+
             - name: Initialize CodeQL
               uses: github/codeql-action/init@95e58e9a2cdfd71adc6e0353d5c52f41a045d225
               with:
                   languages: ${{ matrix.language }}
                   build-mode: ${{ matrix.build-mode }}
+
+            - name: Build Go sources for analysis
+              if: ${{ matrix.language == 'go' }}
+              run: |
+                  go build -o "$RUNNER_TEMP/license-scope-mapper" ./scripts/license_scope_mapper.go
+                  for module in geo-wasm visualiser-wasm; do
+                      (
+                          cd "$module"
+                          GOOS=js GOARCH=wasm go build -o "$RUNNER_TEMP/$module.wasm" ./cmd/wasm
+                      )
+                  done
 
             - name: Perform CodeQL Analysis
               uses: github/codeql-action/analyze@95e58e9a2cdfd71adc6e0353d5c52f41a045d225
@@ -295,6 +314,10 @@ jobs:
               with:
                   languages: javascript-typescript
                   build-mode: none
+                  config: |
+                      paths-ignore:
+                        # CodeQL scans the original worker under src/frontend/js/plugins.
+                        - "meshchatnext/public/assets/pluginWorker-*.js"
 
             - name: Perform CodeQL Analysis
               uses: github/codeql-action/analyze@95e58e9a2cdfd71adc6e0353d5c52f41a045d225

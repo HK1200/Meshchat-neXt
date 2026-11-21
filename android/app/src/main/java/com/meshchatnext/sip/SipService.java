@@ -626,10 +626,14 @@ public final class SipService extends Service {
                 SipEngine.command(3, "");
                 break;
             case "mute":
+                if (req.has("call_token") && (!incomingToken.equals(req.getString("call_token")) || !"connected".equals(callState)))
+                    throw new IllegalArgumentException("This incoming call has ended");
                 muted = req.optBoolean("value");
                 SipEngine.command(4, muted ? "1" : "0");
                 break;
             case "speaker":
+                if (req.has("call_token") && (!incomingToken.equals(req.getString("call_token")) || !"connected".equals(callState)))
+                    throw new IllegalArgumentException("This incoming call has ended");
                 speaker = req.optBoolean("value");
                 main.post(() -> route());
                 break;

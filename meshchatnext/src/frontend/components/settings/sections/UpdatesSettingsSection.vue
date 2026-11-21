@@ -1,7 +1,9 @@
 <!-- SPDX-License-Identifier: 0BSD -->
 
 <template>
+    <p v-if="googlePlayBuild" v-show="visible" class="text-sm text-sem-fg-muted">Google Play manages app updates.</p>
     <SettingsSectionBlock
+        v-else
         v-show="visible"
         eyebrow="Maintenance"
         :title="$t('updates.settings_title')"
@@ -145,6 +147,9 @@ import ElectronUtils from "../../../js/ElectronUtils";
 
 export default {
     name: "UpdatesSettingsSection",
+    setup() {
+        return { googlePlayBuild: window.MeshchatNextAndroid?.googlePlayBuild?.() === true };
+    },
     components: { SettingsSectionBlock },
     props: {
         visible: { type: Boolean, default: true },
@@ -202,6 +207,7 @@ export default {
         },
     },
     async mounted() {
+        if (this.googlePlayBuild) return;
         await this.refresh();
         this.installerTimer = setInterval(() => {
             if (this.visible) {
@@ -211,7 +217,7 @@ export default {
         }, 1000);
     },
     activated() {
-        void this.refresh();
+        if (!this.googlePlayBuild) void this.refresh();
     },
     beforeUnmount() {
         clearInterval(this.installerTimer);

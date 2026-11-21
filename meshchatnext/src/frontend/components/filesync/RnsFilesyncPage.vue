@@ -103,6 +103,7 @@
                                             <span class="hidden sm:inline">{{ $t("rns_filesync.browse_folder") }}</span>
                                         </button>
                                         <button
+                                            v-if="!googlePlayBuild"
                                             type="button"
                                             class="secondary-chip px-3 py-2 text-xs shrink-0"
                                             :disabled="busy || status.running"
@@ -432,6 +433,7 @@ export default {
                 sync_directory: "",
                 storage_directory: "",
             },
+            googlePlayBuild: window.MeshchatNextAndroid?.googlePlayBuild?.() === true,
             syncDirectory: "",
             announceInterval: 300,
             monitor: true,

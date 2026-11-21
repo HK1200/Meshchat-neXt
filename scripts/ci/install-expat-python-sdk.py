@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -167,6 +168,67 @@ def installed_executable(managed: Path, os_name: str, arch: str, libc: str) -> P
     return managed / key / ("python.exe" if os_name == "windows" else "bin/python3.14")
 
 
+def download_release_sdk(gh: str, repository: str, entry: dict, artifact: Path) -> None:
+    """Retrieve an immutable, hash-pinned SDK after Actions retention expires.
+
+    Qualification is recorded when the publisher promotes the genuine native
+    build. The complete archive, input and native-runtime checks still run below.
+    No dependency on an expiring Actions API object remains in this path.
+    """
+    if repository not in {"HK1200/Meshchat-neXt", "HK1200/MeshChatX-HK"}:
+        raise RuntimeError("Unexpected SDK repository")
+    tag, name = entry.get("release_tag"), entry.get("release_asset")
+    if (
+        not isinstance(tag, str)
+        or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,99}", tag)
+        or not isinstance(name, str)
+        or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,119}\.zip", name)
+    ):
+        raise RuntimeError("Invalid permanent SDK reference")
+    metadata = json.loads(
+        subprocess.check_output(
+            [gh, "api", f"repos/{repository}/releases/tags/{tag}"], text=True
+        )
+    )
+    if metadata.get("tag_name") != tag or metadata.get("draft") is not False:
+        raise RuntimeError("Permanent SDK release is unpublished or mismatched")
+    assets = [
+        asset for asset in metadata.get("assets", []) if asset.get("name") == name
+    ]
+    if len(assets) != 1:
+        raise RuntimeError("Permanent SDK asset is missing or ambiguous")
+    asset = assets[0]
+    if (
+        type(asset.get("id")) is not int
+        or type(asset.get("size")) is not int
+        or not 0 < asset["size"] <= 512 * 1024 * 1024
+        or asset.get("digest") != "sha256:" + entry["artifact_zip_sha256"]
+    ):
+        raise RuntimeError("Permanent SDK asset identity or checksum mismatch")
+    partial = artifact.with_suffix(".partial")
+    try:
+        with partial.open("wb") as stream:
+            subprocess.run(
+                [
+                    gh,
+                    "api",
+                    "-H",
+                    "Accept: application/octet-stream",
+                    f"repos/{repository}/releases/assets/{asset['id']}",
+                ],
+                stdout=stream,
+                check=True,
+            )
+        if (
+            partial.stat().st_size != asset["size"]
+            or sha(partial) != entry["artifact_zip_sha256"]
+        ):
+            raise RuntimeError("Downloaded permanent SDK checksum or size mismatch")
+        partial.replace(artifact)
+    finally:
+        partial.unlink(missing_ok=True)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -198,59 +260,62 @@ def main() -> None:
     artifact = (
         args.artifact_file.resolve() if args.artifact_file else cache / "artifact.zip"
     )
-    if args.artifact_file is None:
+    if args.artifact_file is None and not artifact.exists():
         gh = shutil.which("gh")
         if gh is None:
             raise RuntimeError("GitHub CLI is required for qualified SDK retrieval")
         repository = entry.get("repository", inputs["repository"])
         if repository not in {"HK1200/Meshchat-neXt", "HK1200/MeshChatX-HK"}:
             raise RuntimeError("Unexpected SDK repository")
-        metadata = json.loads(
-            subprocess.check_output(
-                [
-                    gh,
-                    "api",
-                    f"repos/{repository}/actions/artifacts/{int(entry['artifact_id'])}",
-                ],
-                text=True,
-            )
-        )
-        if (
-            metadata.get("expired")
-            or metadata.get("digest") != "sha256:" + entry["artifact_zip_sha256"]
-            or metadata.get("workflow_run", {}).get("head_sha")
-            != entry["producer_head"]
-            or metadata.get("workflow_run", {}).get("id") != entry["producer_run"]
-            or metadata.get("name") != entry["artifact_name"]
-        ):
-            raise RuntimeError("SDK artifact source identity or digest mismatch")
-        job = json.loads(
-            subprocess.check_output(
-                [
-                    gh,
-                    "api",
-                    f"repos/{repository}/actions/jobs/{int(entry['producer_job'])}",
-                ],
-                text=True,
-            )
-        )
-        if (
-            job.get("conclusion") != "success"
-            or job.get("run_id") != entry["producer_run"]
-            or job.get("name") != f"Build Expat-fixed Python SDK ({target})"
-        ):
-            raise RuntimeError("Required genuine native SDK target did not pass")
-        if not artifact.exists():
-            with artifact.open("wb") as stream:
-                subprocess.run(
+        if "release_tag" in entry or "release_asset" in entry:
+            download_release_sdk(gh, repository, entry, artifact)
+        else:
+            metadata = json.loads(
+                subprocess.check_output(
                     [
                         gh,
                         "api",
-                        f"repos/{repository}/actions/artifacts/{int(entry['artifact_id'])}/zip",
+                        f"repos/{repository}/actions/artifacts/{int(entry['artifact_id'])}",
                     ],
-                    stdout=stream,
-                    check=True,
+                    text=True,
                 )
+            )
+            if (
+                metadata.get("expired")
+                or metadata.get("digest") != "sha256:" + entry["artifact_zip_sha256"]
+                or metadata.get("workflow_run", {}).get("head_sha")
+                != entry["producer_head"]
+                or metadata.get("workflow_run", {}).get("id") != entry["producer_run"]
+                or metadata.get("name") != entry["artifact_name"]
+            ):
+                raise RuntimeError("SDK artifact source identity or digest mismatch")
+            job = json.loads(
+                subprocess.check_output(
+                    [
+                        gh,
+                        "api",
+                        f"repos/{repository}/actions/jobs/{int(entry['producer_job'])}",
+                    ],
+                    text=True,
+                )
+            )
+            if (
+                job.get("conclusion") != "success"
+                or job.get("run_id") != entry["producer_run"]
+                or job.get("name") != f"Build Expat-fixed Python SDK ({target})"
+            ):
+                raise RuntimeError("Required genuine native SDK target did not pass")
+            if not artifact.exists():
+                with artifact.open("wb") as stream:
+                    subprocess.run(
+                        [
+                            gh,
+                            "api",
+                            f"repos/{repository}/actions/artifacts/{int(entry['artifact_id'])}/zip",
+                        ],
+                        stdout=stream,
+                        check=True,
+                    )
     distribution = cache / "python-sdk.tar.gz"
     verify_sdk(artifact, entry, target, distribution)
     key = f"cpython-3.14.10-{os_name}-{arch}-{libc}"

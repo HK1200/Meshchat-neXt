@@ -12,7 +12,6 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- Required for our own background VoIP service; no PhoneAccount or carrier calling. -->
@@ -52,6 +51,8 @@
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
     <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
+    <!-- Internet peers can also use cellular, Ethernet, or attached radios. -->
+    <uses-feature android:name="android.hardware.wifi" android:required="false" />
     <uses-feature android:name="android.hardware.wifi.aware" android:required="false" />
     <uses-feature android:name="android.hardware.wifi.direct" android:required="false" />
     <uses-feature android:name="android.hardware.nfc" android:required="false" />
@@ -154,7 +155,7 @@
         <service
             android:name=".MeshChatForegroundService"
             android:exported="false"
-            android:foregroundServiceType="dataSync|connectedDevice"
+            android:foregroundServiceType="connectedDevice"
             android:stopWithTask="true" />
 
         <service

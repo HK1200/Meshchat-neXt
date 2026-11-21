@@ -44,16 +44,20 @@ if (meshchatnextAbiPackaging != "universal" && meshchatnextAbiPackaging != "spli
 }
 def enableAbiSplits = meshchatnextAbiPackaging == "split" && selectedAndroidAbis.size() > 1
 
+def googlePlay = providers.gradleProperty("googlePlay").map { it.toBoolean() }.getOrElse(false)
+
 android {
+    buildFeatures { buildConfig true }
     namespace 'com.meshchatnext'
-    compileSdk 35
+    compileSdk (googlePlay ? 36 : 35)
 
     defaultConfig {
         applicationId System.getenv("MESHCHATNEXT_APPLICATION_ID") ?: "com.haadkoe.meshchatnext"
         minSdk 24
-        targetSdk 35
-        versionCode 24
-        versionName "0.1.19"
+        targetSdk (googlePlay ? 36 : 35)
+        buildConfigField "boolean", "GOOGLE_PLAY", googlePlay.toString()
+        versionCode 26
+        versionName "0.1.21"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         ndk {
@@ -70,6 +74,10 @@ android {
             }
             universalApk enableAbiSplits
         }
+    }
+
+    if (googlePlay) {
+        sourceSets.main.manifest.srcFile layout.buildDirectory.file("play/AndroidManifest.xml").get().asFile
     }
 
     buildTypes {
@@ -530,4 +538,24 @@ if (project.hasProperty("meshchatnextRuntimeForeground")) {
     if (!project.hasProperty("meshchatnextRuntimeTests")) throw new org.gradle.api.GradleException("meshchatnextRuntimeForeground requires meshchatnextRuntimeTests")
     android.sourceSets.release.java.srcDir(new File(repoRoot, "scripts/android/runtime-tests/foreground"))
     android.sourceSets.release.manifest.srcFile(new File(repoRoot, "scripts/android/runtime-tests/foreground/AndroidManifest.xml"))
+}
+
+
+if (googlePlay) {
+    def playManifest = tasks.register("generatePlayManifest") {
+        def original = layout.projectDirectory.file("src/main/AndroidManifest.xml")
+        def output = layout.buildDirectory.file("play/AndroidManifest.xml")
+        inputs.file(original)
+        outputs.file(output)
+        doLast {
+            def manifest = original.asFile.getText("UTF-8")
+            manifest = manifest.replaceAll(/<uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"\s*\/>/, "")
+            manifest = manifest.replaceAll(/<uses-permission\s+android:name="android.permission.MANAGE_EXTERNAL_STORAGE"[^>]*\/>/, "")
+            manifest = manifest.replaceAll(/<activity android:name="\.UpdateInstallerActivity"[^>]*\/>/, "")
+            def file = output.get().asFile
+            file.parentFile.mkdirs()
+            file.setText(manifest, "UTF-8")
+        }
+    }
+    tasks.named("preBuild").configure { dependsOn(playManifest) }
 }

@@ -136,3 +136,23 @@ More: [android-termux.md](platform-guides/android-termux.md), [android/README.md
 - **Installation and setup** for Docker, wheels, and CLI flags
 - **Development** for task targets and version sync
 - **Linux sandboxing** for Firejail and Bubblewrap around a built binary
+
+## Qualified Python build inputs
+
+Release builds use the per-platform SDKs pinned in
+`scripts/ci/expat-runtime-inputs.json`. These include Python 3.14.10 and Expat
+2.10.0, with the required CPython security backport on Windows. The public
+`python-sdk-3.14.10-expat2.10.0` prerelease preserves these build inputs after
+GitHub Actions artifacts expire; it is not an application update.
+
+The installer verifies the release asset digest, downloaded bytes, source hashes,
+actual native-runtime qualification, complete archive inventory and upstream
+licenses before installing an SDK. A cached archive must pass the same checks.
+There is no fallback to an older runtime when an input is unavailable.
+
+To replace an SDK, run the native SDK build for that target, require its source
+verification and runtime checks to pass, verify the resulting archive locally,
+and preserve the original artifact ZIP as a release asset. Update the pinned
+metadata from that successful native job and regenerate the signed source
+inventory before publishing source changes. Do not overwrite an existing SDK
+asset with different bytes.

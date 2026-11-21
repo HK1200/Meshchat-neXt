@@ -1,6 +1,6 @@
 {
     "name": "meshchat-next",
-    "version": "0.1.19",
+    "version": "0.1.21",
     "description": "Reticulum and MeshCore messaging in one independent app",
     "homepage": "https://github.com/hk1200/Meshchat-neXt",
     "desktopName": "com.meshchatnext.app.desktop",
@@ -141,7 +141,7 @@
         "lighthouse": "^13.4.1",
         "marked": "^18.0.11",
         "micron-parser": "file:vendor/micron-parser-js",
-        "minimatch": ">=10.2.3",
+        "minimatch": "11.0.1",
         "ol": "^10.10.0",
         "ol-mapbox-style": "^13.4.3",
         "pinia": "^4.0.3",
