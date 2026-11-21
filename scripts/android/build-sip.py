@@ -22,6 +22,32 @@ def run(args):
     subprocess.run(list(map(str, args)), check=True)
 
 
+def ensure_opus_archive(archive):
+    """SIP needs headers even when Opus JNI libraries were restored from cache."""
+    if not archive.exists():
+        archive.parent.mkdir(parents=True, exist_ok=True)
+        temporary = archive.with_suffix(".download")
+        try:
+            urllib.request.urlretrieve(
+                "https://ftp.osuosl.org/pub/xiph/releases/opus/opus-1.5.2.tar.gz",
+                temporary,
+            )
+            verify_opus_archive(temporary)
+            temporary.replace(archive)
+        finally:
+            temporary.unlink(missing_ok=True)
+    verify_opus_archive(archive)
+    return archive
+
+
+def verify_opus_archive(archive):
+    if hashlib.sha256(archive.read_bytes()).hexdigest() != OPUS_SHA256:
+        raise ValueError("Opus checksum mismatch")
+
+
+OPUS_SHA256 = "65c1d2f78b9f2fb20082c38cbe47c951ad5839345876e46941612ee87f9a7ce1"
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument(
@@ -95,11 +121,7 @@ def main():
     opus_source = work / "opus-1.5.2"
     if not opus_source.exists():
         archive = ROOT / ".local/opus-1.5.2-android/opus-1.5.2.tar.gz"
-        if (
-            hashlib.sha256(archive.read_bytes()).hexdigest()
-            != "65c1d2f78b9f2fb20082c38cbe47c951ad5839345876e46941612ee87f9a7ce1"
-        ):
-            raise ValueError("Opus checksum mismatch")
+        ensure_opus_archive(archive)
         with tarfile.open(archive) as src:
             src.extractall(work, filter="data")
     mt = work / (a.abi + "-mbedtls")
