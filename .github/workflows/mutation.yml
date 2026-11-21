@@ -100,11 +100,17 @@ env:
     PNPM_VERSION: "12.7.0"
 
 jobs:
-    mutation:
+    backend:
+        name: Backend mutation (IDs ending in ${{ matrix.digits }})
+        if: ${{ github.event_name == 'schedule' || inputs.backend != false }}
         runs-on: ubuntu-latest
-        # Stats collection runs the whole backend suite serially under a
-        # coverage-tracking plugin, which takes well over an hour on its own.
         timeout-minutes: 360
+        strategy:
+            fail-fast: false
+            max-parallel: 5
+            matrix:
+                # Mutmut IDs end in a decimal digit. These groups cover each ID once.
+                digits: ["01", "28", "39", "47", "56"]
         steps:
             - name: Harden runner
               uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
@@ -126,14 +132,83 @@ jobs:
                   pnpm-version: ${{ env.PNPM_VERSION }}
 
             - name: Backend mutation (mutmut)
-              if: ${{ github.event_name == 'schedule' || inputs.backend != false }}
               env:
-                  MUTMUT_TARGET: meshchatnext.src.backend.meshchat_utils*
-                  MUTMUT_MIN_SCORE: ${{ github.event_name == 'schedule' && '50' || github.event.inputs.min_score }}
-              run: bash scripts/ci/mutation-backend.sh
+                  MUTMUT_TARGET: 'meshchatnext.src.backend.meshchat_utils*[${{ matrix.digits }}]'
+                  MUTMUT_MAX_CHILDREN: "2"
+              run: |
+                  set -euo pipefail
+                  # Sample resource headroom throughout this long-running hosted job.
+                  (
+                      while :; do
+                          date -u
+                          free -m
+                          df -h .
+                          sleep 120
+                      done
+                  ) &
+                  sampler=$!
+                  trap 'kill "$sampler" 2>/dev/null || true' EXIT
+                  bash scripts/ci/mutation-backend.sh
+
+            - name: Upload backend shard report
+              uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+              with:
+                  name: mutation-backend-${{ matrix.digits }}
+                  path: mutmut-cicd-stats.json
+                  if-no-files-found: error
+
+    backend-score:
+        name: Backend mutation score
+        needs: backend
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+              with:
+                  persist-credentials: false
+            - name: Download backend shard reports
+              uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+              with:
+                  pattern: mutation-backend-*
+                  path: backend-reports
+            - name: Check the combined backend score
+              env:
+                  MIN_SCORE: ${{ github.event_name == 'schedule' && '50' || github.event.inputs.min_score }}
+              run: |
+                  python3 scripts/ci/mutation-score-check.py --min-score "$MIN_SCORE" \
+                    --mutmut-stats backend-reports/mutation-backend-01/mutmut-cicd-stats.json \
+                    --mutmut-stats backend-reports/mutation-backend-28/mutmut-cicd-stats.json \
+                    --mutmut-stats backend-reports/mutation-backend-39/mutmut-cicd-stats.json \
+                    --mutmut-stats backend-reports/mutation-backend-47/mutmut-cicd-stats.json \
+                    --mutmut-stats backend-reports/mutation-backend-56/mutmut-cicd-stats.json
+
+    frontend:
+        name: Frontend mutation
+        if: ${{ github.event_name == 'schedule' || inputs.frontend != false }}
+        runs-on: ubuntu-latest
+        timeout-minutes: 90
+        steps:
+            - name: Harden runner
+              uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+              with:
+                  egress-policy: ${{ runner.os == 'Linux' && 'block' || 'audit' }}
+                  allowed-endpoints: ${{ env.HARDEN_ENDPOINTS }}
+            - name: Checkout
+              uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+              with:
+                  persist-credentials: false
+
+            - name: Set up development environment
+              uses: ./.github/actions/setup-dev-environment
+              with:
+                  tree-signer-hash: ${{ vars.NEXT_TREE_SIGNER_HASH }}
+                  python-version: ${{ env.PYTHON_VERSION }}
+                  uv-version: ${{ env.UV_VERSION }}
+                  node-version: ${{ env.NODE_VERSION }}
+                  pnpm-version: ${{ env.PNPM_VERSION }}
 
             - name: Frontend mutation (MeshMut sample)
-              if: ${{ github.event_name == 'schedule' || inputs.frontend != false }}
               env:
                   MIN_SCORE: ${{ github.event_name == 'schedule' && '50' || github.event.inputs.min_score }}
               run: |
@@ -144,12 +219,10 @@ jobs:
                     --max-per-file 30 \
                     --min-score "${MIN_SCORE}"
 
-            - name: Upload mutation reports
+            - name: Upload frontend mutation report
               if: always()
               uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
               with:
-                  name: mutation-reports
-                  path: |
-                      reports/mutation/
-                      mutmut-cicd-stats.json
+                  name: mutation-frontend
+                  path: reports/mutation/
                   if-no-files-found: ignore

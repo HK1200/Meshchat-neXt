@@ -177,6 +177,31 @@ def test_mutation_aggregate_requires_every_selected_worker(
     assert (result.returncode == 0) == success
 
 
+def test_shard_score_weights_mutants_and_requires_every_report(tmp_path):
+    root = Path(__file__).resolve().parents[2]
+    report_a = tmp_path / "small.json"
+    report_b = tmp_path / "large.json"
+    report_a.write_text(json.dumps({"killed": 1, "survived": 0}))
+    report_b.write_text(json.dumps({"killed": 2, "survived": 5, "timeout": 2}))
+    command = [
+        sys.executable,
+        str(root / "scripts/ci/mutation-score-check.py"),
+        "--min-score",
+        "50",
+        "--mutmut-stats",
+        str(report_a),
+        "--mutmut-stats",
+        str(report_b),
+    ]
+    result = subprocess.run(command, capture_output=True, text=True)
+    assert result.returncode == 1
+    assert "Backend mutation score: 30.0%" in result.stdout
+    report_b.unlink()
+    result = subprocess.run(command, capture_output=True, text=True)
+    assert result.returncode == 1
+    assert "Missing mutmut stats:" in result.stderr
+
+
 @pytest.mark.parametrize(("survivors", "success"), [(0, True), (3, False)])
 def test_backend_runner_reads_actual_mutmut_json_export(tmp_path, survivors, success):
     # Controlled metadata exercises the REAL exporter and score checker; it is

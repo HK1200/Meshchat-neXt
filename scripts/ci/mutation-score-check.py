@@ -20,7 +20,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--mutmut-stats",
         type=Path,
-        help="Path to mutmut export-cicd-stats JSON file",
+        action="append",
+        help="Path to a mutmut export-cicd-stats JSON file (repeat for shards)",
     )
     parser.add_argument(
         "--meshmut-report",
@@ -64,12 +65,15 @@ def main() -> int:
     exit_code = 0
 
     if args.mutmut_stats:
-        if not args.mutmut_stats.is_file():
-            print(f"Missing mutmut stats: {args.mutmut_stats}", file=sys.stderr)
-            return 1
-        score = score_from_mutmut(
-            json.loads(args.mutmut_stats.read_text(encoding="utf-8")),
-        )
+        totals = dict.fromkeys(("killed", "survived", "timeout", "suspicious"), 0)
+        for path in args.mutmut_stats:
+            if not path.is_file():
+                print(f"Missing mutmut stats: {path}", file=sys.stderr)
+                return 1
+            report = json.loads(path.read_text(encoding="utf-8"))
+            for outcome in totals:
+                totals[outcome] += int(report.get(outcome, 0))
+        score = score_from_mutmut(totals)
         if score is None:
             print("No scored mutmut results.", file=sys.stderr)
             return 1
