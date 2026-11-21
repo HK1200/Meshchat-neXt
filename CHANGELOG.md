@@ -4,6 +4,8 @@
 
 - Make Wi-Fi hardware optional on Android so cellular-only devices are not excluded. Reticulum, MeshCore and SIP networking permissions are retained.
 - Keep the same release version across all supported desktop and Android packages.
+- Update build and Android test tools to address published dependency advisories, retaining upstream notices.
+- Keep verified Python build inputs available after temporary CI artifacts expire.
 
 ## 0.1.20
 

@@ -600,16 +600,16 @@
     "license": "MIT"
   },
   {
-    "name": "@isaacs/cliui",
-    "version": "8.0.2",
-    "author": "Ben Coe",
-    "license": "ISC"
-  },
-  {
     "name": "@isaacs/fs-minipass",
     "version": "4.0.1",
     "author": "Isaac Z. Schlueter",
     "license": "ISC"
+  },
+  {
+    "name": "@isaacs/nonrecursive-glob-match",
+    "version": "1.1.0",
+    "author": "-",
+    "license": "BlueOak-1.0.0"
   },
   {
     "name": "@jridgewell/gen-mapping",
@@ -981,12 +981,6 @@
     "name": "@petamoriken/float16",
     "version": "3.9.3",
     "author": "Kenta Moriuchi",
-    "license": "MIT"
-  },
-  {
-    "name": "@pkgjs/parseargs",
-    "version": "0.11.0",
-    "author": "-",
     "license": "MIT"
   },
   {
@@ -2118,12 +2112,6 @@
     "license": "ISC"
   },
   {
-    "name": "eastasianwidth",
-    "version": "0.2.0",
-    "author": "Masaki Komagata",
-    "license": "MIT"
-  },
-  {
     "name": "editorconfig",
     "version": "3.0.2",
     "author": "EditorConfig Team",
@@ -2502,12 +2490,6 @@
     "license": "MIT"
   },
   {
-    "name": "foreground-child",
-    "version": "3.3.1",
-    "author": "Isaac Z. Schlueter",
-    "license": "ISC"
-  },
-  {
     "name": "form-data",
     "version": "4.0.6",
     "author": "Felix Geisendörfer",
@@ -2623,7 +2605,7 @@
   },
   {
     "name": "glob",
-    "version": "13.0.6",
+    "version": "14.0.2",
     "author": "Isaac Z. Schlueter",
     "license": "BlueOak-1.0.0"
   },
@@ -3102,12 +3084,6 @@
     "license": "BSD-3-Clause"
   },
   {
-    "name": "jackspeak",
-    "version": "3.4.3",
-    "author": "Isaac Z. Schlueter",
-    "license": "BlueOak-1.0.0"
-  },
-  {
     "name": "jiti",
     "version": "2.6.1",
     "author": "-",
@@ -3475,7 +3451,7 @@
   },
   {
     "name": "minimatch",
-    "version": "10.2.3",
+    "version": "11.0.1",
     "author": "Isaac Z. Schlueter",
     "license": "BlueOak-1.0.0"
   },
@@ -3768,12 +3744,6 @@
     "license": "MIT"
   },
   {
-    "name": "package-json-from-dist",
-    "version": "1.0.1",
-    "author": "Isaac Z. Schlueter",
-    "license": "BlueOak-1.0.0"
-  },
-  {
     "name": "package-manager-detector",
     "version": "1.8.0",
     "author": "Anthony Fu",
@@ -3847,7 +3817,7 @@
   },
   {
     "name": "path-scurry",
-    "version": "1.11.1",
+    "version": "3.0.0",
     "author": "Isaac Z. Schlueter",
     "license": "BlueOak-1.0.0"
   },
