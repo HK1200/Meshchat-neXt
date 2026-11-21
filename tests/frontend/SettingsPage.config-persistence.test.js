@@ -150,6 +150,31 @@ describe("SettingsPage: config persistence (PATCH and related)", () => {
         expect(api.patch).toHaveBeenCalledWith("/api/v1/config", { display_name: "New Name" });
     });
 
+    it("keeps newer name typing when an older save replies after both debounce timers fired", async () => {
+        const w = await mountSettingsPage(api);
+        const requests = [];
+        api.patch.mockImplementation(
+            (_url, body) =>
+                new Promise((resolve) => {
+                    requests.push({ body, resolve });
+                })
+        );
+        w.vm.config.display_name = "Simulator ";
+        await w.vm.onDisplayNameChange();
+        await vi.advanceTimersByTimeAsync(600);
+        w.vm.config.display_name = "Simulator profile";
+        await w.vm.onDisplayNameChange();
+        await vi.advanceTimersByTimeAsync(600);
+        expect(requests).toHaveLength(2);
+        requests[0].resolve({ data: { config: { ...serverConfigRef.current, display_name: "Simulator " } } });
+        await flushPromises();
+        expect(w.vm.config.display_name).toBe("Simulator profile");
+        requests[1].resolve({ data: { config: { ...serverConfigRef.current, display_name: "Simulator profile" } } });
+        await flushPromises();
+        expect(w.vm.config.display_name).toBe("Simulator profile");
+        w.unmount();
+    });
+
     it("does not PATCH an empty display name", async () => {
         const w = await mountSettingsPage(api);
         w.vm.config.display_name = "";
