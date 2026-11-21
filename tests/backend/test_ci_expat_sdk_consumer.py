@@ -186,3 +186,102 @@ def test_uv_missing_path_rejected(consumer, monkeypatch):
     monkeypatch.setattr(consumer.shutil, "which", lambda _: None)
     with pytest.raises(RuntimeError, match="Pinned UV is required"):
         consumer.resolve_uv(None)
+
+
+def test_permanent_release_sdk_keeps_exact_download_hash(
+    consumer, tmp_path, monkeypatch
+):
+    data = b"Synthetic public SDK archive"
+    entry = {
+        "release_tag": "python-sdk-security-test",
+        "release_asset": "linux-x64.zip",
+        "artifact_zip_sha256": hashlib.sha256(data).hexdigest(),
+    }
+    metadata = {
+        "tag_name": entry["release_tag"],
+        "draft": False,
+        "assets": [
+            {
+                "id": 123,
+                "name": entry["release_asset"],
+                "size": len(data),
+                "digest": "sha256:" + entry["artifact_zip_sha256"],
+            }
+        ],
+    }
+    calls = []
+
+    def query(command, **kwargs):
+        calls.append(command)
+        return json.dumps(metadata)
+
+    def download(command, stdout, check):
+        calls.append(command)
+        stdout.write(data)
+
+    monkeypatch.setattr(consumer.subprocess, "check_output", query)
+    monkeypatch.setattr(consumer.subprocess, "run", download)
+    artifact = tmp_path / "artifact.zip"
+    consumer.download_release_sdk("gh", "HK1200/Meshchat-neXt", entry, artifact)
+    assert artifact.read_bytes() == data
+    assert not artifact.with_suffix(".partial").exists()
+    assert all("/actions/" not in " ".join(command) for command in calls)
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "unpublished",
+        "tag",
+        "missing",
+        "duplicate",
+        "digest",
+        "oversize",
+        "unsafe_name",
+        "download_tamper",
+    ],
+)
+def test_permanent_sdk_rejects_bad_publication_and_partial_download(
+    consumer, tmp_path, monkeypatch, failure
+):
+    data = b"Public test archive"
+    entry = {
+        "release_tag": "sdk-test",
+        "release_asset": "target.zip",
+        "artifact_zip_sha256": hashlib.sha256(data).hexdigest(),
+    }
+    asset = {
+        "id": 123,
+        "name": "target.zip",
+        "size": len(data),
+        "digest": "sha256:" + entry["artifact_zip_sha256"],
+    }
+    metadata = {"tag_name": "sdk-test", "draft": False, "assets": [asset]}
+    if failure == "unpublished":
+        metadata["draft"] = True
+    if failure == "tag":
+        metadata["tag_name"] = "other"
+    if failure == "missing":
+        metadata["assets"] = []
+    if failure == "duplicate":
+        metadata["assets"] = [asset, dict(asset)]
+    if failure == "digest":
+        asset["digest"] = "sha256:" + "0" * 64
+    if failure == "oversize":
+        asset["size"] = 513 * 1024 * 1024
+    if failure == "unsafe_name":
+        entry["release_asset"] = "../target.zip"
+    monkeypatch.setattr(
+        consumer.subprocess,
+        "check_output",
+        lambda *args, **kwargs: json.dumps(metadata),
+    )
+
+    def download(command, stdout, check):
+        stdout.write(b"tampered" if failure == "download_tamper" else data)
+
+    monkeypatch.setattr(consumer.subprocess, "run", download)
+    artifact = tmp_path / "artifact.zip"
+    with pytest.raises(RuntimeError):
+        consumer.download_release_sdk("gh", "HK1200/Meshchat-neXt", entry, artifact)
+    assert not artifact.exists() and not artifact.with_suffix(".partial").exists()

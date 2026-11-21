@@ -12,7 +12,8 @@ permissions:
     contents: read
 jobs:
     verify:
-        if: ${{ !startsWith(inputs.tag || github.event.release.tag_name, 'linux-') }}
+        # Qualified Python SDKs are build inputs, not application releases.
+        if: ${{ !startsWith(inputs.tag || github.event.release.tag_name, 'linux-') && !startsWith(inputs.tag || github.event.release.tag_name, 'python-sdk-') }}
         runs-on: ubuntu-latest
         steps:
             - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
