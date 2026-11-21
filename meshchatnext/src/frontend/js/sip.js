@@ -24,14 +24,18 @@ let desktopRefresh = null;
 async function desktopCommand(op, fields = {}) {
     const api = globalThis.window?.api;
     if (!api?.post) throw new Error("SIP calling is unavailable in this build");
-    const { data } = await api.post(apiPath("/sip/command"), { ...fields, op });
+    const guardedCall =
+        sipState.platform === "ios" && ["answer", "hangup", "mute", "hold", "dtmf", "speaker"].includes(op)
+            ? { call_id: sipState.call_id }
+            : {};
+    const { data } = await api.post(apiPath("/sip/command"), { ...fields, ...guardedCall, op });
     Object.assign(sipState, data);
     return data;
 }
 watch(
     () => appFeatures.sip,
     (enabled) => {
-        if (["linux", "windows"].includes(sipState.platform))
+        if (["linux", "windows", "ios"].includes(sipState.platform))
             desktopCommand("feature", { enabled }).catch(() => {
                 sipState.error = "Could not update SIP feature settings";
             });
@@ -46,11 +50,11 @@ export function refreshSip() {
                 .get(apiPath("/sip/status"))
                 .then(async ({ data }) => {
                     Object.assign(sipState, data);
-                    if (["linux", "windows"].includes(data.platform) && data.feature_enabled !== appFeatures.sip)
+                    if (["linux", "windows", "ios"].includes(data.platform) && data.feature_enabled !== appFeatures.sip)
                         await desktopCommand("feature", { enabled: appFeatures.sip });
                 })
                 .catch(() => {
-                    if (["linux", "windows"].includes(sipState.platform))
+                    if (["linux", "windows", "ios"].includes(sipState.platform))
                         sipState.error = "Could not read desktop SIP status";
                 })
                 .finally(() => {

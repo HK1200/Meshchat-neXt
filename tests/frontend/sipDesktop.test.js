@@ -78,3 +78,24 @@ it("routes Windows SIP state and feature controls through the desktop API", asyn
     await flushPromises();
     expect(window.api.post).toHaveBeenCalledWith("/api/v1/sip/command", { op: "feature", enabled: false });
 });
+
+it("synchronizes the real iOS feature policy through the private API", async () => {
+    window.api = {
+        get: vi.fn().mockResolvedValue({ data: { available: true, platform: "ios", feature_enabled: true } }),
+        post: vi.fn().mockResolvedValue({ data: { platform: "ios", feature_enabled: false } }),
+    };
+    sip.refreshSip();
+    await flushPromises();
+    expect(sip.sipState.platform).toBe("ios");
+    const { setAppFeature } = await import("../../meshchatnext/src/frontend/js/appFeatures.js");
+    setAppFeature("sip", false);
+    await flushPromises();
+    expect(window.api.post).toHaveBeenCalledWith("/api/v1/sip/command", { op: "feature", enabled: false });
+});
+
+it.each(["answer", "hangup", "mute", "hold", "dtmf", "speaker"])("binds iOS %s to the displayed call", async (op) => {
+    Object.assign(sip.sipState, { platform: "ios", call_id: "displayed-call" });
+    window.api = { post: vi.fn().mockResolvedValue({ data: { platform: "ios", call_id: "displayed-call" } }) };
+    await sip.sipCommand(op, { value: true, call_id: "untrusted-override" });
+    expect(window.api.post).toHaveBeenCalledWith("/api/v1/sip/command", { op, value: true, call_id: "displayed-call" });
+});

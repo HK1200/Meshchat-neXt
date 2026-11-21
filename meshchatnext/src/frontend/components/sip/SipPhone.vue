@@ -337,7 +337,7 @@ function edit(a) {
               ...HOIP_DEFAULTS,
               allowed_networks: [
                   ...HOIP_DEFAULTS.allowed_networks,
-                  ...(["linux", "windows"].includes(state.platform) ? ["ethernet"] : []),
+                  ...(["linux", "windows", "ios"].includes(state.platform) ? ["ethernet"] : []),
               ],
               label: "HOIP",
               extension: "",
