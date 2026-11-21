@@ -37,6 +37,22 @@ async function portClosed(port) {
     }
     throw new Error("Packaged backend listener remained after Quit");
 }
+function ownedProcessRunning(child) {
+    return child && child.exitCode === null && child.signalCode === null;
+}
+async function waitForOwnedExit(child, timeoutMs) {
+    if (!ownedProcessRunning(child)) return;
+    await new Promise((resolve) => {
+        const finished = () => {
+            clearTimeout(timer);
+            child.removeListener("exit", finished);
+            resolve();
+        };
+        const timer = setTimeout(finished, timeoutMs);
+        child.once("exit", finished);
+        if (!ownedProcessRunning(child)) finished();
+    });
+}
 async function freePort() {
     const server = net.createServer();
     await new Promise((resolve, reject) => {
@@ -91,6 +107,7 @@ async function run(mode) {
     delete env.MESHCHAT_APPCONTAINER;
     if (mode === "forced") env.MESHCHAT_APPCONTAINER = "1";
     let appProcess, browser;
+    let failed = false;
     let diagnostic = "";
     const debugPort = await freePort();
     try {
@@ -194,6 +211,11 @@ async function run(mode) {
         const origin = new URL(page.url()).origin,
             port = Number(new URL(page.url()).port);
         await page.goto(`${origin}/#/meshcore/nodes/${peer}`);
+        // window.api exists before the real app finishes booting. The forced
+        // AppContainer launch also grants the frozen backend's file ACLs.
+        // Wait for the same bounded boot gate as a normal launch, then keep
+        // every exact room/task/draft assertion below.
+        await expect(page.locator("#meshchatnext-boot-splash")).toBeHidden({ timeout: 120000 });
         await expect(page.getByRole("heading", { name: "Fixture room", exact: true })).toBeVisible();
         await expect(page.getByLabel("Room conversation", { exact: true })).toBeVisible();
         await expect(page.locator("article").filter({ hasText: "Synthetic room post" })).toContainText("Alice");
@@ -254,6 +276,7 @@ async function run(mode) {
         });
         console.log(JSON.stringify(results.at(-1)));
     } catch (error) {
+        failed = true;
         console.error("Synthetic packaged fixture failed:", error);
         console.error("Synthetic packaged fixture diagnostics:", diagnostic);
         if (browser) {
@@ -276,12 +299,29 @@ async function run(mode) {
         }
         throw error;
     } finally {
-        if (browser) await browser.close();
-        if (appProcess && appProcess.exitCode === null) {
-            console.error("Failure cleanup: terminating only the owned synthetic fixture process");
-            appProcess.kill();
+        if (ownedProcessRunning(appProcess) && browser) {
+            const page = browser.contexts()[0]?.pages()[0];
+            if (page) await page.evaluate(() => window.close()).catch(() => {});
+            await waitForOwnedExit(appProcess, 10000);
         }
-        fs.rmSync(base, { recursive: true, force: true, maxRetries: 12, retryDelay: 200 });
+        if (browser) await browser.close().catch(() => {});
+        if (ownedProcessRunning(appProcess)) {
+            console.error("Failure cleanup: terminating only the owned synthetic fixture process tree");
+            const stopped = cp.spawnSync("taskkill.exe", ["/PID", String(appProcess.pid), "/T", "/F"], {
+                stdio: "ignore",
+                timeout: 15000,
+                windowsHide: true,
+            });
+            await waitForOwnedExit(appProcess, 5000);
+            if (stopped.error || ownedProcessRunning(appProcess))
+                console.error("Owned fixture cleanup could not confirm process exit; retaining diagnostics");
+        }
+        try {
+            fs.rmSync(base, { recursive: true, force: true, maxRetries: 12, retryDelay: 200 });
+        } catch (cleanupError) {
+            console.error("Retained only the synthetic fixture after cleanup failed:", base, cleanupError.code);
+            if (!failed) throw cleanupError;
+        }
     }
 }
 (async () => {
