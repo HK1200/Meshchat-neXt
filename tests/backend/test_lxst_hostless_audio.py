@@ -576,3 +576,48 @@ def test_push_client_frame_uses_hostless_audio_input_before_swap():
     pcm = np.zeros(80, dtype=np.int16).tobytes()
     bridge.push_client_frame(pcm)
     hostless.sink.handle_frame.assert_called()
+
+
+def test_hostless_mixer_supports_null_codec_without_a_host_backend(monkeypatch):
+    import importlib
+
+    from LXST.Codecs import Null
+
+    module = importlib.import_module("LXST.Mixer")
+    monkeypatch.setattr(module, "Backend", None)
+    assert install_hostless_lxst_audio()
+    # This is the real LXST codec setter that previously dereferenced
+    # Backend.SAMPLERATE even after host capture/playback were replaced.
+    mixer = module.Mixer(codec=Null())
+    assert mixer.samplerate == 48000
+    reset_hostless_lxst_audio_for_tests()
+    assert module.Backend is None
+
+
+def test_hostless_install_keeps_an_existing_mixer_backend(monkeypatch):
+    import importlib
+    from types import SimpleNamespace
+
+    from LXST.Codecs import Null
+
+    module = importlib.import_module("LXST.Mixer")
+    backend = SimpleNamespace(SAMPLERATE=44100)
+    monkeypatch.setattr(module, "Backend", backend)
+    assert install_hostless_lxst_audio()
+    assert module.Backend is backend
+    assert module.Mixer(codec=Null()).samplerate == 44100
+    reset_hostless_lxst_audio_for_tests()
+    assert module.Backend is backend
+
+
+def test_hostless_reset_does_not_replace_a_new_mixer_backend(monkeypatch):
+    import importlib
+    from types import SimpleNamespace
+
+    module = importlib.import_module("LXST.Mixer")
+    monkeypatch.setattr(module, "Backend", None)
+    assert install_hostless_lxst_audio()
+    replacement = SimpleNamespace(SAMPLERATE=96000)
+    module.Backend = replacement
+    reset_hostless_lxst_audio_for_tests()
+    assert module.Backend is replacement

@@ -2,8 +2,10 @@
 
 import asyncio
 import contextlib
+import importlib
 import json
 import threading
+from types import SimpleNamespace
 
 import numpy as np
 import RNS
@@ -19,6 +21,7 @@ from .telephone_manager import Tee
 _HOSTLESS_AUDIO_INSTALLED = False
 _ORIG_LINE_SOURCE = None
 _ORIG_LINE_SINK = None
+_HOSTLESS_MIXER_BACKEND = None
 WEB_AUDIO_SAMPLE_RATE = 48000
 
 
@@ -136,16 +139,26 @@ class HostlessAudioSink(LocalSink):
 def install_hostless_lxst_audio() -> bool:
     """Replace LXST LineSource/LineSink with hostless stand-ins (idempotent)."""
     global _HOSTLESS_AUDIO_INSTALLED, _ORIG_LINE_SOURCE, _ORIG_LINE_SINK
+    global _HOSTLESS_MIXER_BACKEND
     if _HOSTLESS_AUDIO_INSTALLED:
         return True
     try:
         from LXST.Primitives import Telephony as lxst_telephony
+
+        mixer_module = importlib.import_module("LXST.Mixer")
     except Exception as exc:
         RNS.log(
             f"WebAudioBridge: cannot install hostless audio backends: {exc}",
             RNS.LOG_ERROR,
         )
         return False
+
+    # LXST's Null/raw mixer still consults the host sample rate after its
+    # LineSource/LineSink are replaced. iOS and headless hosts may have no
+    # backend at all; supply only that metadata, never open a host device.
+    if mixer_module.Backend is None:
+        _HOSTLESS_MIXER_BACKEND = SimpleNamespace(SAMPLERATE=WEB_AUDIO_SAMPLE_RATE)
+        mixer_module.Backend = _HOSTLESS_MIXER_BACKEND
 
     _ORIG_LINE_SOURCE = getattr(lxst_telephony, "LineSource", None)
     _ORIG_LINE_SINK = getattr(lxst_telephony, "LineSink", None)
@@ -166,6 +179,7 @@ def hostless_lxst_audio_installed() -> bool:
 def reset_hostless_lxst_audio_for_tests() -> None:
     """Restore original LXST LineSource/LineSink (tests only)."""
     global _HOSTLESS_AUDIO_INSTALLED, _ORIG_LINE_SOURCE, _ORIG_LINE_SINK
+    global _HOSTLESS_MIXER_BACKEND
     if not _HOSTLESS_AUDIO_INSTALLED:
         return
     with contextlib.suppress(Exception):
@@ -175,6 +189,14 @@ def reset_hostless_lxst_audio_for_tests() -> None:
             lxst_telephony.LineSource = _ORIG_LINE_SOURCE
         if _ORIG_LINE_SINK is not None:
             lxst_telephony.LineSink = _ORIG_LINE_SINK
+    with contextlib.suppress(Exception):
+        mixer_module = importlib.import_module("LXST.Mixer")
+        if (
+            _HOSTLESS_MIXER_BACKEND is not None
+            and mixer_module.Backend is _HOSTLESS_MIXER_BACKEND
+        ):
+            mixer_module.Backend = None
+    _HOSTLESS_MIXER_BACKEND = None
     _HOSTLESS_AUDIO_INSTALLED = False
     _ORIG_LINE_SOURCE = None
     _ORIG_LINE_SINK = None
