@@ -1,5 +1,11 @@
 # Meshchat neXt changelog
 
+## 0.1.22
+
+- Resume a retained Reticulum direct message when its old connection has closed and a fresh active link is available.
+- Preserve the original signed packet, delivery attempts and deadlines; completed, cancelled and live location messages are not restarted.
+- Keep one release version across Android, Windows, macOS and Linux packages.
+
 ## 0.1.21
 
 - Make Wi-Fi hardware optional on Android so cellular-only devices are not excluded. Reticulum, MeshCore and SIP networking permissions are retained.
