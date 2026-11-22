@@ -15,6 +15,7 @@ from meshchatnext.src.backend.http.db_availability import (
 )
 from meshchatnext.src.backend.http.errors import (
     http_bad_request,
+    http_error,
     http_payload_too_large,
     http_unexpected,
     parse_int_param,
@@ -263,11 +264,10 @@ def register_contacts_routes(routes, app):
             try:
                 remove_contact_alert_route(app, dict(previous))
             except (OSError, ValueError):
-                return web.json_response(
-                    {
-                        "message": "Could not revoke the old alert route. Contact unchanged."
-                    },
-                    status=503,
+                return http_error(
+                    503,
+                    "Could not revoke the old alert route. Contact unchanged.",
+                    code="mailbox_alert_revocation_failed",
                 )
         app.database.contacts.update_contact(
             contact_id,
@@ -292,11 +292,10 @@ def register_contacts_routes(routes, app):
         try:
             remove_contact_alert_route(app, dict(contact) if contact else None)
         except (OSError, ValueError):
-            return web.json_response(
-                {
-                    "message": "Could not revoke the contact's alert route. Contact unchanged."
-                },
-                status=503,
+            return http_error(
+                503,
+                "Could not revoke the contact's alert route. Contact unchanged.",
+                code="mailbox_alert_revocation_failed",
             )
         app.database.contacts.delete_contact(contact_id)
         app.sync_telephone_call_policy()

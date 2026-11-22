@@ -8,7 +8,11 @@ from pathlib import Path
 from aiohttp import web
 
 from meshchatnext.src.backend.constants import API_V1_PREFIX
-from meshchatnext.src.backend.http.errors import parse_int_param
+from meshchatnext.src.backend.http.errors import (
+    http_bad_request,
+    http_error,
+    parse_int_param,
+)
 from meshchatnext.src.backend.http.uploads import (
     PayloadTooLargeError,
     read_json_limited,
@@ -74,13 +78,12 @@ def register_mailbox_alert_routes(routes, app):
                 max_size=4096, actual_size=request.content_length or 4097
             ) from None
         except ValueError as error:
-            return web.json_response({"message": str(error)}, status=400)
+            return http_bad_request(str(error), code="invalid_mailbox_alert_route")
         except OSError:
-            return web.json_response(
-                {
-                    "message": "Could not save alert settings. The previous route is unchanged."
-                },
-                status=503,
+            return http_error(
+                503,
+                "Could not save alert settings. The previous route is unchanged.",
+                code="mailbox_alert_storage_unavailable",
             )
 
     @routes.delete(API_V1_PREFIX + "/telephone/contacts/{id}/mailbox-alert-route")
@@ -89,8 +92,9 @@ def register_mailbox_alert_routes(routes, app):
         try:
             save_route(Path(context.storage_path), address, None)
         except (OSError, ValueError):
-            return web.json_response(
-                {"message": "Could not remove the saved alert route. Try again."},
-                status=503,
+            return http_error(
+                503,
+                "Could not remove the saved alert route. Try again.",
+                code="mailbox_alert_storage_unavailable",
             )
         return web.json_response({"route": None})

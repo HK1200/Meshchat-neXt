@@ -1789,6 +1789,18 @@
             "path": "/api/v1/telephone/contacts/{id}"
         },
         {
+            "method": "DELETE",
+            "path": "/api/v1/telephone/contacts/{id}/mailbox-alert-route"
+        },
+        {
+            "method": "GET",
+            "path": "/api/v1/telephone/contacts/{id}/mailbox-alert-route"
+        },
+        {
+            "method": "POST",
+            "path": "/api/v1/telephone/contacts/{id}/mailbox-alert-route"
+        },
+        {
             "method": "POST",
             "path": "/api/v1/telephone/hangup"
         },

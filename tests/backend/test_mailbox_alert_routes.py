@@ -86,6 +86,9 @@ async def test_invalid_form_preserves_existing_route(profile, body):
             f"/api/v1/telephone/contacts/{contact_id}/mailbox-alert-route", json=body
         )
         assert response.status == 400
+        error = await response.json()
+        assert error["code"] == "invalid_mailbox_alert_route"
+        assert error["error"] == error["message"]
     assert (folder / "mailbox-push-routes.json").read_bytes() == before
 
 
