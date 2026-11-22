@@ -53,6 +53,9 @@ def create_lxmf_router(
     else:
         router = LXMF.LXMRouter(**kwargs)
     _install_lxmf_traffic_metering(router)
+    from meshchatnext.src.backend.lxmf_reconnect import install_reconnect_recovery
+
+    install_reconnect_recovery(router)
     return router
 
 

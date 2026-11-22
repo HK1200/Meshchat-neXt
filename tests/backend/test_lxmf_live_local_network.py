@@ -1030,3 +1030,87 @@ def test_live_local_tcp_codec2_voice_and_telemetry_together(tmp_path, mock_app):
     telem = app.database.telemetry.get_latest_telemetry(inbox["src"])
     assert telem is not None
     assert bytes(telem["data"]) == packed
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not _RUN, reason="Set MESHCHAT_LIVE_RETICULUM=1")
+@pytest.mark.parametrize("repair", [False, True])
+def test_live_local_tcp_captured_reconnect_state_needs_fresh_handoff(
+    tmp_path, monkeypatch, repair
+):
+    """Reproduce the captured no-destination state on a real authenticated link."""
+    import textwrap as _textwrap
+
+    approve = _textwrap.dedent("""\
+        known_path = os.path.join(share_dir, "alice-public.json")
+        approved_path = os.path.join(share_dir, "alice-approved")
+        if os.path.isfile(known_path) and not os.path.isfile(approved_path):
+            with open(known_path, encoding="utf-8") as handle:
+                known = json.load(handle)
+            checked = RNS.Identity(create_keys=False)
+            checked.load_public_key(bytes.fromhex(known["pub"]))
+            assert RNS.Destination.hash_from_name_and_identity("lxmf.delivery", checked).hex() == known["dest"]
+            RNS.Identity.remember(None, bytes.fromhex(known["dest"]), bytes.fromhex(known["pub"]))
+            with open(approved_path, "w", encoding="utf-8") as handle:
+                handle.write("approved")
+    """)
+    assert _BOB_SCRIPT.count("    dest.announce()\n") == 1
+    bob_script = _BOB_SCRIPT.replace(
+        "    dest.announce()\n",
+        "    dest.announce()\n" + _textwrap.indent(approve, "    "),
+    )
+    handoff = _textwrap.dedent("""\
+        with open(os.path.join(share_dir, "alice-public.json"), "w", encoding="utf-8") as handle:
+            json.dump({"pub": identity.get_public_key().hex(), "dest": local.hash.hex()}, handle)
+        deadline = time.monotonic() + 10
+        while not os.path.isfile(os.path.join(share_dir, "alice-approved")):
+            assert time.monotonic() < deadline, "Receiver did not approve the synthetic sender key"
+            time.sleep(0.05)
+        fresh = RNS.Link(destination)
+        deadline = time.monotonic() + 10
+        while fresh.status != RNS.Link.ACTIVE:
+            assert time.monotonic() < deadline, "Fresh authenticated loopback link did not activate"
+            time.sleep(0.05)
+        msg.desired_method = LXMF.LXMessage.DIRECT
+        msg.pack()
+        msg.state = LXMF.LXMessage.SENDING
+        msg.delivery_attempts = 1
+        msg.next_delivery_attempt = time.time() + 60
+        msg.set_delivery_destination(None)
+        router.pending_outbound.append(msg)
+        router.direct_links[destination.hash] = fresh
+    """)
+    if repair:
+        handoff += "from meshchatnext.src.backend.lxmf_reconnect import install_reconnect_recovery\ninstall_reconnect_recovery(router)\n"
+    handoff += "router.process_outbound()\n"
+    assert _ALICE_SCRIPT.count("router.handle_outbound(msg)\n") == 1
+    alice_script = _ALICE_SCRIPT.replace("router.handle_outbound(msg)\n", handoff)
+    alice_script = alice_script.replace(
+        '"state": int(msg.state)',
+        '"fresh_active": fresh.status == RNS.Link.ACTIVE,\n                "state": int(msg.state)',
+        1,
+    )
+    monkeypatch.setitem(globals(), "_ALICE_SCRIPT", alice_script)
+    if not repair:
+        monkeypatch.setitem(globals(), "_DELIVERY_TIMEOUT_S", 12)
+        with pytest.raises(
+            AssertionError, match="bob did not receive LXMF over local TCP"
+        ):
+            _run_local_delivery(
+                tmp_path,
+                {"content": "Captured reconnect negative control"},
+                bob_script=bob_script,
+            )
+        state = _read_json_when_ready(tmp_path / "share/send.json")
+        assert state["fresh_active"] and state["state"] == LXMF.LXMessage.SENDING
+        assert not (tmp_path / "share/inbox.json").exists()
+    else:
+        result = _run_local_delivery(
+            tmp_path,
+            {"content": "Recovered reconnect private packet"},
+            bob_script=bob_script,
+        )
+        assert result["send"]["fresh_active"]
+        assert result["inbox"]["sig_ok"]
+        assert result["inbox"]["content"] == "Recovered reconnect private packet"
+        assert result["inbox"]["hash"] == result["send"]["msg_hash"]
