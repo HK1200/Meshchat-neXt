@@ -1,6 +1,6 @@
 # Meshchat neXt changelog
 
-## 0.1.24
+## 0.1.25
 
 - Transfer discovered-interface credentials and coordinates through a one-use in-memory draft, preserving the add-interface form without storing those details in browser session storage.
 - Reserve legacy Android download filenames atomically, preserve existing files after repeated collisions, and reject paths outside the download directory.
