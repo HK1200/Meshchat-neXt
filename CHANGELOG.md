@@ -1,5 +1,13 @@
 # Meshchat neXt changelog
 
+## 0.1.24
+
+- Transfer discovered-interface credentials and coordinates through a one-use in-memory draft, preserving the add-interface form without storing those details in browser session storage.
+- Reserve legacy Android download filenames atomically, preserve existing files after repeated collisions, and reject paths outside the download directory.
+- Correct Micron link filtering so ordinary relative links work and unapproved hyphenated URL schemes are removed.
+- Link directly to the project's enabled private vulnerability-reporting channel.
+- Keep matching versions across Android, Windows, macOS and Linux packages.
+
 ## 0.1.23
 
 - Resume a retained Reticulum direct message when its old connection has closed and a fresh active link is available.

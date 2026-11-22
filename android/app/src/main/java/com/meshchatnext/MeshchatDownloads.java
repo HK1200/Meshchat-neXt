@@ -188,15 +188,23 @@ final class MeshchatDownloads {
         if (!dir.exists() && !dir.mkdirs()) {
             throw new IOException("mkdirs failed");
         }
-        File target = uniqueTarget(dir, safe);
-        if (data != null) {
-            try (FileOutputStream fos = new FileOutputStream(target)) {
-                fos.write(data);
+        File target = MeshchatDownloadUtils.reserveUniqueTarget(dir, safe);
+        boolean written = false;
+        try {
+            if (data != null) {
+                try (FileOutputStream fos = new FileOutputStream(target)) {
+                    fos.write(data);
+                }
+            } else {
+                try (InputStream in = new FileInputStream(sourceFile);
+                     OutputStream out = new FileOutputStream(target)) {
+                    copy(in, out);
+                }
             }
-        } else {
-            try (InputStream in = new FileInputStream(sourceFile);
-                 OutputStream out = new FileOutputStream(target)) {
-                copy(in, out);
+            written = true;
+        } finally {
+            if (!written) {
+                target.delete();
             }
         }
         MediaScannerConnection.scanFile(context, new String[] {target.getAbsolutePath()}, null, null);
@@ -209,23 +217,6 @@ final class MeshchatDownloads {
             return Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
         }
         return context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
-    }
-
-    private static File uniqueTarget(File dir, String safe) {
-        File target = new File(dir, safe);
-        if (!target.exists()) {
-            return target;
-        }
-        int dot = safe.lastIndexOf('.');
-        String stem = dot > 0 ? safe.substring(0, dot) : safe;
-        String ext = dot > 0 ? safe.substring(dot) : "";
-        for (int i = 1; i < 100; i++) {
-            File candidate = new File(dir, stem + " (" + i + ")" + ext);
-            if (!candidate.exists()) {
-                return candidate;
-            }
-        }
-        return target;
     }
 
     private static void copy(InputStream in, OutputStream out) throws IOException {

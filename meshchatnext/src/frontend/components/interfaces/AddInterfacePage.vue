@@ -2369,6 +2369,7 @@
 <script>
 import { useInterfaceChangesStore } from "../../js/stores/interfaceChangesStore.js";
 import DialogUtils from "../../js/DialogUtils";
+import { takeDiscoveredInterfaceDraft } from "../../js/discoveredInterfaceDraft.js";
 import { apiPath } from "../../js/constants";
 import ToastUtils from "../../js/ToastUtils";
 import { numOrNull, parseRNodeFrequencyHz } from "../../js/interfaceDiscoveryUtils";
@@ -3607,18 +3608,7 @@ export default {
             };
         },
         applyDiscoveredInterfacePrefill() {
-            let prefill = null;
-            try {
-                if (typeof sessionStorage !== "undefined") {
-                    const raw = sessionStorage.getItem("meshchatnext.discoveredInterfacePrefill");
-                    if (raw) {
-                        prefill = JSON.parse(raw);
-                        sessionStorage.removeItem("meshchatnext.discoveredInterfacePrefill");
-                    }
-                }
-            } catch (e) {
-                console.log(e);
-            }
+            const prefill = takeDiscoveredInterfaceDraft();
             if (!prefill) return;
 
             if (prefill.config_entry) {

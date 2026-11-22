@@ -909,6 +909,7 @@
 import { useNetworkStore } from "../../js/stores/networkStore";
 import { useInterfaceChangesStore } from "../../js/stores/interfaceChangesStore.js";
 import DialogUtils from "../../js/DialogUtils";
+import { stageDiscoveredInterfaceDraft } from "../../js/discoveredInterfaceDraft.js";
 import ElectronUtils from "../../js/ElectronUtils";
 import Interface from "./Interface.vue";
 import { getCurrentInstance } from "vue";
@@ -2020,13 +2021,7 @@ export default {
                 longitude: iface.longitude ?? null,
                 height: iface.height ?? null,
             };
-            try {
-                if (typeof sessionStorage !== "undefined") {
-                    sessionStorage.setItem("meshchatnext.discoveredInterfacePrefill", JSON.stringify(prefill));
-                }
-            } catch (e) {
-                console.log(e);
-            }
+            stageDiscoveredInterfaceDraft(prefill);
             this.$router.push({
                 name: "interfaces.add",
                 query: { from_discovered: "1" },

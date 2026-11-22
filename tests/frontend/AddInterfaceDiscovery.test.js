@@ -1,5 +1,9 @@
 import { mount } from "@vue/test-utils";
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import {
+    stageDiscoveredInterfaceDraft,
+    takeDiscoveredInterfaceDraft,
+} from "../../meshchatnext/src/frontend/js/discoveredInterfaceDraft.js";
 import AddInterfacePage from "../../meshchatnext/src/frontend/components/interfaces/AddInterfacePage.vue";
 
 const mockAxios = {
@@ -39,6 +43,31 @@ describe("AddInterfacePage.vue discovery", () => {
                 stubs: ["RouterLink", "MaterialDesignIcon", "Toggle", "ExpandingSection", "FormLabel", "FormSubLabel"],
             },
         });
+
+    it("applies the private discovery draft to the real editor without losing its credentials", async () => {
+        stageDiscoveredInterfaceDraft({
+            name: "Discovery fixture",
+            type: "TCPClientInterface",
+            target_host: "example.invalid",
+            target_port: 4343,
+            network_name: "Fixture network",
+            passphrase: "fixture-passphrase",
+        });
+        const wrapper = mountPage();
+        wrapper.vm.applyDiscoveredInterfacePrefill();
+        expect(wrapper.vm.newInterfaceName).toBe("Discovery fixture");
+        expect(wrapper.vm.newInterfaceTargetHost).toBe("example.invalid");
+        expect(wrapper.vm.newInterfaceTargetPort).toBe(4343);
+        expect(wrapper.vm.sharedInterfaceSettings.network_name).toBe("Fixture network");
+        expect(wrapper.vm.sharedInterfaceSettings.passphrase).toBe("fixture-passphrase");
+        expect(takeDiscoveredInterfaceDraft()).toBeNull();
+        await wrapper.vm.saveInterface();
+        expect(mockAxios.post).toHaveBeenCalledWith(
+            "/api/v1/reticulum/interfaces/add",
+            expect.objectContaining({ passphrase: "fixture-passphrase", target_host: "example.invalid" })
+        );
+        wrapper.unmount();
+    });
 
     it("adds discovery fields when interface is discoverable", async () => {
         const wrapper = mountPage();

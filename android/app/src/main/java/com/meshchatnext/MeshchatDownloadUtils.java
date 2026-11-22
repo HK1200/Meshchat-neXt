@@ -1,5 +1,9 @@
 package com.meshchatnext;
 
+import java.io.File;
+import java.io.IOException;
+import java.util.UUID;
+
 final class MeshchatDownloadUtils {
 
     private static final int DOWNLOAD_NOTIFICATION_ID_BASE = 0x60000;
@@ -33,7 +37,7 @@ final class MeshchatDownloadUtils {
         }
         // Hyphen must be first or last in the class so it is literal, not a range (space..hyphen would include '*').
         base = base.replaceAll("[^A-Za-z0-9._ \\-]+", "_").trim();
-        if (base.isEmpty()) {
+        if (base.isEmpty() || base.equals(".") || base.equals("..")) {
             return "download.bin";
         }
         if (base.length() > 120) {
@@ -41,4 +45,32 @@ final class MeshchatDownloadUtils {
         }
         return base;
     }
+
+    /** Reserve a new basename atomically; never reuse an existing download. */
+    static File reserveUniqueTarget(File directory, String safe) throws IOException {
+        if (directory == null || safe == null || !safe.equals(sanitizeFileName(safe))) {
+            throw new IOException("Invalid download filename");
+        }
+        File root = directory.getCanonicalFile();
+        if (!root.isDirectory()) {
+            throw new IOException("Download directory is unavailable");
+        }
+        int dot = safe.lastIndexOf('.');
+        String stem = dot > 0 ? safe.substring(0, dot) : safe;
+        String extension = dot > 0 ? safe.substring(dot) : "";
+        for (int attempt = 0; attempt < 128; attempt++) {
+            String name = attempt == 0 ? safe : stem + " ("
+                + (attempt < 100 ? Integer.toString(attempt) : UUID.randomUUID().toString())
+                + ")" + extension;
+            File candidate = new File(root, name).getCanonicalFile();
+            if (!root.equals(candidate.getParentFile())) {
+                throw new IOException("Download filename escapes its directory");
+            }
+            if (candidate.createNewFile()) {
+                return candidate;
+            }
+        }
+        throw new IOException("Could not reserve a new download filename");
+    }
+
 }
