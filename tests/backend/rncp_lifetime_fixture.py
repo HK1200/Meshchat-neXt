@@ -1,13 +1,14 @@
 # SPDX-License-Identifier: 0BSD
 """Drive the real fetch method past 120 virtual seconds with bounded callbacks."""
 
+from inspect import unwrap
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
 
 async def exercise(handler, monkeypatch, folder, *, started):
-    namespace = handler.fetch_file.__func__.__globals__
+    namespace = unwrap(handler.fetch_file).__globals__
     complete = namespace["RNS"].Resource.COMPLETE
     seconds = [0]
     payload = b"healthy slow resource bytes"
