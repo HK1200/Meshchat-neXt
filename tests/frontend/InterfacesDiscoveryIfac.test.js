@@ -3,6 +3,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import InterfacesPage from "../../meshchatnext/src/frontend/components/interfaces/InterfacesPage.vue";
 import AddInterfacePage from "../../meshchatnext/src/frontend/components/interfaces/AddInterfacePage.vue";
 import ToastUtils from "../../meshchatnext/src/frontend/js/ToastUtils";
+import {
+    stageDiscoveredInterfaceDraft,
+    takeDiscoveredInterfaceDraft,
+} from "../../meshchatnext/src/frontend/js/discoveredInterfaceDraft.js";
 
 vi.mock("../../meshchatnext/src/frontend/js/Utils", () => ({
     default: {
@@ -104,6 +108,7 @@ const mountInterfacesPage = () =>
 describe("InterfacesPage discovered IFAC display", () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        takeDiscoveredInterfaceDraft();
         if (typeof sessionStorage !== "undefined") {
             sessionStorage.clear();
         }
@@ -195,7 +200,7 @@ describe("InterfacesPage discovered IFAC display", () => {
         expect(ToastUtils.error).toHaveBeenCalled();
     });
 
-    it("useDiscoveredInterface stores prefill in sessionStorage and navigates", async () => {
+    it("useDiscoveredInterface transfers prefill privately and navigates", async () => {
         const routerPush = vi.fn();
         const wrapper = mount(InterfacesPage, {
             global: {
@@ -215,7 +220,9 @@ describe("InterfacesPage discovered IFAC display", () => {
 
         wrapper.vm.useDiscoveredInterface(ifaceWithIfac);
 
-        const stored = JSON.parse(sessionStorage.getItem("meshchatnext.discoveredInterfacePrefill"));
+        expect(sessionStorage.getItem("meshchatnext.discoveredInterfacePrefill")).toBeNull();
+        const stored = takeDiscoveredInterfaceDraft();
+        expect(takeDiscoveredInterfaceDraft()).toBeNull();
         expect(stored.name).toBe("kin.earth");
         expect(stored.type).toBe("BackboneInterface");
         expect(stored.target_host).toBe("rns.kin.earth");
@@ -246,6 +253,7 @@ describe("InterfacesPage discovered IFAC display", () => {
 describe("AddInterfacePage discovered prefill", () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        takeDiscoveredInterfaceDraft();
         if (typeof sessionStorage !== "undefined") {
             sessionStorage.clear();
         }
@@ -266,18 +274,15 @@ describe("AddInterfacePage discovered prefill", () => {
         });
 
     it("applies a discovered prefill payload to the form on mount", async () => {
-        sessionStorage.setItem(
-            "meshchatnext.discoveredInterfacePrefill",
-            JSON.stringify({
-                name: "kin.earth",
-                type: "BackboneInterface",
-                target_host: "rns.kin.earth",
-                target_port: 4242,
-                transport_identity: "eea3d09f02143e157b3dae83060ee843",
-                network_name: "kin.earth",
-                passphrase: "asty8vT8spXNQdCnPVMATbCKkwUxuzG9",
-            })
-        );
+        stageDiscoveredInterfaceDraft({
+            name: "kin.earth",
+            type: "BackboneInterface",
+            target_host: "rns.kin.earth",
+            target_port: 4242,
+            transport_identity: "eea3d09f02143e157b3dae83060ee843",
+            network_name: "kin.earth",
+            passphrase: "asty8vT8spXNQdCnPVMATbCKkwUxuzG9",
+        });
 
         const wrapper = mountAdd();
         await wrapper.vm.$nextTick();
@@ -292,13 +297,10 @@ describe("AddInterfacePage discovered prefill", () => {
     });
 
     it("uses config_entry directly when provided", async () => {
-        sessionStorage.setItem(
-            "meshchatnext.discoveredInterfacePrefill",
-            JSON.stringify({
-                config_entry:
-                    "[[Quick Backbone]]\ntype = BackboneInterface\nremote = node.example\ntarget_port = 4242\nnetwork_name = quick.net\npassphrase = quickpass",
-            })
-        );
+        stageDiscoveredInterfaceDraft({
+            config_entry:
+                "[[Quick Backbone]]\ntype = BackboneInterface\nremote = node.example\ntarget_port = 4242\nnetwork_name = quick.net\npassphrase = quickpass",
+        });
 
         const wrapper = mountAdd();
         await wrapper.vm.$nextTick();
