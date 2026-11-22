@@ -863,7 +863,12 @@ class RNCPHandler:
 
         resolve_deadline = asyncio.get_running_loop().time() + 120.0
         while not resource_resolved:
-            if asyncio.get_running_loop().time() > resolve_deadline:
+            # Bound a peer that never starts a resource, but let RNS's resource
+            # watchdog govern a transfer that is already progressing over radio.
+            if (
+                current_resource is None
+                and asyncio.get_running_loop().time() > resolve_deadline
+            ):
                 with contextlib.suppress(Exception):
                     link.teardown()
                 msg = "Timed out waiting for remote resource"
