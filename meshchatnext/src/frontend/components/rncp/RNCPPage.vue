@@ -685,12 +685,18 @@ export default {
             this.sendTransferId = null;
 
             try {
-                const response = await window.api.post(apiPath("/rncp/send"), {
-                    destination_hash: this.sendDestinationHash,
-                    file_path: this.sendFilePath,
-                    timeout: this.sendTimeout,
-                    no_compress: this.sendNoCompress,
-                });
+                // RNCP's resource watchdog and Cancel govern a healthy transfer;
+                // the generic mutation deadline can expire while LoRa still flows.
+                const response = await window.api.post(
+                    apiPath("/rncp/send"),
+                    {
+                        destination_hash: this.sendDestinationHash,
+                        file_path: this.sendFilePath,
+                        timeout: this.sendTimeout,
+                        no_compress: this.sendNoCompress,
+                    },
+                    { timeout: 0 }
+                );
 
                 this.sendTransferId = response.data.transfer_id;
                 this.sendProgress = 1;
@@ -739,13 +745,17 @@ export default {
             this.fetchTransferId = null;
 
             try {
-                const response = await window.api.post(apiPath("/rncp/fetch"), {
-                    destination_hash: this.fetchDestinationHash,
-                    file_path: this.fetchFilePath,
-                    timeout: this.fetchTimeout,
-                    save_path: this.fetchSavePath || null,
-                    allow_overwrite: this.fetchAllowOverwrite,
-                });
+                const response = await window.api.post(
+                    apiPath("/rncp/fetch"),
+                    {
+                        destination_hash: this.fetchDestinationHash,
+                        file_path: this.fetchFilePath,
+                        timeout: this.fetchTimeout,
+                        save_path: this.fetchSavePath || null,
+                        allow_overwrite: this.fetchAllowOverwrite,
+                    },
+                    { timeout: 0 }
+                );
 
                 this.fetchProgress = 1;
                 const saved = response.data.file_path;
