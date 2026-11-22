@@ -1,5 +1,11 @@
 # Meshchat neXt changelog
 
+## 0.1.26
+
+- Keep healthy RNCP file sends and fetches running beyond two minutes on slow connections.
+- Retain the remote-resource start deadline and Reticulum’s own stalled-transfer watchdog.
+- Keep matching versions across Android, Windows, macOS and Linux packages.
+
 ## 0.1.25
 
 - Transfer discovered-interface credentials and coordinates through a one-use in-memory draft, preserving the add-interface form without storing those details in browser session storage.
