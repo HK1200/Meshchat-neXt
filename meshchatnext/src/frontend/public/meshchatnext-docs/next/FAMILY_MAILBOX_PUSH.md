@@ -1,5 +1,8 @@
 # Family mailbox push hints
 
+These sender controls are in development source after v0.1.21. The published
+v0.1.21 downloads do not contain them; they will ship in a verified new release.
+
 To send alerts to a Family device whose guardian has opted in, open **Settings →
 neXt Family → Optional recipient alerts**. Search your saved Reticulum contacts,
 select the recipient and enter the HTTPS provider, audience and propagation-node

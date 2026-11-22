@@ -56,6 +56,12 @@ def bootstrap_contract_app(app: ReticulumMeshChat) -> ReticulumMeshChat:
     ctx = app.current_context
     if ctx is None:
         return app
+    # A real, saved synthetic contact exercises the successful optional-route
+    # envelope rather than excluding this new JSON endpoint from contracts.
+    if ctx.database.contacts.get_contact(1) is None:
+        ctx.database.contacts.add_contact(
+            "Mailbox contract recipient", "ae" * 16, lxmf_address="ad" * 16
+        )
     lxmf_dest = MagicMock()
     lxmf_dest.hexhash = "cc" * 16
     ctx.local_lxmf_destination = lxmf_dest

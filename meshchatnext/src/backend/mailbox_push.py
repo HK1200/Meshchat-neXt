@@ -49,7 +49,8 @@ def parse_route(entry):
             or parts.path not in ("", "/")
             or parts.query
             or parts.fragment
-            or not 0 < len(audience.strip()) <= 128
+            or not 0 < len(audience) <= 128
+            or not audience.strip()
             or (parts.port is not None and not 1 <= parts.port <= 65535)
             or not re.fullmatch(r"[a-f0-9]{32}", relay)
         ):

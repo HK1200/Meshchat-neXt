@@ -1154,3 +1154,35 @@ UPDATE_PENDING_SCHEMA: dict = {
     "properties": {"pending": {"type": ["object", "null"]}},
     "additionalProperties": True,
 }
+
+
+MAILBOX_ALERT_ROUTE_SCHEMA: dict = {
+    "type": "object",
+    "required": ["route"],
+    "properties": {
+        "route": {
+            "anyOf": [
+                {"type": "null"},
+                {
+                    "type": "object",
+                    "required": ["provider", "audience", "relay"],
+                    "properties": {
+                        "provider": {
+                            "type": "string",
+                            "pattern": "^https://",
+                            "maxLength": 2048,
+                        },
+                        "audience": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128,
+                        },
+                        "relay": {"type": "string", "pattern": "^[a-f0-9]{32}$"},
+                    },
+                    "additionalProperties": False,
+                },
+            ]
+        }
+    },
+    "additionalProperties": False,
+}

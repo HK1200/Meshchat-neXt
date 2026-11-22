@@ -9,6 +9,8 @@ from aiohttp.test_utils import TestClient, TestServer
 from meshchatnext.src.backend import mailbox_push
 from meshchatnext.src.backend.database import Database
 from meshchatnext.src.backend.http.routes import mailbox_alerts
+from tests.backend.api_json_contract_schemas import assert_matches_schema
+from tests.backend.http_api_response_schemas import MAILBOX_ALERT_ROUTE_SCHEMA
 
 ADDRESS = "a1" * 16
 OTHER = "a2" * 16
@@ -50,10 +52,14 @@ async def test_route_controls_save_only_explicit_contact_and_revoke_without_prov
     monkeypatch.setattr(mailbox_push, "_post", unexpected)
     path = f"/api/v1/telephone/contacts/{contact_id}/mailbox-alert-route"
     async with client_for(app) as client:
-        assert (await (await client.get(path)).json()) == {"route": None}
+        initial = await (await client.get(path)).json()
+        assert initial == {"route": None}
+        assert_matches_schema(initial, MAILBOX_ALERT_ROUTE_SCHEMA)
         assert not (folder / "mailbox-push-routes.json").exists()
         response = await client.post(path, json={"route": ROUTE})
-        assert response.status == 200 and (await response.json())["route"] == ROUTE
+        body = await response.json()
+        assert response.status == 200 and body["route"] == ROUTE
+        assert_matches_schema(body, MAILBOX_ALERT_ROUTE_SCHEMA)
         assert mailbox_push.route_for(folder, ADDRESS).relay == ROUTE["relay"]
         assert (await (await client.get(path)).json())["route"] == ROUTE
         if __import__("os").name == "posix":
@@ -72,6 +78,7 @@ async def test_route_controls_save_only_explicit_contact_and_revoke_without_prov
         [],
         {},
         {"route": {**ROUTE, "secret": "not accepted"}},
+        {"route": {**ROUTE, "audience": "x" + " " * 128}},
         {"route": {**ROUTE, "provider": "http://example.invalid"}},
         {"route": {**ROUTE, "provider": "https://example.invalid:invalid"}},
         {"route": {**ROUTE, "provider": "https://example.invalid/other"}},
