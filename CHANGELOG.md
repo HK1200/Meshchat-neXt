@@ -1,10 +1,11 @@
 # Meshchat neXt changelog
 
-## 0.1.22
+## 0.1.23
 
 - Resume a retained Reticulum direct message when its old connection has closed and a fresh active link is available.
 - Preserve the original signed packet, delivery attempts and deadlines; completed, cancelled and live location messages are not restarted.
 - Keep one release version across Android, Windows, macOS and Linux packages.
+- Allow the official Ubuntu ARM64 package mirror in the release build and resolve annotated tags correctly when resuming a draft.
 
 ## 0.1.21
 

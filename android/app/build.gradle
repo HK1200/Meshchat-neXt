@@ -56,8 +56,8 @@ android {
         minSdk 24
         targetSdk (googlePlay ? 36 : 35)
         buildConfigField "boolean", "GOOGLE_PLAY", googlePlay.toString()
-        versionCode 27
-        versionName "0.1.22"
+        versionCode 28
+        versionName "0.1.23"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         ndk {

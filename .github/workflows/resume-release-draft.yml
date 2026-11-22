@@ -31,7 +31,7 @@ jobs:
                   [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
                   [[ "$RUN_ID" =~ ^[0-9]+$ ]]
                   run="repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID"
-                  sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq .object.sha)"
+                  sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$TAG" --jq .sha)"
                   test "$(gh api "$run" --jq .path)" = .github/workflows/build-release.yml
                   test "$(gh api "$run" --jq .head_sha)" = "$sha"
                   test "$(gh api "$run" --jq .head_branch)" = "$TAG"
