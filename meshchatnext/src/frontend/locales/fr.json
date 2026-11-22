@@ -5579,5 +5579,27 @@
             "nomadnet": "NomadNet",
             "crawler": "Crawler"
         }
+    },
+    "mailbox_alerts": {
+        "title": "Alertes facultatives du destinataire",
+        "intro": "Certains utilisateurs d’iPhone et d’iPad peuvent activer des alertes pour leur boîte hors ligne. Ajoutez les coordonnées du fournisseur qu’ils vous communiquent. Leur responsable doit activer les alertes sur leur appareil.",
+        "search": "Rechercher les contacts enregistrés",
+        "contact": "Destinataire",
+        "select_contact": "Choisir un contact de messagerie enregistré",
+        "no_contacts": "Ajoutez d’abord un contact de messagerie Reticulum ou modifiez la recherche.",
+        "provider": "Fournisseur d’alertes HTTPS",
+        "audience": "Nom du fournisseur (audience)",
+        "relay": "Adresse de propagation de la boîte",
+        "relay_help": "Utilisez le même relais que votre nœud de propagation préféré et la boîte du destinataire. Les alertes ne sont envoyées qu’après l’acceptation d’un message propagé par ce relais.",
+        "privacy": "Le fournisseur reçoit votre clé publique de messagerie, l’adresse du destinataire et l’identifiant du paquet chiffré. Le texte du message et les pièces jointes ne lui sont pas envoyés.",
+        "on": "Alertes du destinataire enregistrées",
+        "off": "Alertes du destinataire désactivées",
+        "save": "Enregistrer les alertes du destinataire",
+        "remove": "Retirer les alertes du destinataire",
+        "saved": "Coordonnées des alertes enregistrées.",
+        "removed": "Alertes du destinataire retirées.",
+        "load_failed": "Impossible de charger les contacts ou les coordonnées des alertes. Actualisez pour réessayer.",
+        "save_failed": "Cette modification n’a pas été enregistrée. Vérifiez le contact et réessayez.",
+        "refresh": "Actualiser les contacts enregistrés"
     }
 }

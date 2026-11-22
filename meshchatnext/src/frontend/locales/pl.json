@@ -5579,5 +5579,27 @@
             "nomadnet": "NomadNet",
             "crawler": "Crawler"
         }
+    },
+    "mailbox_alerts": {
+        "title": "Opcjonalne powiadomienia odbiorcy",
+        "intro": "Niektórzy użytkownicy iPhone’a i iPada mogą włączyć powiadomienia swojej skrzynki offline. Dodaj udostępnione przez nich dane dostawcy. Opiekun musi włączyć powiadomienia na urządzeniu odbiorcy.",
+        "search": "Szukaj zapisanych kontaktów",
+        "contact": "Odbiorca",
+        "select_contact": "Wybierz zapisany kontakt do wiadomości",
+        "no_contacts": "Najpierw dodaj kontakt do wiadomości Reticulum lub zmień wyszukiwanie.",
+        "provider": "Dostawca powiadomień HTTPS",
+        "audience": "Nazwa dostawcy (audience)",
+        "relay": "Adres propagacyjny skrzynki",
+        "relay_help": "Użyj tego samego przekaźnika co preferowany węzeł propagacyjny i skrzynka odbiorcy. Powiadomienie jest wysyłane dopiero po przyjęciu wiadomości propagowanej przez ten przekaźnik.",
+        "privacy": "Dostawca otrzymuje Twój publiczny klucz wiadomości, adres odbiorcy i identyfikator zaszyfrowanego pakietu. Treść wiadomości i załączniki nie są wysyłane do dostawcy powiadomień.",
+        "on": "Powiadomienia odbiorcy zapisane",
+        "off": "Powiadomienia odbiorcy wyłączone",
+        "save": "Zapisz powiadomienia odbiorcy",
+        "remove": "Usuń powiadomienia odbiorcy",
+        "saved": "Zapisano dane powiadomień.",
+        "removed": "Usunięto powiadomienia odbiorcy.",
+        "load_failed": "Nie udało się wczytać kontaktów lub danych powiadomień. Odśwież i spróbuj ponownie.",
+        "save_failed": "Nie zapisano tej zmiany. Sprawdź kontakt i spróbuj ponownie.",
+        "refresh": "Odśwież zapisane kontakty"
     }
 }

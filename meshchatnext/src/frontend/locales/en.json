@@ -5579,5 +5579,27 @@
             "nomadnet": "NomadNet",
             "crawler": "Crawler"
         }
+    },
+    "mailbox_alerts": {
+        "title": "Optional recipient alerts",
+        "intro": "Some iPhone and iPad users can enable alerts for their offline mailbox. Add the provider details they share with you. Their guardian must enable alerts on their device.",
+        "search": "Search saved contacts",
+        "contact": "Recipient",
+        "select_contact": "Choose a saved messaging contact",
+        "no_contacts": "Add a Reticulum messaging contact first, or try another search.",
+        "provider": "HTTPS alert provider",
+        "audience": "Provider name (audience)",
+        "relay": "Mailbox propagation address",
+        "relay_help": "Use the same relay as your preferred propagation node and the recipient’s mailbox. Alerts are sent only after that relay accepts a propagated message.",
+        "privacy": "The provider receives your public messaging key, the recipient address and the encrypted packet ID. Message text and attachments are not sent to the alert provider.",
+        "on": "Recipient alerts saved",
+        "off": "Recipient alerts off",
+        "save": "Save recipient alerts",
+        "remove": "Remove recipient alerts",
+        "saved": "Recipient alert details saved.",
+        "removed": "Recipient alerts removed.",
+        "load_failed": "Could not load contacts or alert details. Refresh to try again.",
+        "save_failed": "This change was not saved. Check the contact and try again.",
+        "refresh": "Refresh saved contacts"
     }
 }

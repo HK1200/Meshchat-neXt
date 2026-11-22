@@ -19,6 +19,10 @@ from meshchatnext.src.backend.http.errors import (
     http_unexpected,
     parse_int_param,
 )
+from meshchatnext.src.backend.http.routes.mailbox_alerts import (
+    register_mailbox_alert_routes,
+    remove_contact_alert_route,
+)
 from meshchatnext.src.backend.http.uploads import (
     PayloadTooLargeError,
     read_json_limited,
@@ -86,6 +90,8 @@ def enrich_contact_row(app, row):
 
 
 def register_contacts_routes(routes, app):
+    register_mailbox_alert_routes(routes, app)
+
     # contacts routes
     @routes.get(API_V1_PREFIX + "/telephone/contacts")
     async def telephone_contacts_get(request):
@@ -248,6 +254,21 @@ def register_contacts_routes(routes, app):
         clear_image = data.get("clear_image", False)
         is_telemetry_trusted = data.get("is_telemetry_trusted")
 
+        previous = app.database.contacts.get_contact(contact_id)
+        if (
+            previous
+            and lxmf_address is not None
+            and lxmf_address != previous["lxmf_address"]
+        ):
+            try:
+                remove_contact_alert_route(app, dict(previous))
+            except (OSError, ValueError):
+                return web.json_response(
+                    {
+                        "message": "Could not revoke the old alert route. Contact unchanged."
+                    },
+                    status=503,
+                )
         app.database.contacts.update_contact(
             contact_id,
             name=name,
@@ -267,6 +288,16 @@ def register_contacts_routes(routes, app):
         contact_id = parse_int_param(request.match_info["id"])
         if contact_id is None:
             return http_bad_request("invalid contact id")
+        contact = app.database.contacts.get_contact(contact_id)
+        try:
+            remove_contact_alert_route(app, dict(contact) if contact else None)
+        except (OSError, ValueError):
+            return web.json_response(
+                {
+                    "message": "Could not revoke the contact's alert route. Contact unchanged."
+                },
+                status=503,
+            )
         app.database.contacts.delete_contact(contact_id)
         app.sync_telephone_call_policy()
         return web.json_response({"message": "Contact deleted"})

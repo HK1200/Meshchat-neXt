@@ -1060,6 +1060,11 @@
                                 </div>
                                 <p class="text-sm text-sem-fg-muted">{{ $t("settings.family_how_to_share") }}</p>
                                 <p class="text-sm text-sem-fg-muted">{{ $t("settings.family_guardian") }}</p>
+                                <FamilyMailboxAlerts
+                                    :key="config.identity_hash || config.lxmf_address_hash"
+                                    :visible="showSection('family')"
+                                    :preferred-relay="config.lxmf_preferred_propagation_node_destination_hash || ''"
+                                />
                                 <div class="flex flex-wrap gap-2">
                                     <button
                                         type="button"
@@ -3152,6 +3157,7 @@ import { getMicronWasmRuntimeOverride } from "../../js/MicronWasmRuntimeOverride
 import { getEffectiveMicronWasmReleaseLabel, MICRON_WASM_OVERRIDE_CHANGED_EVENT } from "../../js/micronWasmVersion.js";
 import MicronWasmUpdateModal from "./MicronWasmUpdateModal.vue";
 import NotificationSoundSettings from "./NotificationSoundSettings.vue";
+import FamilyMailboxAlerts from "./FamilyMailboxAlerts.vue";
 import PluginsSettingsSection from "./PluginsSettingsSection.vue";
 import {
     loadNomadFavouritesLayout,
@@ -3187,6 +3193,7 @@ export default {
         UpdatesSettingsSection,
         MicronWasmUpdateModal,
         NotificationSoundSettings,
+        FamilyMailboxAlerts,
     },
     setup() {
         const inst = getCurrentInstance();

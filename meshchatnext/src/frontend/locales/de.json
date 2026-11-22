@@ -5579,5 +5579,27 @@
             "nomadnet": "NomadNet",
             "crawler": "Crawler"
         }
+    },
+    "mailbox_alerts": {
+        "title": "Optionale Empfängerbenachrichtigungen",
+        "intro": "Manche iPhone- und iPad-Nutzer können Benachrichtigungen für ihr Offline-Postfach aktivieren. Trage die Anbieterdaten ein, die sie dir geben. Ihre Erziehungsberechtigten müssen die Benachrichtigungen auf dem Gerät aktivieren.",
+        "search": "Gespeicherte Kontakte suchen",
+        "contact": "Empfänger",
+        "select_contact": "Gespeicherten Nachrichtenkontakt wählen",
+        "no_contacts": "Füge zuerst einen Reticulum-Nachrichtenkontakt hinzu oder ändere die Suche.",
+        "provider": "HTTPS-Benachrichtigungsanbieter",
+        "audience": "Anbietername (audience)",
+        "relay": "Propagationsadresse des Postfachs",
+        "relay_help": "Verwende dasselbe Relay wie deinen bevorzugten Propagationsknoten und das Postfach des Empfängers. Eine Benachrichtigung wird erst gesendet, wenn dieses Relay eine propagierte Nachricht angenommen hat.",
+        "privacy": "Der Anbieter erhält deinen öffentlichen Nachrichtenschlüssel, die Empfängeradresse und die Kennung des verschlüsselten Pakets. Nachrichtentext und Anhänge werden nicht an den Benachrichtigungsanbieter gesendet.",
+        "on": "Empfängerbenachrichtigungen gespeichert",
+        "off": "Empfängerbenachrichtigungen aus",
+        "save": "Empfängerbenachrichtigungen speichern",
+        "remove": "Empfängerbenachrichtigungen entfernen",
+        "saved": "Benachrichtigungsdaten gespeichert.",
+        "removed": "Empfängerbenachrichtigungen entfernt.",
+        "load_failed": "Kontakte oder Benachrichtigungsdaten konnten nicht geladen werden. Aktualisiere sie und versuche es erneut.",
+        "save_failed": "Diese Änderung wurde nicht gespeichert. Prüfe den Kontakt und versuche es erneut.",
+        "refresh": "Gespeicherte Kontakte aktualisieren"
     }
 }

@@ -5579,5 +5579,27 @@
             "nomadnet": "NomadNet",
             "crawler": "Crawler"
         }
+    },
+    "mailbox_alerts": {
+        "title": "Avvisi facoltativi per il destinatario",
+        "intro": "Alcuni utenti di iPhone e iPad possono attivare avvisi per la propria casella offline. Aggiungi i dati del fornitore che condividono con te. Il tutore deve attivare gli avvisi sul loro dispositivo.",
+        "search": "Cerca nei contatti salvati",
+        "contact": "Destinatario",
+        "select_contact": "Scegli un contatto di messaggistica salvato",
+        "no_contacts": "Aggiungi prima un contatto di messaggistica Reticulum o modifica la ricerca.",
+        "provider": "Fornitore di avvisi HTTPS",
+        "audience": "Nome del fornitore (audience)",
+        "relay": "Indirizzo di propagazione della casella",
+        "relay_help": "Usa lo stesso relay del tuo nodo di propagazione preferito e della casella del destinatario. Gli avvisi vengono inviati solo dopo che quel relay ha accettato un messaggio propagato.",
+        "privacy": "Il fornitore riceve la tua chiave pubblica di messaggistica, l’indirizzo del destinatario e l’identificativo del pacchetto cifrato. Il testo del messaggio e gli allegati non vengono inviati al fornitore di avvisi.",
+        "on": "Avvisi del destinatario salvati",
+        "off": "Avvisi del destinatario disattivati",
+        "save": "Salva gli avvisi del destinatario",
+        "remove": "Rimuovi gli avvisi del destinatario",
+        "saved": "Dati degli avvisi salvati.",
+        "removed": "Avvisi del destinatario rimossi.",
+        "load_failed": "Impossibile caricare i contatti o i dati degli avvisi. Aggiorna e riprova.",
+        "save_failed": "La modifica non è stata salvata. Controlla il contatto e riprova.",
+        "refresh": "Aggiorna i contatti salvati"
     }
 }

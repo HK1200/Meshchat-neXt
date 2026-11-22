@@ -5579,5 +5579,27 @@
             "nomadnet": "NomadNet",
             "crawler": "Crawler"
         }
+    },
+    "mailbox_alerts": {
+        "title": "Alertas opcionais do destinatário",
+        "intro": "Alguns usuários de iPhone e iPad podem ativar alertas para sua caixa de mensagens offline. Adicione os dados do provedor que eles compartilharem com você. O responsável precisa ativar os alertas no dispositivo deles.",
+        "search": "Buscar contatos salvos",
+        "contact": "Destinatário",
+        "select_contact": "Escolha um contato de mensagens salvo",
+        "no_contacts": "Adicione primeiro um contato de mensagens Reticulum ou altere a busca.",
+        "provider": "Provedor de alertas HTTPS",
+        "audience": "Nome do provedor (audience)",
+        "relay": "Endereço de propagação da caixa de mensagens",
+        "relay_help": "Use o mesmo relay do seu nó de propagação preferido e da caixa de mensagens do destinatário. Os alertas só são enviados depois que esse relay aceita uma mensagem propagada.",
+        "privacy": "O provedor recebe sua chave pública de mensagens, o endereço do destinatário e o ID do pacote criptografado. O texto da mensagem e os anexos não são enviados ao provedor de alertas.",
+        "on": "Alertas do destinatário salvos",
+        "off": "Alertas do destinatário desativados",
+        "save": "Salvar alertas do destinatário",
+        "remove": "Remover alertas do destinatário",
+        "saved": "Dados dos alertas salvos.",
+        "removed": "Alertas do destinatário removidos.",
+        "load_failed": "Não foi possível carregar os contatos ou os dados dos alertas. Atualize para tentar novamente.",
+        "save_failed": "Esta alteração não foi salva. Confira o contato e tente novamente.",
+        "refresh": "Atualizar contatos salvos"
     }
 }

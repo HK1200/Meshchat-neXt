@@ -5579,5 +5579,27 @@
             "nomadnet": "NomadNet",
             "crawler": "Crawler"
         }
+    },
+    "mailbox_alerts": {
+        "title": "Vastaanottajan valinnaiset ilmoitukset",
+        "intro": "Jotkut iPhone- ja iPad-käyttäjät voivat ottaa ilmoitukset käyttöön offline-postilaatikolleen. Lisää heidän jakamansa palveluntarjoajan tiedot. Huoltajan on sallittava ilmoitukset heidän laitteellaan.",
+        "search": "Hae tallennettuja yhteystietoja",
+        "contact": "Vastaanottaja",
+        "select_contact": "Valitse tallennettu viestiyhteystieto",
+        "no_contacts": "Lisää ensin Reticulum-viestiyhteystieto tai muuta hakua.",
+        "provider": "HTTPS-ilmoituspalvelu",
+        "audience": "Palveluntarjoajan nimi (audience)",
+        "relay": "Postilaatikon välityssolmun osoite",
+        "relay_help": "Käytä samaa välityssolmua kuin ensisijainen välityssolmusi ja vastaanottajan postilaatikko. Ilmoitus lähetetään vasta, kun kyseinen solmu on hyväksynyt välitettävän viestin.",
+        "privacy": "Palveluntarjoaja saa julkisen viestiavaimesi, vastaanottajan osoitteen ja salatun paketin tunnisteen. Viestin tekstiä ja liitteitä ei lähetetä ilmoituspalvelulle.",
+        "on": "Vastaanottajan ilmoitukset tallennettu",
+        "off": "Vastaanottajan ilmoitukset pois käytöstä",
+        "save": "Tallenna vastaanottajan ilmoitukset",
+        "remove": "Poista vastaanottajan ilmoitukset",
+        "saved": "Ilmoitustiedot tallennettu.",
+        "removed": "Vastaanottajan ilmoitukset poistettu.",
+        "load_failed": "Yhteystietoja tai ilmoitustietoja ei voitu ladata. Päivitä ja yritä uudelleen.",
+        "save_failed": "Muutosta ei tallennettu. Tarkista yhteystieto ja yritä uudelleen.",
+        "refresh": "Päivitä tallennetut yhteystiedot"
     }
 }

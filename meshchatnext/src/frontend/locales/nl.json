@@ -5579,5 +5579,27 @@
             "nomadnet": "NomadNet",
             "crawler": "Crawler"
         }
+    },
+    "mailbox_alerts": {
+        "title": "Optionele meldingen voor ontvangers",
+        "intro": "Sommige iPhone- en iPad-gebruikers kunnen meldingen voor hun offline postvak inschakelen. Voeg de gegevens van de aanbieder toe die zij met je delen. Hun ouder of voogd moet meldingen op hun apparaat inschakelen.",
+        "search": "Opgeslagen contacten zoeken",
+        "contact": "Ontvanger",
+        "select_contact": "Kies een opgeslagen berichtencontact",
+        "no_contacts": "Voeg eerst een Reticulum-berichtencontact toe of pas de zoekopdracht aan.",
+        "provider": "HTTPS-aanbieder van meldingen",
+        "audience": "Naam van de aanbieder (audience)",
+        "relay": "Propagatieadres van het postvak",
+        "relay_help": "Gebruik hetzelfde relais als je voorkeurspropagatieknooppunt en het postvak van de ontvanger. Meldingen worden pas verstuurd nadat dat relais een gepropageerd bericht heeft aangenomen.",
+        "privacy": "De aanbieder ontvangt je openbare berichtensleutel, het adres van de ontvanger en de ID van het versleutelde pakket. Berichttekst en bijlagen worden niet naar de meldingsaanbieder verstuurd.",
+        "on": "Meldingen voor ontvanger opgeslagen",
+        "off": "Meldingen voor ontvanger uit",
+        "save": "Meldingen voor ontvanger opslaan",
+        "remove": "Meldingen voor ontvanger verwijderen",
+        "saved": "Meldingsgegevens opgeslagen.",
+        "removed": "Meldingen voor ontvanger verwijderd.",
+        "load_failed": "Contacten of meldingsgegevens konden niet worden geladen. Vernieuw om het opnieuw te proberen.",
+        "save_failed": "Deze wijziging is niet opgeslagen. Controleer het contact en probeer het opnieuw.",
+        "refresh": "Opgeslagen contacten vernieuwen"
     }
 }

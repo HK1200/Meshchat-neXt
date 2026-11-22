@@ -1,0 +1,119 @@
+// SPDX-License-Identifier: 0BSD
+import { mount, flushPromises } from "@vue/test-utils";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import FamilyMailboxAlerts from "@/components/settings/FamilyMailboxAlerts.vue";
+
+const route = { provider: "https://alerts.example.invalid", audience: "private test", relay: "b2".repeat(16) };
+const contacts = [
+    { id: 1, name: "Family recipient", lxmf_address: "a1".repeat(16) },
+    { id: 2, name: "Second recipient", lxmf_address: "a2".repeat(16) },
+    { id: 3, name: "SIP only", lxmf_address: null },
+];
+let wrappers = [];
+function section(props = {}, getRoute = async () => null) {
+    window.api = {
+        get: vi.fn(async (url) => ({
+            data: url.endsWith("/contacts") ? { contacts } : { route: await getRoute(url) },
+        })),
+        post: vi.fn(async (_url, body) => ({ data: { route: body.route } })),
+        delete: vi.fn(async () => ({ data: { route: null } })),
+    };
+    const wrapper = mount(FamilyMailboxAlerts, { props, global: { mocks: { $t: (key) => key } } });
+    wrappers.push(wrapper);
+    return wrapper;
+}
+async function select(wrapper, id = "1") {
+    await flushPromises();
+    await wrapper.get('[data-testid="mailbox-contact"]').setValue(id);
+    await flushPromises();
+}
+afterEach(() => {
+    wrappers.forEach((wrapper) => wrapper.unmount());
+    wrappers = [];
+    delete window.api;
+    vi.useRealTimers();
+});
+
+describe("Optional recipient mailbox alerts", () => {
+    it("does not load hidden settings or configure a provider automatically", async () => {
+        const wrapper = section({ visible: false });
+        await flushPromises();
+        expect(window.api.get).not.toHaveBeenCalled();
+        await wrapper.setProps({ visible: true });
+        await flushPromises();
+        expect(
+            wrapper
+                .findAll("option")
+                .map((row) => row.text())
+                .join(" ")
+        ).not.toContain("SIP only");
+        expect(window.api.post).not.toHaveBeenCalled();
+        expect(window.api.delete).not.toHaveBeenCalled();
+    });
+    it("requires explicit valid HTTPS details and normalizes only the selected contact", async () => {
+        const wrapper = section({ preferredRelay: route.relay });
+        await select(wrapper);
+        expect(wrapper.get('[data-testid="mailbox-save"]').element.disabled).toBe(true);
+        await wrapper.get('[data-testid="mailbox-provider"]').setValue("http://alerts.example.invalid");
+        await wrapper.get('[data-testid="mailbox-audience"]').setValue(route.audience);
+        expect(wrapper.get('[data-testid="mailbox-save"]').element.disabled).toBe(true);
+        await wrapper.get('[data-testid="mailbox-provider"]').setValue(route.provider + "/");
+        await wrapper.get('[data-testid="mailbox-relay"]').setValue(route.relay.toUpperCase());
+        expect(window.api.post).not.toHaveBeenCalled();
+        await wrapper.get('[data-testid="mailbox-save"]').trigger("click");
+        await flushPromises();
+        expect(window.api.post).toHaveBeenCalledWith("/api/v1/telephone/contacts/1/mailbox-alert-route", { route });
+        expect(wrapper.get('[data-testid="mailbox-route-state"]').text()).toBe("mailbox_alerts.on");
+    });
+    it("removes only alert details and keeps the saved contact selected", async () => {
+        const wrapper = section({}, async () => route);
+        await select(wrapper);
+        await wrapper.get('[data-testid="mailbox-remove"]').trigger("click");
+        await flushPromises();
+        expect(window.api.delete).toHaveBeenCalledWith("/api/v1/telephone/contacts/1/mailbox-alert-route");
+        expect(wrapper.get('[data-testid="mailbox-contact"]').element.value).toBe("1");
+        expect(wrapper.get('[data-testid="mailbox-route-state"]').text()).toBe("mailbox_alerts.off");
+        expect(wrapper.get('[data-testid="mailbox-provider"]').element.value).toBe("");
+    });
+    it("ignores a late response from another contact", async () => {
+        let resolveFirst;
+        const first = new Promise((resolve) => {
+            resolveFirst = resolve;
+        });
+        const wrapper = section({}, (url) =>
+            url.includes("/1/") ? first : Promise.resolve({ ...route, audience: "second" })
+        );
+        await select(wrapper, "1");
+        await select(wrapper, "2");
+        await wrapper.get('[data-testid="mailbox-audience"]').setValue("unsaved second");
+        resolveFirst(route);
+        await flushPromises();
+        expect(wrapper.get('[data-testid="mailbox-audience"]').element.value).toBe("unsaved second");
+        expect(wrapper.get('[data-testid="mailbox-contact"]').element.value).toBe("2");
+    });
+    it("preserves unsaved edits while checking current saved consent", async () => {
+        const getRoute = vi.fn(async () => null);
+        const wrapper = section({}, getRoute);
+        await select(wrapper, "1");
+        await wrapper.get('[data-testid="mailbox-provider"]').setValue("https://draft.example.invalid");
+        await select(wrapper, "2");
+        await select(wrapper, "1");
+        expect(wrapper.get('[data-testid="mailbox-provider"]').element.value).toBe("https://draft.example.invalid");
+        expect(getRoute).toHaveBeenCalledTimes(3);
+        expect(window.api.post).not.toHaveBeenCalled();
+    });
+    it("retries a failed route read without discarding the contact", async () => {
+        let fail = true;
+        const wrapper = section({}, async () => {
+            if (fail) throw new Error("synthetic");
+            return route;
+        });
+        await select(wrapper);
+        expect(wrapper.get('[data-testid="mailbox-save"]').element.disabled).toBe(true);
+        fail = false;
+        await wrapper.get('[data-testid="mailbox-refresh"]').trigger("click");
+        await flushPromises();
+        expect(wrapper.get('[data-testid="mailbox-provider"]').element.value).toBe(route.provider);
+        expect(wrapper.get('[data-testid="mailbox-remove"]').element.disabled).toBe(false);
+    });
+});

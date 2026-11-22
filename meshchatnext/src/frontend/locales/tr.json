@@ -5579,5 +5579,27 @@
             "nomadnet": "NomadNet",
             "crawler": "Crawler"
         }
+    },
+    "mailbox_alerts": {
+        "title": "İsteğe bağlı alıcı bildirimleri",
+        "intro": "Bazı iPhone ve iPad kullanıcıları çevrimdışı posta kutuları için bildirimleri açabilir. Sizinle paylaştıkları sağlayıcı bilgilerini ekleyin. Velileri, alıcının cihazında bildirimleri etkinleştirmelidir.",
+        "search": "Kayıtlı kişilerde ara",
+        "contact": "Alıcı",
+        "select_contact": "Kayıtlı bir mesajlaşma kişisi seçin",
+        "no_contacts": "Önce bir Reticulum mesajlaşma kişisi ekleyin veya aramayı değiştirin.",
+        "provider": "HTTPS bildirim sağlayıcısı",
+        "audience": "Sağlayıcı adı (audience)",
+        "relay": "Posta kutusu yayılım adresi",
+        "relay_help": "Tercih ettiğiniz yayılım düğümü ve alıcının posta kutusuyla aynı aktarıcıyı kullanın. Bildirimler yalnızca bu aktarıcı yayılan bir mesajı kabul ettikten sonra gönderilir.",
+        "privacy": "Sağlayıcı, açık mesajlaşma anahtarınızı, alıcının adresini ve şifreli paketin kimliğini alır. Mesaj metni ve ekler bildirim sağlayıcısına gönderilmez.",
+        "on": "Alıcı bildirimleri kaydedildi",
+        "off": "Alıcı bildirimleri kapalı",
+        "save": "Alıcı bildirimlerini kaydet",
+        "remove": "Alıcı bildirimlerini kaldır",
+        "saved": "Bildirim bilgileri kaydedildi.",
+        "removed": "Alıcı bildirimleri kaldırıldı.",
+        "load_failed": "Kişiler veya bildirim bilgileri yüklenemedi. Yenileyip tekrar deneyin.",
+        "save_failed": "Bu değişiklik kaydedilmedi. Kişiyi kontrol edip tekrar deneyin.",
+        "refresh": "Kayıtlı kişileri yenile"
     }
 }

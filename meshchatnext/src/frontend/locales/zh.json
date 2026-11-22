@@ -5579,5 +5579,27 @@
             "nomadnet": "NomadNet",
             "crawler": "Crawler"
         }
+    },
+    "mailbox_alerts": {
+        "title": "可选的收件人提醒",
+        "intro": "部分 iPhone 和 iPad 用户可以为离线信箱启用提醒。请添加对方分享的服务提供方信息。对方的监护人必须先在其设备上启用提醒。",
+        "search": "搜索已保存的联系人",
+        "contact": "收件人",
+        "select_contact": "选择已保存的消息联系人",
+        "no_contacts": "请先添加 Reticulum 消息联系人，或更改搜索条件。",
+        "provider": "HTTPS 提醒服务",
+        "audience": "服务名称（audience）",
+        "relay": "信箱的传播节点地址",
+        "relay_help": "请使用与首选传播节点及收件人信箱相同的中继。只有该中继接受传播消息后才会发送提醒。",
+        "privacy": "服务提供方会收到你的消息公钥、收件人地址和加密数据包 ID。消息正文和附件不会发送给提醒服务。",
+        "on": "收件人提醒设置已保存",
+        "off": "收件人提醒已关闭",
+        "save": "保存收件人提醒",
+        "remove": "移除收件人提醒",
+        "saved": "提醒服务信息已保存。",
+        "removed": "收件人提醒已移除。",
+        "load_failed": "无法加载联系人或提醒信息。请刷新后重试。",
+        "save_failed": "未保存此更改。请检查联系人后重试。",
+        "refresh": "刷新已保存的联系人"
     }
 }

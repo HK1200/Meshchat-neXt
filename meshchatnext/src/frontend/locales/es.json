@@ -5579,5 +5579,27 @@
             "nomadnet": "NomadNet",
             "crawler": "Crawler"
         }
+    },
+    "mailbox_alerts": {
+        "title": "Avisos opcionales para el destinatario",
+        "intro": "Algunos usuarios de iPhone y iPad pueden activar avisos para su buzón sin conexión. Añade los datos del proveedor que compartan contigo. Su tutor debe activar los avisos en su dispositivo.",
+        "search": "Buscar contactos guardados",
+        "contact": "Destinatario",
+        "select_contact": "Elige un contacto de mensajería guardado",
+        "no_contacts": "Añade primero un contacto de mensajería Reticulum o cambia la búsqueda.",
+        "provider": "Proveedor de avisos HTTPS",
+        "audience": "Nombre del proveedor (audience)",
+        "relay": "Dirección de propagación del buzón",
+        "relay_help": "Usa el mismo repetidor de almacenamiento que tu nodo de propagación preferido y el buzón del destinatario. Los avisos solo se envían cuando ese nodo acepta un mensaje propagado.",
+        "privacy": "El proveedor recibe tu clave pública de mensajería, la dirección del destinatario y el identificador del paquete cifrado. No recibe el texto del mensaje ni los archivos adjuntos.",
+        "on": "Avisos del destinatario guardados",
+        "off": "Avisos del destinatario desactivados",
+        "save": "Guardar avisos del destinatario",
+        "remove": "Eliminar avisos del destinatario",
+        "saved": "Datos de avisos guardados.",
+        "removed": "Avisos del destinatario eliminados.",
+        "load_failed": "No se pudieron cargar los contactos o los datos de avisos. Actualiza para volver a intentarlo.",
+        "save_failed": "No se guardó este cambio. Comprueba el contacto e inténtalo de nuevo.",
+        "refresh": "Actualizar contactos guardados"
     }
 }

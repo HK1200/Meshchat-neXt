@@ -1,8 +1,18 @@
 # Family mailbox push hints
 
-To send alerts to Family devices that opted in through a private provider, add
-`mailbox-push-routes.json` beside `database.db` in the sending neXt identity's
-storage directory. Each recipient needs an explicit entry.
+To send alerts to a Family device whose guardian has opted in, open **Settings →
+neXt Family → Optional recipient alerts**. Search your saved Reticulum contacts,
+select the recipient and enter the HTTPS provider, audience and propagation-node
+address supplied by their guardian. Save explicitly to enable the route.
+**Remove recipient alerts** turns it off for that contact; deleting the contact
+or changing its messaging address also revokes the old route.
+
+The provider is optional and needs to be configured by its operator. This
+setting does not create a provider or enroll the receiving device. Use the same
+relay as the recipient’s mailbox and your preferred propagation node.
+
+Advanced users may also place `mailbox-push-routes.json` beside `database.db` in
+the sending identity’s storage directory. Each recipient needs an explicit entry.
 
 ```json
 {
