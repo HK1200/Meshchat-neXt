@@ -12,6 +12,8 @@ Use it over compatible LoRa radios, local networks or internet connections, depe
 
 **New here?** Start with the [field guide](docs/guide/README.md). It explains the networks, device setup, everyday use and common questions without assuming prior experience.
 
+Testing on Google Play? Follow the [closed-test setup guide](docs/CLOSED_TESTING.md) for the correct opt-in links and existing-install updates.
+
 ## Choose how you communicate
 
 | Service            | What it does                                                                                                   | What you need                                                 |
@@ -60,13 +62,13 @@ Radio2 media requires compatible firmware and client support at both ends. **Sta
 ## Get started
 
 1. Download the current version from [GitHub Releases](https://github.com/HK1200/Meshchat-neXt/releases/latest).
-   - **Windows** · Choose the x64 installer or portable executable.
-   - **macOS** · Choose the Apple silicon (ARM64) or Intel (x64) DMG.
-   - **Linux** · Choose the package for your distribution and processor. On Linux Mint and Ubuntu, use the matching `.deb` or `.AppImage`. See the [Linux installation and update guide](docs/en/platform-guides/linux-desktop.md).
-   - **Android** · Choose the APK for ARM64, ARMv7, or x86_64. neXt supports Android 7 and later. SIP calling requires Android 9 or later.
+    - **Windows** · Choose the x64 installer or portable executable.
+    - **macOS** · Choose the Apple silicon (ARM64) or Intel (x64) DMG.
+    - **Linux** · Choose the package for your distribution and processor. On Linux Mint and Ubuntu, use the matching `.deb` or `.AppImage`. See the [Linux installation and update guide](docs/en/platform-guides/linux-desktop.md).
+    - **Android** · Choose the APK for ARM64, ARMv7, or x86_64. neXt supports Android 7 and later. SIP calling requires Android 9 or later.
 2. Choose the services you want during first-start setup. You can revisit these choices under **Settings → App features**.
 3. Keep your existing setup or import a supported identity/backup. Review the proposed changes before applying them.
-4. Connect your RNode and/or MeshCore companion, or configure the network interfaces you need. Reticulum TCP setup offers **rmap.world** and adds its connection when requested.
+4. Connect your RNode and/or MeshCore companion, or configure the network interfaces you need. Choosing Reticulum internet TCP adds separate peers for **RMAP 4343 and 4242, WashMesh and Chicagoland Mesh**. You can edit, enable or disable them individually under **RNS Interfaces**.
 5. For SIP, enter your own account details under **Settings → SIP**. The HOIP server preset is editable; no personal account is supplied.
 6. Send a short test message or make an extension call to a known reachable contact.
 
