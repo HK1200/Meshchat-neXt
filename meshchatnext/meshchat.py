@@ -9586,7 +9586,24 @@ class ReticulumMeshChat:
         try:
             contact = self._resolve_contact_for_hash(destination_hash, context=ctx)
             if contact and contact.get("id"):
+                from meshchatnext.src.backend.call_alerts import (
+                    save_route as save_call_route,
+                )
+
+                profile = getattr(ctx, "storage_path", None)
+                address = contact.get("lxmf_address")
+                if (
+                    isinstance(profile, (str, os.PathLike))
+                    and isinstance(address, str)
+                    and re.fullmatch(r"[a-f0-9]{32}", address)
+                ):
+                    save_call_route(Path(profile), address, None)
                 ctx.database.contacts.delete_contact(contact["id"])
+                alerts = getattr(
+                    getattr(ctx, "telephone_manager", None), "call_alerts", None
+                )
+                if alerts:
+                    alerts.refresh_contacts()
         except Exception as e:
             print(f"_delete_contact_and_stamp_ticket: contact delete failed: {e}")
 

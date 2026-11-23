@@ -20,6 +20,10 @@ from meshchatnext.src.backend.http.errors import (
     http_unexpected,
     parse_int_param,
 )
+from meshchatnext.src.backend.http.routes.call_alerts import (
+    register_call_alert_routes,
+    remove_contact_call_alert_route,
+)
 from meshchatnext.src.backend.http.routes.mailbox_alerts import (
     register_mailbox_alert_routes,
     remove_contact_alert_route,
@@ -92,6 +96,7 @@ def enrich_contact_row(app, row):
 
 def register_contacts_routes(routes, app):
     register_mailbox_alert_routes(routes, app)
+    register_call_alert_routes(routes, app)
 
     # contacts routes
     @routes.get(API_V1_PREFIX + "/telephone/contacts")
@@ -263,6 +268,7 @@ def register_contacts_routes(routes, app):
         ):
             try:
                 remove_contact_alert_route(app, dict(previous))
+                remove_contact_call_alert_route(app, dict(previous))
             except (OSError, ValueError):
                 return http_error(
                     503,
@@ -291,6 +297,7 @@ def register_contacts_routes(routes, app):
         contact = app.database.contacts.get_contact(contact_id)
         try:
             remove_contact_alert_route(app, dict(contact) if contact else None)
+            remove_contact_call_alert_route(app, dict(contact) if contact else None)
         except (OSError, ValueError):
             return http_error(
                 503,

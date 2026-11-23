@@ -5611,5 +5611,27 @@
         "load_failed": "Не вдалося завантажити контакти або дані сповіщень. Оновіть і повторіть спробу.",
         "save_failed": "Цю зміну не збережено. Перевірте контакт і повторіть спробу.",
         "refresh": "Оновити збережені контакти"
+    },
+    "call_alerts": {
+        "title": "Optional recipient call alerts",
+        "intro": "Some iPhone and iPad contacts can enable incoming call alerts. Add the provider details they share with you. Their device must have call alerts enabled.",
+        "search": "Search saved contacts",
+        "contact": "Recipient",
+        "select_contact": "Choose a saved messaging contact",
+        "no_contacts": "Add a Reticulum messaging contact first, or try another search.",
+        "provider": "HTTPS alert provider",
+        "audience": "Provider name (audience)",
+        "privacy": "Saving these settings sends nothing. When you call, the provider receives signed call details to wake the recipient. Ending the call cancels the alert. Audio and message text are never sent to this provider.",
+        "verified_identity": "Contact identity verified",
+        "waiting_identity": "Waiting for this contact’s verified identity. Receive their announce, then refresh.",
+        "on": "Recipient call alerts saved",
+        "off": "Recipient call alerts off",
+        "save": "Save recipient call alerts",
+        "remove": "Remove recipient call alerts",
+        "saved": "Recipient call alert details saved.",
+        "removed": "Recipient call alerts removed.",
+        "load_failed": "Could not load contacts or call alert details. Refresh to try again.",
+        "save_failed": "This change was not saved. Check the contact and try again.",
+        "refresh": "Refresh saved contacts"
     }
 }

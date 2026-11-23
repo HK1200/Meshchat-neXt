@@ -7,6 +7,8 @@ import os
 import sys
 import threading
 import time
+import uuid
+from types import SimpleNamespace
 
 import RNS
 
@@ -263,6 +265,8 @@ class TelephoneManager:
         self.on_ringing_callback = None
         self.on_established_callback = None
         self.on_ended_callback = None
+        self.call_alerts = None
+        self._outgoing_alert = None
 
         self.call_start_time = None
         self.call_status_at_end = None
@@ -581,6 +585,9 @@ class TelephoneManager:
         phone._Telephone__link_closed = _link_closed
 
     def teardown(self):
+        self._cancel_call_alert()
+        if self.call_alerts:
+            self.call_alerts.close()
         if self.telephone is not None:
             self.telephone.teardown()
             self.telephone = None
@@ -600,7 +607,14 @@ class TelephoneManager:
         self.is_voicemail_session_active = False
         self._call_end_recorded = True
 
+    def _cancel_call_alert(self):
+        outgoing, self._outgoing_alert = self._outgoing_alert, None
+        if outgoing is not None and self.call_alerts:
+            with contextlib.suppress(Exception):
+                self.call_alerts.ended(outgoing)
+
     def hangup(self):
+        self._cancel_call_alert()
         self._update_initiation_status(None, None)
         if self.telephone:
             try:
@@ -612,6 +626,7 @@ class TelephoneManager:
                 RNS.log(f"TelephoneManager: Error during hangup: {e}", RNS.LOG_ERROR)
 
     def request_hangup(self):
+        self._cancel_call_alert()
         # FIXME: Remove async hangup shim when LXST call() cancellation is non-blocking.
         self._update_initiation_status(None, None)
         if not self.telephone:
@@ -669,6 +684,7 @@ class TelephoneManager:
             self.on_established_callback(caller_identity)
 
     def on_telephone_call_ended(self, caller_identity: RNS.Identity):
+        self._cancel_call_alert()
         if self._call_end_recorded:
             # LXST can emit ended twice for one call (local hangup plus remote
             # link close). Only the first may record history/notifications.
@@ -777,6 +793,18 @@ class TelephoneManager:
 
         destination_hash_hex = destination_hash.hex()
         self._update_initiation_status("Resolving identity...", destination_hash_hex)
+        # Send only for an explicit saved recipient route. Waking before path
+        # lookup lets a suspended receiver establish its ordinary Reticulum link.
+        if self.call_alerts:
+            outgoing = SimpleNamespace(
+                id=uuid.uuid4().hex,
+                peer=destination_hash_hex,
+                requested_peer=destination_hash_hex,
+                incoming=False,
+            )
+            self._outgoing_alert = outgoing
+            with contextlib.suppress(Exception):
+                self.call_alerts.started(outgoing)
 
         try:
 
@@ -1037,6 +1065,11 @@ class TelephoneManager:
             await asyncio.sleep(3)
             raise
         finally:
+            phone = self.telephone
+            if phone is None or (
+                not phone.active_call and phone.call_status not in (2, 4, 5, 6)
+            ):
+                self._cancel_call_alert()
             if self._is_initiation_cancelled():
                 self._update_initiation_status(None, None)
             elif self._initiation_still_in_flight():

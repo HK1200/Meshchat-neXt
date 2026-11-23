@@ -1060,6 +1060,10 @@
                                 </div>
                                 <p class="text-sm text-sem-fg-muted">{{ $t("settings.family_how_to_share") }}</p>
                                 <p class="text-sm text-sem-fg-muted">{{ $t("settings.family_guardian") }}</p>
+                                <RecipientCallAlerts
+                                    :key="'call-alerts-' + (config.identity_hash || config.lxmf_address_hash)"
+                                    :visible="showSection('family')"
+                                />
                                 <FamilyMailboxAlerts
                                     :key="config.identity_hash || config.lxmf_address_hash"
                                     :visible="showSection('family')"
@@ -3158,6 +3162,7 @@ import { getEffectiveMicronWasmReleaseLabel, MICRON_WASM_OVERRIDE_CHANGED_EVENT 
 import MicronWasmUpdateModal from "./MicronWasmUpdateModal.vue";
 import NotificationSoundSettings from "./NotificationSoundSettings.vue";
 import FamilyMailboxAlerts from "./FamilyMailboxAlerts.vue";
+import RecipientCallAlerts from "./RecipientCallAlerts.vue";
 import PluginsSettingsSection from "./PluginsSettingsSection.vue";
 import {
     loadNomadFavouritesLayout,
@@ -3194,6 +3199,7 @@ export default {
         MicronWasmUpdateModal,
         NotificationSoundSettings,
         FamilyMailboxAlerts,
+        RecipientCallAlerts,
     },
     setup() {
         const inst = getCurrentInstance();

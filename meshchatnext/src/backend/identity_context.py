@@ -4,6 +4,7 @@ import contextlib
 import gc
 import os
 import threading
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import RNS
@@ -401,6 +402,21 @@ class IdentityContext:
             config_manager=self.config,
             storage_dir=self.storage_path,
             db=self.database,
+        )
+        from meshchatnext.src.backend.call_alerts import CallAlerts
+
+        def call_alert_contacts():
+            return {
+                row["lxmf_address"]: dict(row)
+                for row in self.database.contacts.get_contacts(limit=10000)
+                if row["lxmf_address"]
+            }
+
+        self.telephone_manager.call_alerts = CallAlerts(
+            Path(self.storage_path),
+            identity,
+            call_alert_contacts,
+            lambda address: self.app.is_destination_blocked(address, context=self),
         )
         self.telephone_manager.web_audio_required = bool(
             getattr(self.app, "web_audio_required", lambda: False)(),
