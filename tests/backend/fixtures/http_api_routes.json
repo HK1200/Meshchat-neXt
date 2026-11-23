@@ -1802,6 +1802,18 @@
         },
         {
             "method": "DELETE",
+            "path": "/api/v1/telephone/contacts/{id}/call-alert-route"
+        },
+        {
+            "method": "GET",
+            "path": "/api/v1/telephone/contacts/{id}/call-alert-route"
+        },
+        {
+            "method": "POST",
+            "path": "/api/v1/telephone/contacts/{id}/call-alert-route"
+        },
+        {
+            "method": "DELETE",
             "path": "/api/v1/telephone/contacts/{id}/mailbox-alert-route"
         },
         {
