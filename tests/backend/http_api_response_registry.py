@@ -106,6 +106,7 @@ from tests.backend.http_api_response_schemas import (
     RETICULUM_INSTANCE_SCHEMA,
     RNCP_STATUS_SCHEMA,
     RNCP_TRANSFER_SCHEMA,
+    RNCP_UPLOADS_SCHEMA,
     RNPATH_RATES_SCHEMA,
     RNPATH_TABLE_SCHEMA,
     RNPATH_TRACE_SCHEMA,
@@ -635,6 +636,7 @@ HTTP_JSON_GET_CONTRACTS: tuple[HttpJsonContract, ...] = (
         alt_schemas=(MESSAGE_ENVELOPE_SCHEMA,),
     ),
     HttpJsonContract("GET", "/api/v1/rncp/status", RNCP_STATUS_SCHEMA),
+    HttpJsonContract("GET", "/api/v1/rncp/uploads", RNCP_UPLOADS_SCHEMA),
     HttpJsonContract(
         "GET",
         "/api/v1/rncp/transfer/{transfer_id}",

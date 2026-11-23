@@ -687,6 +687,36 @@ RRC_ROOM_KEYS_SCHEMA: dict = {
     "additionalProperties": True,
 }
 
+RNCP_UPLOADS_SCHEMA: dict = {
+    "type": "object",
+    "required": ["files", "max_file_bytes"],
+    "properties": {
+        "max_file_bytes": {"type": "integer", "minimum": 1},
+        "files": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["id", "name", "size", "incomplete", "file_path"],
+                "properties": {
+                    "id": {"type": "string", "pattern": "^[a-f0-9]{32}$"},
+                    "name": {"type": "string", "minLength": 1},
+                    "size": {"type": "integer", "minimum": 0},
+                    "incomplete": _BOOLEAN,
+                    "file_path": {"type": ["string", "null"]},
+                },
+                "if": {"properties": {"incomplete": {"const": True}}},
+                "then": {"properties": {"file_path": {"type": "null"}}},
+                "else": {
+                    "properties": {"file_path": {"type": "string", "minLength": 1}}
+                },
+                "additionalProperties": False,
+            },
+        },
+    },
+    "additionalProperties": False,
+}
+
+
 RNCP_STATUS_SCHEMA: dict = {
     "type": "object",
     "additionalProperties": True,

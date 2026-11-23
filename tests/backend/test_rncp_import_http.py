@@ -10,6 +10,8 @@ from aiohttp import FormData, web
 from aiohttp.test_utils import TestClient, TestServer
 
 from meshchatnext.src.backend.http.routes.rn_tools import register_rn_tools_routes
+from tests.backend.api_json_contract_schemas import assert_matches_schema
+from tests.backend.http_api_response_schemas import RNCP_UPLOADS_SCHEMA
 
 
 def application(folder, sender, *, backend=None):
@@ -53,6 +55,10 @@ async def test_real_multipart_stream_survives_restart_and_delete_waits_for_trans
         record = await response.json()
         assert record["size"] == len(payload)
         assert Path(record["file_path"]).read_bytes() == payload
+        listed = await client.get("/api/v1/rncp/uploads")
+        body = await listed.json()
+        assert_matches_schema(body, RNCP_UPLOADS_SCHEMA)
+        assert body["files"] == [record]
     # A fresh app/store must reconstruct the imported file and fence deletion
     # before the send starts pathfinding, even without opening the imports list.
     async with TestClient(TestServer(application(tmp_path, sender))) as client:
@@ -75,7 +81,9 @@ async def test_real_multipart_stream_survives_restart_and_delete_waits_for_trans
         assert response.status == 200
         response = await client.get("/api/v1/rncp/uploads")
         assert response.headers["Cache-Control"] == "no-store"
-        assert (await response.json())["files"] == []
+        body = await response.json()
+        assert_matches_schema(body, RNCP_UPLOADS_SCHEMA)
+        assert body["files"] == []
 
 
 @pytest.mark.asyncio
