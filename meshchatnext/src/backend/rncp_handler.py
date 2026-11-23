@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import os
 import shutil
+import threading
 import time
 from collections.abc import Callable
 
@@ -621,11 +622,25 @@ class RNCPHandler:
                     label=send_label,
                 )
 
+        # Each segment receives its own COMPLETE proof. Only the Resource
+        # conclusion callback confirms the final segment (or a later failure).
+        # Keep the link open until then, including on slow radio transfers.
+        transfer_done = threading.Event()
+        terminal_status = None
+
+        def concluded_callback(completed_resource):
+            nonlocal terminal_status
+            try:
+                progress_callback(completed_resource)
+            finally:
+                terminal_status = completed_resource.status
+                transfer_done.set()
+
         resource = RNS.Resource(
             await asyncio.to_thread(open, file_path, "rb"),
             link,
             metadata=metadata,
-            callback=progress_callback,
+            callback=concluded_callback,
             progress_callback=progress_callback,
             auto_compress=auto_compress,
         )
@@ -644,7 +659,7 @@ class RNCPHandler:
             except Exception:
                 pass
 
-        while resource.status < RNS.Resource.COMPLETE:
+        while True:
             if self._is_cancelled(transfer_id):
                 with contextlib.suppress(Exception):
                     link.teardown()
@@ -654,12 +669,11 @@ class RNCPHandler:
                 traffic_stats.get_meter().transfer_finished(transfer_id)
                 msg = "Transfer cancelled"
                 raise InterruptedError(msg)
+            if transfer_done.is_set():
+                break
             await asyncio.sleep(0.1)
-            if resource.status > RNS.Resource.COMPLETE:
-                msg = "File was not accepted by destination"
-                raise Exception(msg)
 
-        if resource.status == RNS.Resource.COMPLETE:
+        if terminal_status == RNS.Resource.COMPLETE:
             if transfer_id in self.active_transfers:
                 self.active_transfers[transfer_id]["status"] = "completed"
                 self._on_transfer_terminal(transfer_id)
