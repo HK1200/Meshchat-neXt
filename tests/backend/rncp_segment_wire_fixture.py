@@ -162,10 +162,13 @@ async def send(folder):
         finally:
             if proxy is not None:
                 proxy.close()
-                await proxy.wait_closed()
             for task in tuple(proxy_tasks):
                 task.cancel()
             await asyncio.gather(*tuple(proxy_tasks), return_exceptions=True)
+            # Python 3.13+ waits for accepted clients as well as the listener.
+            # Close their handlers before awaiting the server's shutdown.
+            if proxy is not None:
+                await proxy.wait_closed()
             peer.terminate()
             try:
                 peer.wait(timeout=5)
