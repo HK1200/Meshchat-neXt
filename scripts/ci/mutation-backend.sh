@@ -8,6 +8,11 @@ TARGET="${MUTMUT_TARGET:-meshchatnext.src.backend.meshchat_utils*}"
 THRESHOLD="${MUTMUT_MIN_SCORE:-}"
 STATS_FILE="${MUTMUT_STATS_FILE:-mutmut-cicd-stats.json}"
 
+# Fork-server children may suppress their console. Keep the exact original
+# baseline failure without logging expected failures from real mutants.
+export MUTMUT_DIAGNOSTICS_DIR="${MUTMUT_DIAGNOSTICS_DIR:-$ROOT/temp-tests/mutation-diagnostics}"
+export PYTEST_PLUGINS="${PYTEST_PLUGINS:+$PYTEST_PLUGINS,}tests.backend.mutation_failure_reports"
+
 echo "Running mutmut on: ${TARGET}"
 
 worker_args=()
