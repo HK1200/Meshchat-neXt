@@ -188,8 +188,11 @@ def post(route, operation, payload):
     except (ValueError, TypeError):
         return 400
     try:
-        request = Request(  # noqa: S310 -- validated HTTPS only; redirects disabled.route.provider + "/v1/" + operation, data=payload,
-            headers={"Content-Type": "application/json"}, method="POST"
+        request = Request(  # noqa: S310 -- validated HTTPS only; redirects disabled.
+            route.provider + "/v1/" + operation,
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
         )
         with build_opener(NoRedirect()).open(request, timeout=4) as response:
             return response.status

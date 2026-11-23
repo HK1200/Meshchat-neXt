@@ -1216,3 +1216,40 @@ MAILBOX_ALERT_ROUTE_SCHEMA: dict = {
     },
     "additionalProperties": False,
 }
+
+
+CALL_ALERT_ROUTE_SCHEMA: dict = {
+    "type": "object",
+    "required": ["route", "public_key"],
+    "properties": {
+        "public_key": {
+            "anyOf": [
+                {"type": "null"},
+                {"type": "string", "pattern": "^[a-f0-9]{128}$"},
+            ]
+        },
+        "route": {
+            "anyOf": [
+                {"type": "null"},
+                {
+                    "type": "object",
+                    "required": ["provider", "audience", "public_key"],
+                    "properties": {
+                        "provider": {
+                            "type": "string",
+                            "pattern": "^https://",
+                            "maxLength": 2048,
+                        },
+                        "audience": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9 _.-]{1,128}$",
+                        },
+                        "public_key": {"type": "string", "pattern": "^[a-f0-9]{128}$"},
+                    },
+                    "additionalProperties": False,
+                },
+            ]
+        },
+    },
+    "additionalProperties": False,
+}
