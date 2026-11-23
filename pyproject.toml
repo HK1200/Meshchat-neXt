@@ -1,6 +1,6 @@
 [project]
 name = "meshchat-next"
-version = "0.1.26"
+version = "0.1.27"
 description = "A simple mesh network communications app powered by the Reticulum Network Stack"
 authors = [
   {name = "Quad4"}

@@ -1,5 +1,11 @@
 # Meshchat neXt changelog
 
+## 0.1.27
+
+- Wait for all RNCP file segments before reporting completion and closing the link, fixing incomplete transfers larger than about 1 MiB.
+- Preserve cancellation, later-segment failures and final progress throughout the transfer.
+- Keep matching versions across Android, Windows, macOS and Linux packages.
+
 ## 0.1.26
 
 - Keep healthy RNCP file sends and fetches running beyond two minutes on slow connections.
