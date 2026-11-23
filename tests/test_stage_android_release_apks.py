@@ -11,7 +11,7 @@ from pathlib import Path
 _REPO = Path(__file__).resolve().parents[1]
 _SCRIPT = _REPO / "scripts" / "ci" / "stage-android-release-apks.sh"
 _GRADLE = _REPO / "android" / "app" / "build.gradle"
-_WORKFLOW = _REPO / ".github" / "workflows" / "android-apk-tag.yml"
+_WORKFLOW = _REPO / ".github" / "workflows" / "build-release.yml"
 
 
 def test_stage_script_exists_and_is_executable():
