@@ -1338,6 +1338,18 @@
         },
         {
             "method": "POST",
+            "path": "/api/v1/rncp/upload"
+        },
+        {
+            "method": "GET",
+            "path": "/api/v1/rncp/uploads"
+        },
+        {
+            "method": "DELETE",
+            "path": "/api/v1/rncp/uploads/{upload_id}"
+        },
+        {
+            "method": "POST",
             "path": "/api/v1/rnpath/drop"
         },
         {

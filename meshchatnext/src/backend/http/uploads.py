@@ -96,7 +96,9 @@ async def write_field_to_path(
     flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
     if hasattr(os, "O_NOFOLLOW"):
         flags |= os.O_NOFOLLOW
-    fd = await asyncio.to_thread(os.open, path, flags, 0o600)
+    # Retain ownership of the descriptor before the first suspension point;
+    # canceling an offloaded open can otherwise discard an unclosed descriptor.
+    fd = os.open(path, flags, 0o600)
     try:
         with os.fdopen(fd, "wb") as handle:
             while True:
@@ -106,8 +108,19 @@ async def write_field_to_path(
                 total += len(chunk)
                 if total > max_bytes:
                     raise PayloadTooLargeError("Upload exceeds size limit")
-                await asyncio.to_thread(handle.write, chunk)
-    except Exception:
+                operation = asyncio.create_task(asyncio.to_thread(handle.write, chunk))
+                cancelled = False
+                while not operation.done():
+                    try:
+                        await asyncio.shield(operation)
+                    except asyncio.CancelledError:
+                        cancelled = True
+                try:
+                    operation.result()
+                finally:
+                    if cancelled:
+                        raise asyncio.CancelledError
+    except BaseException:
         with contextlib.suppress(OSError):
             os.unlink(path)
         raise

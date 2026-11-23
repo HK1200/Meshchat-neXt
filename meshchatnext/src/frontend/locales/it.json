@@ -4366,6 +4366,16 @@
         "rtt_tooltip": "Round-trip latency to hub"
     },
     "rncp": {
+        "importing_file": "Preparazione del file…",
+        "imported_copies": "File importati",
+        "imported_copies_hint": "Copie private selezionate per l’invio. Rimuovere una copia conserva il file originale. Queste copie non sono condivise per il recupero remoto.",
+        "interrupted_import": "Importazione interrotta",
+        "remove_import": "Rimuovi copia",
+        "remove_import_named": "Rimuovi la copia importata di {name}",
+        "import_list_failed": "Impossibile caricare i file importati.",
+        "import_remove_failed": "Impossibile rimuovere questa copia. Potrebbe essere ancora in uso.",
+        "import_size_limit": "Scegli un file non vuoto fino a {mib} MiB.",
+        "import_failed": "Impossibile importare questo file.",
         "file_transfer": "Trasferimento File",
         "title": "RNCP - Copia di rete Reticulum",
         "description": "Invia, ascolta o recupera file su Reticulum con RNCP (blocchi, compressione opzionale).",

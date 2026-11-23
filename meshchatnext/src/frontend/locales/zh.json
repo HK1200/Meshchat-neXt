@@ -4366,6 +4366,16 @@
         "rtt_tooltip": "Round-trip latency to hub"
     },
     "rncp": {
+        "importing_file": "正在准备文件…",
+        "imported_copies": "已导入的文件",
+        "imported_copies_hint": "选择用于发送的私有副本。移除副本会保留原始文件。这些副本不会共享给远程获取功能。",
+        "interrupted_import": "导入已中断",
+        "remove_import": "移除副本",
+        "remove_import_named": "移除 {name} 的导入副本",
+        "import_list_failed": "无法加载已导入的文件。",
+        "import_remove_failed": "无法移除此副本。它可能仍在使用中。",
+        "import_size_limit": "请选择不为空且不超过 {mib} MiB 的文件。",
+        "import_failed": "无法导入此文件。",
         "file_transfer": "文件传输",
         "title": "RNCP - Reticulum 网络复制",
         "description": "使用 RNCP 通过 Reticulum 发送、监听或获取文件（分块传输，可选压缩）。",

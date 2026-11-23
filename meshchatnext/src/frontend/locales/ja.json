@@ -4366,6 +4366,16 @@
         "rtt_tooltip": "Round-trip latency to hub"
     },
     "rncp": {
+        "importing_file": "ファイルを準備中…",
+        "imported_copies": "インポートしたファイル",
+        "imported_copies_hint": "送信用に選択した非公開のコピーです。コピーを削除しても元のファイルは残ります。これらのコピーはリモート取得用には共有されません。",
+        "interrupted_import": "中断されたインポート",
+        "remove_import": "コピーを削除",
+        "remove_import_named": "{name} のインポートしたコピーを削除",
+        "import_list_failed": "インポートしたファイルを読み込めませんでした。",
+        "import_remove_failed": "このコピーを削除できませんでした。まだ使用中の可能性があります。",
+        "import_size_limit": "空ではない {mib} MiB 以下のファイルを選択してください。",
+        "import_failed": "このファイルをインポートできませんでした。",
         "file_transfer": "ファイル転送",
         "title": "RNCP - Reticulum Network Copy",
         "description": "RNCPを使ってReticulum経由でファイルを送信・待受・取得します（チャンク転送、圧縮は任意）。",

@@ -26,3 +26,13 @@ export function sendRncp(data, ...rest) {
 export function stopRncp(data, ...rest) {
     return window.api.post(apiPath("/rncp/stop"), data, ...rest);
 }
+
+export function getUploads(...rest) {
+    return window.api.get(apiPath("/rncp/uploads"), ...rest);
+}
+export function importFile(data, ...rest) {
+    return window.api.post(apiPath("/rncp/upload"), data, ...rest);
+}
+export function deleteUpload(identifier, ...rest) {
+    return window.api.delete(apiPath(`/rncp/uploads/${encodeURIComponent(identifier)}`), ...rest);
+}

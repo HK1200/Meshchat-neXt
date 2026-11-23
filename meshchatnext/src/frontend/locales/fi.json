@@ -4366,6 +4366,16 @@
         "rtt_tooltip": "Round-trip latency to hub"
     },
     "rncp": {
+        "importing_file": "Valmistellaan tiedostoa…",
+        "imported_copies": "Tuodut tiedostot",
+        "imported_copies_hint": "Lähetettäviksi valitut yksityiset kopiot. Kopion poistaminen säilyttää alkuperäisen tiedoston. Näitä kopioita ei jaeta etähakua varten.",
+        "interrupted_import": "Keskeytynyt tuonti",
+        "remove_import": "Poista kopio",
+        "remove_import_named": "Poista tiedoston {name} tuotu kopio",
+        "import_list_failed": "Tuotuja tiedostoja ei voitu ladata.",
+        "import_remove_failed": "Tätä kopiota ei voitu poistaa. Se saattaa olla vielä käytössä.",
+        "import_size_limit": "Valitse tiedosto, joka ei ole tyhjä ja jonka koko on enintään {mib} MiB.",
+        "import_failed": "Tätä tiedostoa ei voitu tuoda.",
         "file_transfer": "Tiedostonsiirto",
         "title": "RNCP - Reticulum-verkon kopiointi",
         "description": "Lähetä, kuuntele tai nouda tiedostoja Reticulumin yli käyttäen RNCP:tä (palapalasiirrot, valinnainen pakkaus).",

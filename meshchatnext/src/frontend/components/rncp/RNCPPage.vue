@@ -101,6 +101,7 @@
                                     <div class="flex gap-2">
                                         <input
                                             v-model="sendFilePath"
+                                            :disabled="importInProgress || sendInProgress"
                                             type="text"
                                             placeholder="/path/to/file"
                                             class="input-field flex-1 min-w-0"
@@ -115,12 +116,48 @@
                                             type="button"
                                             class="secondary-chip px-3 py-2 text-xs shrink-0"
                                             :title="$t('rncp.browse_file')"
+                                            :disabled="importInProgress || sendInProgress"
                                             @click="pickSendFile"
                                         >
                                             <MaterialDesignIcon icon-name="folder-open-outline" class="w-4 h-4" />
                                             {{ $t("rncp.browse_file") }}
                                         </button>
                                     </div>
+                                </div>
+                            </div>
+                            <div v-if="importInProgress" role="status" class="flex items-center gap-3 text-sm">
+                                <span>{{ $t("rncp.importing_file") }}</span>
+                                <button
+                                    type="button"
+                                    class="secondary-chip px-3 py-2"
+                                    @click="importController?.abort()"
+                                >
+                                    {{ $t("rncp.cancel") }}
+                                </button>
+                            </div>
+                            <p v-if="importError" role="alert" class="text-sm text-sem-danger">{{ importError }}</p>
+                            <div v-if="importedFiles.length" class="space-y-2">
+                                <h3 class="glass-label">{{ $t("rncp.imported_copies") }}</h3>
+                                <p class="text-xs text-sem-fg-muted">{{ $t("rncp.imported_copies_hint") }}</p>
+                                <div v-for="file in importedFiles" :key="file.id" class="flex items-center gap-2">
+                                    <button
+                                        type="button"
+                                        class="secondary-chip flex-1 min-w-0 px-3 py-2 text-sm break-all"
+                                        :disabled="file.incomplete || importInProgress || sendInProgress"
+                                        @click="sendFilePath = file.file_path"
+                                    >
+                                        {{ file.incomplete ? $t("rncp.interrupted_import") : file.name }} ·
+                                        {{ Math.ceil(file.size / 1024) }} KiB
+                                    </button>
+                                    <button
+                                        type="button"
+                                        class="secondary-chip px-3 py-2 text-sm"
+                                        :disabled="importInProgress || sendInProgress"
+                                        :aria-label="$t('rncp.remove_import_named', { name: file.name })"
+                                        @click="removeImportedFile(file)"
+                                    >
+                                        {{ $t("rncp.remove_import") }}
+                                    </button>
                                 </div>
                             </div>
                             <div class="grid lg:grid-cols-2 gap-4">
@@ -140,6 +177,7 @@
                                     v-if="!sendInProgress"
                                     type="button"
                                     class="primary-chip px-4 py-2 text-sm"
+                                    :disabled="importInProgress"
                                     @click="sendFile"
                                 >
                                     <MaterialDesignIcon icon-name="upload" class="w-4 h-4" />
@@ -444,6 +482,7 @@ import { handleRichHtmlLinkClick } from "../../js/NomadRichHtmlLinks.js";
 import ToastUtils from "../../js/ToastUtils";
 import ToolsPageHeader from "../tools/ToolsPageHeader.vue";
 import { onWsEvent, offWsEvent } from "../../js/registries/wsEventRegistry";
+import * as RncpAPI from "../../js/api/rncp";
 import { apiPath, WS_EVENTS } from "../../js/constants";
 
 const RNCP_LISTEN_PREFS_KEY = "meshchatnext.rncp.listenForm.v1";
@@ -459,6 +498,12 @@ export default {
             activeTab: "send",
             sendDestinationHash: null,
             sendFilePath: null,
+            importedFiles: [],
+            importInProgress: false,
+            importController: null,
+            importLimit: 512 * 1024 * 1024,
+            importError: null,
+            importsDisposed: false,
             sendTimeout: 30,
             sendNoCompress: false,
             sendInProgress: false,
@@ -503,9 +548,12 @@ export default {
         onWsEvent(WS_EVENTS.RNCP_TRANSFER_PROGRESS, this.onTransferProgress);
         onWsEvent(WS_EVENTS.RNCP_RECEIVE_COMPLETED, this.onReceiveCompleted);
         this.loadRncpListenPrefs();
+        this.loadImportedFiles();
         this.syncListenerStatusFromServer();
     },
     beforeUnmount() {
+        this.importsDisposed = true;
+        this.importController?.abort();
         offWsEvent(WS_EVENTS.RNCP_TRANSFER_PROGRESS, this.onTransferProgress);
         offWsEvent(WS_EVENTS.RNCP_RECEIVE_COMPLETED, this.onReceiveCompleted);
         this.cancelSend();
@@ -616,13 +664,59 @@ export default {
             }
             this.$refs.sendFileInput?.click();
         },
-        onWebSendFilePicked(event) {
-            const f = event.target.files?.[0];
+        async loadImportedFiles() {
+            try {
+                const response = await RncpAPI.getUploads();
+                if (this.importsDisposed) return;
+                this.importedFiles = response.data.files;
+                this.importLimit = response.data.max_file_bytes;
+            } catch (error) {
+                if (!this.importsDisposed)
+                    this.importError = error.response?.data?.message || this.$t("rncp.import_list_failed");
+            }
+        },
+        async removeImportedFile(file) {
+            if (this.importInProgress || this.sendInProgress) return;
+            try {
+                await RncpAPI.deleteUpload(file.id);
+                if (this.importsDisposed) return;
+                if (this.sendFilePath === file.file_path) this.sendFilePath = "";
+                this.importError = null;
+                await this.loadImportedFiles();
+            } catch (error) {
+                if (!this.importsDisposed)
+                    this.importError = error.response?.data?.message || this.$t("rncp.import_remove_failed");
+            }
+        },
+        async onWebSendFilePicked(event) {
+            const file = event.target.files?.[0];
             event.target.value = "";
-            if (!f) return;
-            // Browsers only expose the basename. Require an explicit full path.
-            this.sendFilePath = "";
-            DialogUtils.alert(this.$t("rncp.web_path_hint"));
+            if (!file || this.importInProgress || this.sendInProgress) return;
+            if (!file.size || file.size > this.importLimit) {
+                this.importError = this.$t("rncp.import_size_limit", { mib: Math.floor(this.importLimit / 1048576) });
+                return;
+            }
+            const controller = new AbortController();
+            this.importController = controller;
+            this.importInProgress = true;
+            this.importError = null;
+            try {
+                const data = new FormData();
+                data.append("file", file);
+                const response = await RncpAPI.importFile(data, { signal: controller.signal, timeout: 0 });
+                if (this.importsDisposed) return;
+                this.sendFilePath = response.data.file_path;
+            } catch (error) {
+                if (!this.importsDisposed && !controller.signal.aborted) {
+                    this.importError = error.response?.data?.message || this.$t("rncp.import_failed");
+                }
+            } finally {
+                if (!this.importsDisposed) {
+                    this.importInProgress = false;
+                    this.importController = null;
+                    await this.loadImportedFiles();
+                }
+            }
         },
         async pickFetchSaveDirectory() {
             const p = await ElectronUtils.pickDirectory();
@@ -670,6 +764,7 @@ export default {
             }
         },
         async sendFile() {
+            if (this.importInProgress || this.sendInProgress) return;
             if (!this.sendDestinationHash || this.sendDestinationHash.length !== 32) {
                 DialogUtils.alert(this.$t("rncp.invalid_hash"));
                 return;

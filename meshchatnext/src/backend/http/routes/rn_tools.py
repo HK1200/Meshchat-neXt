@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import os
 
 from aiohttp import web
 
@@ -24,12 +25,81 @@ from meshchatnext.src.backend.http.uploads import (
     PayloadTooLargeError,
     read_json_limited,
 )
+from meshchatnext.src.backend.rncp_uploads import (
+    MAX_FILE_BYTES,
+    ImportBusyError,
+    RNCPUploads,
+)
 from meshchatnext.src.backend.rnprobe_handler import RNProbeHandler
 
 logger = logging.getLogger(__name__)
 
 
 def register_rn_tools_routes(routes, app):
+    def imports():
+        directory = getattr(app.rncp_handler, "storage_dir", None)
+        if not isinstance(directory, (str, os.PathLike)):
+            raise ValueError("RNCP file imports are unavailable")
+        candidate = RNCPUploads(directory)
+        stores = getattr(app, "_rncp_uploaded_files", None)
+        if not isinstance(stores, dict):
+            stores = {}
+            app._rncp_uploaded_files = stores
+        # An identity switch must not discard the lease held by an ongoing
+        # transfer when its original identity becomes active again.
+        return stores.setdefault(candidate.root, candidate)
+
+    def import_lease(path):
+        if isinstance(
+            getattr(app.rncp_handler, "storage_dir", None), (str, os.PathLike)
+        ):
+            return imports().lease(path)
+        return contextlib.nullcontext()
+
+    @routes.get(API_V1_PREFIX + "/rncp/uploads")
+    async def rncp_imports_get(_request):
+        try:
+            return web.json_response(
+                {"files": imports().list(), "max_file_bytes": MAX_FILE_BYTES},
+                headers={"Cache-Control": "no-store"},
+            )
+        except Exception as error:
+            return http_error_from_exception(error)
+
+    @routes.post(API_V1_PREFIX + "/rncp/upload")
+    async def rncp_import_post(request):
+        if request.content_type != "multipart/form-data":
+            return http_bad_request("Choose a file to import")
+        try:
+            reader = await request.multipart()
+            field = await reader.next()
+            if field is None or field.name != "file":
+                return http_bad_request("Choose a file to import")
+            return web.json_response(await imports().import_field(field))
+        except PayloadTooLargeError:
+            return http_payload_too_large(
+                "The file exceeds the import size or available-storage limit"
+            )
+        except ImportBusyError as error:
+            return http_error(409, str(error))
+        except OSError as error:
+            if isinstance(error, PermissionError):
+                return http_error_from_exception(error)
+            return http_error(
+                507, "The file could not be saved. Check available storage."
+            )
+        except Exception as error:
+            return http_error_from_exception(error)
+
+    @routes.delete(API_V1_PREFIX + "/rncp/uploads/{upload_id}")
+    async def rncp_import_delete(request):
+        try:
+            imports().delete(request.match_info["upload_id"])
+            return web.json_response({"message": "Imported copy removed"})
+        except ImportBusyError as error:
+            return http_error(409, str(error))
+        except Exception as error:
+            return http_error_from_exception(error)
 
     def _rnsh_require_manager():
         manager = app.rnsh_manager
@@ -373,14 +443,15 @@ def register_rn_tools_routes(routes, app):
                 )
 
         try:
-            result = await app.rncp_handler.send_file(
-                destination_hash=destination_hash,
-                file_path=file_path,
-                timeout=timeout,
-                on_progress=on_progress,
-                no_compress=no_compress,
-                on_transfer_started=on_transfer_started,
-            )
+            with import_lease(file_path):
+                result = await app.rncp_handler.send_file(
+                    destination_hash=destination_hash,
+                    file_path=file_path,
+                    timeout=timeout,
+                    on_progress=on_progress,
+                    no_compress=no_compress,
+                    on_transfer_started=on_transfer_started,
+                )
             AsyncUtils.run_async(
                 app._broadcast_websocket_message(
                     {

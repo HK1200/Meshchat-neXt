@@ -4366,6 +4366,16 @@
         "rtt_tooltip": "Round-trip latency to hub"
     },
     "rncp": {
+        "importing_file": "Bestand voorbereiden…",
+        "imported_copies": "Geïmporteerde bestanden",
+        "imported_copies_hint": "Privékopieën geselecteerd voor verzending. Het verwijderen van een kopie behoudt het oorspronkelijke bestand. Deze kopieën zijn niet gedeeld om op afstand op te halen.",
+        "interrupted_import": "Import onderbroken",
+        "remove_import": "Kopie verwijderen",
+        "remove_import_named": "Geïmporteerde kopie van {name} verwijderen",
+        "import_list_failed": "Geïmporteerde bestanden konden niet worden geladen.",
+        "import_remove_failed": "Deze kopie kon niet worden verwijderd. Mogelijk is deze nog in gebruik.",
+        "import_size_limit": "Kies een niet-leeg bestand van maximaal {mib} MiB.",
+        "import_failed": "Dit bestand kon niet worden geïmporteerd.",
         "file_transfer": "Bestandsoverdracht",
         "title": "RNCP - Reticulum-netwerkkopie",
         "description": "Stuur, luister, of haal bestanden over Reticulum met behulp van RNCP (gechunked transfers, optionele compressie).",

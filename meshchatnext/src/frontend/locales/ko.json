@@ -4366,6 +4366,16 @@
         "rtt_tooltip": "Round-trip latency to hub"
     },
     "rncp": {
+        "importing_file": "파일 준비 중…",
+        "imported_copies": "가져온 파일",
+        "imported_copies_hint": "전송을 위해 선택한 비공개 사본입니다. 사본을 제거해도 원본 파일은 유지됩니다. 이 사본은 원격 가져오기에 공유되지 않습니다.",
+        "interrupted_import": "가져오기 중단됨",
+        "remove_import": "사본 제거",
+        "remove_import_named": "{name}의 가져온 사본 제거",
+        "import_list_failed": "가져온 파일을 불러올 수 없습니다.",
+        "import_remove_failed": "이 사본을 제거할 수 없습니다. 아직 사용 중일 수 있습니다.",
+        "import_size_limit": "비어 있지 않은 {mib} MiB 이하의 파일을 선택하세요.",
+        "import_failed": "이 파일을 가져올 수 없습니다.",
         "file_transfer": "파일 전송",
         "title": "RNCP - Reticulum 네트워크 복사",
         "description": "RNCP를 사용해 Reticulum을 통해 파일을 전송, 수신 대기 또는 가져옵니다 (청크 전송, 선택적 압축).",

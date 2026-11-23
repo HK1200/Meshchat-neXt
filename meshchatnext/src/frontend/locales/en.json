@@ -4366,6 +4366,16 @@
         "unignore": "Unignore"
     },
     "rncp": {
+        "importing_file": "Preparing file…",
+        "imported_copies": "Imported files",
+        "imported_copies_hint": "Private copies selected for sending. Removing a copy keeps your original file. These copies are not shared for remote fetching.",
+        "interrupted_import": "Interrupted import",
+        "remove_import": "Remove copy",
+        "remove_import_named": "Remove imported copy of {name}",
+        "import_list_failed": "Unable to load imported files.",
+        "import_remove_failed": "Unable to remove this copy. It may still be in use.",
+        "import_size_limit": "Choose a non-empty file up to {mib} MiB.",
+        "import_failed": "Unable to import this file.",
         "file_transfer": "File Transfer",
         "title": "RNCP - Reticulum Network Copy",
         "description": "Send, listen, or fetch files over Reticulum using RNCP (chunked transfers, optional compression).",

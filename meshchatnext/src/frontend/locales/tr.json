@@ -4366,6 +4366,16 @@
         "rtt_tooltip": "Round-trip latency to hub"
     },
     "rncp": {
+        "importing_file": "Dosya hazırlanıyor…",
+        "imported_copies": "İçe aktarılan dosyalar",
+        "imported_copies_hint": "Gönderim için seçilen özel kopyalar. Kopyayı kaldırmak özgün dosyayı korur. Bu kopyalar uzaktan alma için paylaşılmaz.",
+        "interrupted_import": "İçe aktarma kesildi",
+        "remove_import": "Kopyayı kaldır",
+        "remove_import_named": "{name} dosyasının içe aktarılan kopyasını kaldır",
+        "import_list_failed": "İçe aktarılan dosyalar yüklenemedi.",
+        "import_remove_failed": "Bu kopya kaldırılamadı. Hâlâ kullanımda olabilir.",
+        "import_size_limit": "Boş olmayan, en fazla {mib} MiB boyutunda bir dosya seçin.",
+        "import_failed": "Bu dosya içe aktarılamadı.",
         "file_transfer": "Dosya Aktarımı",
         "title": "RNCP - Reticulum Ağ Kopyalama",
         "description": "RNCP kullanarak Reticulum üzerinden dosya gönder, dinle veya getir (parçalı aktarımlar, isteğe bağlı sıkıştırma).",

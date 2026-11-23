@@ -52,7 +52,7 @@ async def receive(folder, port, allowed):
         await asyncio.sleep(0.05)
 
 
-async def send(folder):
+async def send(folder, *, http_import=False):
     identity = RNS.Identity()
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
@@ -126,19 +126,84 @@ async def send(folder):
             handler = RNCPHandler(stack, identity, str(storage))
             payload = os.urandom(2 * 1024 * 1024)
             assert len(payload) > 2 * RNS.Resource.MAX_EFFICIENT_SIZE
-            source = storage / "segmented.bin"
-            source.write_bytes(payload)
             progress = []
-            result = await asyncio.wait_for(
-                handler.send_file(
-                    address,
-                    str(source),
-                    timeout=10,
-                    no_compress=True,
-                    on_progress=progress.append,
-                ),
-                40,
-            )
+            if http_import:
+                from types import SimpleNamespace
+
+                from aiohttp import FormData, web
+                from aiohttp.test_utils import TestClient, TestServer
+
+                from meshchatnext.src.backend.async_utils import AsyncUtils
+                from meshchatnext.src.backend.http.routes.rn_tools import (
+                    register_rn_tools_routes,
+                )
+
+                AsyncUtils.set_main_loop(asyncio.get_running_loop())
+                final_progress = asyncio.Event()
+
+                async def broadcast(event):
+                    if event.get("type") == "rncp.transfer.progress":
+                        progress.append(event["progress"])
+                        if event["progress"] == 1.0:
+                            final_progress.set()
+
+                backend = SimpleNamespace(
+                    rncp_handler=handler, _broadcast_websocket_message=broadcast
+                )
+                routes = web.RouteTableDef()
+                register_rn_tools_routes(routes, backend)
+                app = web.Application()
+                app.add_routes(routes)
+                async with TestClient(TestServer(app)) as client:
+                    form = FormData()
+                    form.add_field(
+                        "file",
+                        payload,
+                        filename="segmented.bin",
+                        content_type="application/octet-stream",
+                    )
+                    response = await client.post("/api/v1/rncp/upload", data=form)
+                    assert response.status == 200, await response.text()
+                    imported = await response.json()
+                    assert Path(imported["file_path"]).read_bytes() == payload
+                    assert "rncp_uploads" in Path(imported["file_path"]).parts
+                    response = await asyncio.wait_for(
+                        client.post(
+                            "/api/v1/rncp/send",
+                            json={
+                                "destination_hash": address.hex(),
+                                "file_path": imported["file_path"],
+                                "timeout": 10,
+                                "no_compress": True,
+                            },
+                        ),
+                        40,
+                    )
+                    assert response.status == 200, await response.text()
+                    result = await response.json()
+                    response = await client.delete(
+                        "/api/v1/rncp/uploads/" + imported["id"]
+                    )
+                    assert response.status == 200
+                    response = await client.get("/api/v1/rncp/uploads")
+                    assert (await response.json())["files"] == []
+                    # The endpoint schedules progress broadcasts after the final
+                    # standard Resource callback. Let that queued callback run.
+                    await asyncio.wait_for(final_progress.wait(), 2)
+            else:
+                source = storage / "segmented.bin"
+                source.write_bytes(payload)
+                progress = []
+                result = await asyncio.wait_for(
+                    handler.send_file(
+                        address,
+                        str(source),
+                        timeout=10,
+                        no_compress=True,
+                        on_progress=progress.append,
+                    ),
+                    40,
+                )
             assert result["status"] == "completed"
             target = folder / "receiver/files/rncp_received/segmented.bin"
             deadline = time.monotonic() + 3
@@ -152,6 +217,8 @@ async def send(folder):
             proof = {
                 "ok": True,
                 "private_loopback_only": True,
+                "http_import_and_send": http_import,
+                "imported_copy_removed": http_import,
                 "standard_resource_segmentation": True,
                 "file_bytes": len(payload),
                 "file_sha256": hashlib.sha256(payload).hexdigest(),
@@ -182,9 +249,10 @@ if __name__ == "__main__":
     parser.add_argument("folder", type=Path)
     parser.add_argument("--port", type=int)
     parser.add_argument("--allowed")
+    parser.add_argument("--http-import", action="store_true")
     args = parser.parse_args()
     if args.port:
         asyncio.run(receive(args.folder, args.port, args.allowed))
     else:
         args.folder.mkdir()
-        asyncio.run(send(args.folder))
+        asyncio.run(send(args.folder, http_import=args.http_import))
