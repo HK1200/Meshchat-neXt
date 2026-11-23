@@ -1,4 +1,5 @@
 import DOMPurify from "dompurify";
+import { labelNomadLinks } from "./nomadLinkLabels.js";
 import BaseMicronParser from "micron-parser";
 import { inlineStyleHasNetworkPaint, scrubNetworkCss as scrubNetworkCssBody } from "./nomadCssSecurity.js";
 
@@ -1187,6 +1188,8 @@ export default class MicronParser extends BaseMicronParser {
         if (!root || root.nodeType !== Node.ELEMENT_NODE) {
             return;
         }
+
+        labelNomadLinks(root);
 
         const isPartial = options.isPartial === true;
         let foundMain = false;
