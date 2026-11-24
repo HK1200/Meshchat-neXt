@@ -141,3 +141,56 @@ def test_draft_notes_only_includes_changelog_then_checksums():
         # Bullet shape: full sha, subject, trailing period.
         if "* " in body:
             assert re.search(r"\* [0-9a-f]{40} .+\.", body)
+
+
+def test_draft_release_notes_support_current_and_historical_headings(tmp_path):
+    """Exercise actual notes generation offline, including section boundaries."""
+    import shutil
+
+    fixture = tmp_path / "repository"
+    scripts = fixture / "scripts" / "ci"
+    scripts.mkdir(parents=True)
+    for original in (_DRAFT, _CHANGELOG):
+        shutil.copy2(original, scripts / original.name)
+    subprocess.run(["git", "init", "-q", str(fixture)], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=Release fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "commit",
+            "--allow-empty",
+            "-qm",
+            "fixture",
+        ],
+        cwd=fixture,
+        check=True,
+    )
+    subprocess.run(["git", "tag", "v0.1.28"], cwd=fixture, check=True)
+    assets = tmp_path / "assets"
+    assets.mkdir()
+    (assets / "fixture.bin").write_bytes(b"private-release-fixture")
+    env = dict(os.environ, MESHCHATNEXT_DRAFT_NOTES_ONLY="1", TAG="v0.1.28")
+    env.pop("GH_TOKEN", None)
+    for heading in ("## 0.1.28", "## [0.1.28] - 2026-11-23"):
+        (fixture / "CHANGELOG.md").write_text(
+            "# Changes\n\n## 0.1.280\n\nWrong newer version\n\n"
+            + heading
+            + "\n\n- Current release detail\n\n### Upgrade\n\nKeep settings.\n\n"
+            "## 0.1.27\n\nWrong older version\n"
+        )
+        body = subprocess.run(
+            ["bash", str(scripts / _DRAFT.name), str(assets)],
+            cwd=fixture,
+            env=env,
+            text=True,
+            capture_output=True,
+            check=True,
+        ).stdout
+        assert "<summary><strong>Release Notes</strong></summary>" in body
+        assert "Current release detail" in body and "### Upgrade" in body
+        assert "Keep settings." in body
+        assert "Wrong newer version" not in body and "Wrong older version" not in body
+        assert body.index("Release Notes</strong>") < body.index("Changelog</strong>")

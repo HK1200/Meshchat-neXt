@@ -27,9 +27,15 @@ extract_changelog_notes() {
     fi
     awk -v ver="$ver" '
         BEGIN { in_section = 0 }
-        /^## \[/ {
+        /^##[[:space:]]+/ {
+            heading = $0
+            sub(/^##[[:space:]]+/, "", heading)
+            split(heading, words, /[[:space:]]+/)
+            heading_version = words[1]
+            sub(/^\[/, "", heading_version)
+            sub(/\].*$/, "", heading_version)
             if (in_section) { exit }
-            if (index($0, "## [" ver "]") == 1) { in_section = 1; next }
+            if (heading_version == ver) { in_section = 1; next }
         }
         in_section { print }
     ' "$changelog" | sed '/./,$!d'
