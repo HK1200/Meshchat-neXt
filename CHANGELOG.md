@@ -1,5 +1,12 @@
 # Meshchat neXt changelog
 
+## 0.1.28
+
+- Import files for RNCP transfers through the Android and browser file pickers, with streamed uploads and validated import responses.
+- Make Nomad page and download links accessible through their actionable controls.
+- Add explicit per-recipient routes for compatible incoming-call alert providers. Signed hints and cancellation are bound to the selected contact and sent over verified HTTPS; removing a route stops future hints. This does not make a suspended iOS app reachable without a push-capable signed build and configured provider.
+- Preserve settings and Reticulum identities during in-place upgrades, with matching versions across Android, Windows, macOS and Linux packages.
+
 ## 0.1.27
 
 - Wait for all RNCP file segments before reporting completion and closing the link, fixing incomplete transfers larger than about 1 MiB.
