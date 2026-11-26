@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import time
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import meshchatnext.src.backend.interfaces.WebsocketClientInterface as ws_mod
@@ -46,6 +48,9 @@ def test_reconnect_closes_previous_websocket_before_opening_next():
     created: list[_FakeWs] = []
 
     def fake_connect(*_args, **_kwargs):
+        if created:
+            assert created[-1].closed
+            assert client.websocket is None
         ws = _FakeWs(fail_iter=True)
         created.append(ws)
         return ws
@@ -59,7 +64,12 @@ def test_reconnect_closes_previous_websocket_before_opening_next():
 
     with (
         patch.object(ws_mod, "connect", side_effect=fake_connect),
-        patch.object(ws_mod.time, "sleep", side_effect=fake_sleep),
+        # Logging represents another caller of the shared time module. It must
+        # not advance this interface's synthetic reconnect-delay counter.
+        patch.object(ws_mod.RNS, "log", side_effect=lambda *_args: time.sleep(0)),
+        # Replace only this module's binding, never the global time.sleep used
+        # by Reticulum, logging and other tests' surviving worker threads.
+        patch.object(ws_mod, "time", SimpleNamespace(sleep=fake_sleep)),
     ):
         client.connect()
 
