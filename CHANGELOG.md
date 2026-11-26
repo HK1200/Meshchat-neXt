@@ -1,5 +1,10 @@
 # Meshchat neXt changelog
 
+## 0.1.29
+
+- Show the negotiated Reticulum call quality for every Opus and Codec2 profile. Previously, Codec2 could show no quality, while Opus exposed its internal preset number instead of the call's quality setting.
+- Preserve settings and Reticulum identities during in-place upgrades, with matching versions across Android, Windows, macOS and Linux packages.
+
 ## 0.1.28
 
 - Import files for RNCP transfers through the Android and browser file pickers, with streamed uploads and validated import responses.

@@ -134,12 +134,9 @@ def register_telephone_routes(routes, app):
                 "is_incoming": telephone_active_call.is_incoming,
                 "status": app.telephone_manager.telephone.call_status,
                 "remote_telephony_hash": remote_telephony_hash,
-                "audio_profile_id": app.telephone_manager.telephone.transmit_codec.profile
-                if hasattr(
-                    app.telephone_manager.telephone.transmit_codec,
-                    "profile",
-                )
-                else None,
+                # Codec presets are a different ID space; Codec2 has no such
+                # attribute. The call owns the negotiated LXST quality.
+                "audio_profile_id": getattr(telephone_active_call, "profile", None),
                 "call_mode_id": app.telephone_manager.get_active_mode_id(),
                 "is_half_duplex": app.telephone_manager.is_half_duplex(),
                 "is_ptt_active": bool(app.telephone_manager.ptt_active),
