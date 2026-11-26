@@ -211,6 +211,14 @@ jobs:
                       python3 scripts/android/build-sip.py --abi "$abi"
                   done
 
+            # Cache only immutable upstream inputs, never compiled security
+            # binaries. provision-expat.py verifies every restored input hash.
+            - name: Cache checksum-pinned Expat source inputs
+              uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+              with:
+                  path: temp-tests/android-expat-security/inputs
+                  key: android-expat-source-${{ runner.os }}-x86_64-${{ hashFiles('scripts/android/provision-expat.py') }}
+
             - name: Build checksum-pinned Expat security backport
               run: python scripts/android/provision-expat.py --abis x86_64
 

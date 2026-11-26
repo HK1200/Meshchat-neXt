@@ -13,11 +13,17 @@ import hashlib
 import json
 import os
 import shutil
+import ssl
 import subprocess
 import sys
 import tarfile
+import tempfile
+import time
+import urllib.error
 import urllib.request
 import zipfile
+from email.utils import parsedate_to_datetime
+from http.client import IncompleteRead
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -57,23 +63,97 @@ def sha(path: Path) -> str:
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
+MAX_DOWNLOAD_BYTES = 128 * 1024 * 1024
+MAX_FETCH_ATTEMPTS = 4
+MAX_RETRY_WAIT = 60
+
+
+def _retry_wait(error: Exception, attempt: int) -> float | None:
+    if isinstance(error, urllib.error.HTTPError):
+        if error.code not in {408, 429, 500, 502, 503, 504}:
+            return None
+    elif isinstance(error, urllib.error.URLError) and isinstance(
+        error.reason, ssl.SSLCertVerificationError
+    ):
+        return None
+    delay = float(2 ** (attempt + 1))
+    if isinstance(error, urllib.error.HTTPError) and error.code == 429:
+        delay = min(float(MAX_RETRY_WAIT), 15.0 * (2**attempt))
+    headers = getattr(error, "headers", None)
+    value = headers.get("Retry-After", "").strip() if headers else ""
+    if value:
+        try:
+            if value.isdecimal():
+                requested = float(value)
+            else:
+                date = parsedate_to_datetime(value)
+                if date.tzinfo is None:
+                    raise ValueError("Retry-After date must include a timezone")
+                requested = max(0.0, date.timestamp() - time.time())
+            if requested > MAX_RETRY_WAIT:
+                # Do not ignore the server's requested delay by retrying early.
+                return None
+            delay = max(2.0, requested)
+        except (ValueError, TypeError, OverflowError):
+            pass
+    return min(delay, MAX_RETRY_WAIT)
+
+
 def fetch(path: Path, url: str, digest: str) -> Path:
     if not url.startswith("https://"):
         raise RuntimeError("Only pinned HTTPS sources are permitted")
     path.parent.mkdir(parents=True, exist_ok=True)
-    if not path.exists():
-        temporary = path.with_name(path.name + ".download")
-        with (
-            urllib.request.urlopen(url, timeout=60) as response,  # noqa: S310 - HTTPS guard and pinned digest above
-            temporary.open("wb") as stream,
-        ):
-            shutil.copyfileobj(response, stream)
-        if sha(temporary) != digest:
-            raise RuntimeError(f"Untrusted download: {path.name}")
-        temporary.replace(path)
-    if sha(path) != digest:
-        raise RuntimeError(f"Input checksum mismatch: {path.name}")
-    return path
+    if path.exists():
+        if sha(path) != digest:
+            raise RuntimeError(f"Input checksum mismatch: {path.name}")
+        return path
+    for attempt in range(MAX_FETCH_ATTEMPTS):
+        temporary = None
+        try:
+            with (
+                urllib.request.urlopen(url, timeout=60) as response,  # noqa: S310 - HTTPS guard and pinned digest above
+                tempfile.NamedTemporaryFile(
+                    dir=path.parent,
+                    prefix=f".{path.name}.",
+                    suffix=".download",
+                    delete=False,
+                ) as stream,
+            ):
+                temporary = Path(stream.name)
+                size = 0
+                while data := response.read(1024 * 1024):
+                    size += len(data)
+                    if size > MAX_DOWNLOAD_BYTES:
+                        raise RuntimeError(f"Oversized build input: {path.name}")
+                    stream.write(data)
+            if sha(temporary) != digest:
+                raise RuntimeError(f"Untrusted download: {path.name}")
+            temporary.replace(path)
+            return path
+        except (
+            urllib.error.HTTPError,
+            urllib.error.URLError,
+            TimeoutError,
+            ConnectionError,
+            IncompleteRead,
+        ) as error:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+            delay = _retry_wait(error, attempt)
+            if attempt + 1 == MAX_FETCH_ATTEMPTS or delay is None:
+                raise
+            if isinstance(error, urllib.error.HTTPError):
+                error.close()
+            print(
+                f"Retrying pinned input {path.name} after {type(error).__name__}; "
+                f"waiting {delay:g}s ({attempt + 2}/{MAX_FETCH_ATTEMPTS})",
+                flush=True,
+            )
+            time.sleep(delay)
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+    raise AssertionError("Pinned input retry loop did not return or raise")
 
 
 def main() -> None:
