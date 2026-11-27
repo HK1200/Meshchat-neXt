@@ -64,8 +64,8 @@ Radio2 media requires compatible firmware and client support at both ends. **Sta
 1. Download the current version from [GitHub Releases](https://github.com/HK1200/Meshchat-neXt/releases/latest).
     - **Windows** · Choose the x64 installer or portable executable.
     - **macOS** · Choose the Apple silicon (ARM64) or Intel (x64) DMG.
-    - **Linux** · Choose the package for your distribution and processor. On Linux Mint and Ubuntu, use the matching `.deb` or `.AppImage`. See the [Linux installation and update guide](docs/en/platform-guides/linux-desktop.md).
-    - **Android** · Choose the APK for ARM64, ARMv7, or x86_64. neXt supports Android 7 and later. SIP calling requires Android 9 or later.
+    - **Linux** · Choose the package for your distribution and processor. On Linux Mint and Ubuntu, prefer the matching amd64 or arm64 `.deb`; portable AppImages are also provided. Ubuntu 26.04 AppImages require appropriate sandbox integration. See the [Linux installation and update guide](docs/en/platform-guides/linux-desktop.md).
+    - **Android** · Choose the universal Android APK, which includes ARM64, ARMv7 and x86_64. neXt supports Android 7 and later. SIP calling requires Android 9 or later.
 2. Choose the services you want during first-start setup. You can revisit these choices under **Settings → App features**.
 3. Keep your existing setup or import a supported identity/backup. Review the proposed changes before applying them.
 4. Connect your RNode and/or MeshCore companion, or configure the network interfaces you need. Choosing Reticulum internet TCP adds separate peers for **RMAP 4343 and 4242, WashMesh and Chicagoland Mesh**. You can edit, enable or disable them individually under **RNS Interfaces**.
