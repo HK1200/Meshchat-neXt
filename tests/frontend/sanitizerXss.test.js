@@ -38,6 +38,12 @@ export const XSS_PAYLOADS = [
     { name: "iframe", input: '<iframe src="javascript:alert(1)"></iframe><p>ok</p>' },
     { name: "micron js link", input: "`[click`javascript:alert(1)]`" },
     { name: "entity javascript href", input: '<a href="&#106;avascript:alert(1)">x</a>' },
+    { name: "tab in javascript scheme", input: '<a href="java&#x09;script:alert(1)">x</a>' },
+    { name: "newline in javascript scheme", input: '<a href="jav&#x0a;ascript:alert(1)">x</a>' },
+    {
+        name: "whitespace before html data type",
+        input: '<a href="data: text/html,%3Cscript%3Ealert(1)%3C/script%3E">x</a>',
+    },
 ];
 
 export function assertNoScriptableHtml(html, payloadName) {
@@ -51,10 +57,20 @@ export function assertNoScriptableHtml(html, payloadName) {
             if (!v) {
                 continue;
             }
-            const lower = v.trim().toLowerCase();
-            expect(lower.startsWith("javascript:"), `${payloadName} ${attr}`).toBe(false);
-            expect(lower.startsWith("vbscript:"), `${payloadName} ${attr}`).toBe(false);
-            expect(lower.startsWith("data:text/html"), `${payloadName} ${attr}`).toBe(false);
+            let parsed;
+            try {
+                // Match the browser's URL grammar, including embedded ASCII
+                // tabs/newlines and case normalization of executable schemes.
+                parsed = new URL(v, "https://sanitizer.invalid/");
+            } catch {
+                continue; // A URL the browser cannot parse is not executable.
+            }
+            expect(parsed.protocol, `${payloadName} ${attr}`).not.toBe("javascript:");
+            expect(parsed.protocol, `${payloadName} ${attr}`).not.toBe("vbscript:");
+            if (parsed.protocol === "data:") {
+                const mediaType = parsed.pathname.split(",", 1)[0].split(";", 1)[0].trim().toLowerCase();
+                expect(mediaType, `${payloadName} ${attr}`).not.toBe("text/html");
+            }
         }
     }
     for (const el of root.querySelectorAll("*")) {
@@ -121,5 +137,15 @@ describe("shared XSS sanitizer references", () => {
             expect(lower, `kml href ${name}`).not.toMatch(/<href>\s*(javascript:|vbscript:|data:text\/html)/);
             expect(lower, `kml xlink ${name}`).not.toMatch(/xlink:href\s*=\s*["']?\s*javascript:/);
         }
+    });
+});
+
+describe("XSS oracle negative controls", () => {
+    it.each([
+        ["embedded tab", '<a href="java&#x09;script:alert(1)">x</a>'],
+        ["embedded newline", '<a href="jav&#x0a;ascript:alert(1)">x</a>'],
+        ["HTML data media type whitespace", '<a href="data: text/html,%3Cscript%3Ealert(1)%3C/script%3E">x</a>'],
+    ])("rejects unsanitized %s", (name, input) => {
+        expect(() => assertNoScriptableHtml(input, name)).toThrow();
     });
 });
